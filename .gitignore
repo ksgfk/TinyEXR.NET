@@ -1,0 +1,9 @@
+.vs
+.idea
+.vscode
+
+build
+out
+
+obj
+bin
