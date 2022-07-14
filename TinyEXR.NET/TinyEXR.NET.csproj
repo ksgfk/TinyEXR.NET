@@ -1,7 +1,41 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>netstandard2.0</TargetFramework>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <AssemblyName>$(MSBuildProjectName)</AssemblyName>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RootNamespace>TinyEXR</RootNamespace>
+    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    <AssemblyVersion>0.0.1</AssemblyVersion>
+    <FileVersion>0.0.1</FileVersion>
+    <RepositoryType>git</RepositoryType>
+    <Description>TinyEXR.NET is a C# wrapper of single header-only C++ library tinyexr</Description>
+    <Company>ksgfk</Company>
+    <Authors>ksgfk</Authors>
+    <Copyright>Copyright (c) 2022 ksgfk(1537100607@qq.com)</Copyright>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <RepositoryUrl>https://github.com/ksgfk/TinyEXR.NET</RepositoryUrl>
+    <PackageTags>OpenEXR,HDR</PackageTags>
+    <PackageReleaseNotes>test nuget</PackageReleaseNotes>
+    <PackageLicenseFile>LICENSE</PackageLicenseFile>
+    <Version>0.0.1</Version>
   </PropertyGroup>
+	
+  <Target Name="IncludeAllDependencies" BeforeTargets="_GetPackageFiles">
+    <ItemGroup>
+      <None Include="Assets\runtimes\**\*.dll" Pack="True" PackagePath="runtimes" />
+    </ItemGroup>
+  </Target>
+	
+  <ItemGroup>
+    <None Include="..\README.md">
+      <Pack>True</Pack>
+      <PackagePath>\</PackagePath>
+    </None>
+	<None Include="..\LICENSE">
+      <Pack>True</Pack>
+      <PackagePath>\</PackagePath>
+    </None>
+  </ItemGroup>
 
 </Project>

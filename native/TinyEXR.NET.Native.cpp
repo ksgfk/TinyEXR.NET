@@ -1,3 +1,4 @@
+#include <corecrt_malloc.h>
 #ifdef _WIN32
 #define EXPORT_API __declspec(dllexport)
 #else
@@ -10,6 +11,7 @@
 #endif
 #endif
 
+#include <cstdlib> //for free()
 #define TINYEXR_USE_OPENMP 0
 #define TINYEXR_IMPLEMENTATION
 #include "tinyexr/tinyexr.h"
@@ -18,6 +20,9 @@
 extern "C" {
 #endif
 
+// *****************************
+// * tinyexr functions wrapper *
+// *****************************
 EXPORT_API int LoadEXR_Export(float** out_rgba, int* width, int* height,
                               const char* filename, const char** err) {
   return LoadEXR(out_rgba, width, height, filename, err);
@@ -149,6 +154,13 @@ EXPORT_API int LoadEXRFromMemory_Export(float** out_rgba, int* width, int* heigh
                                         const unsigned char* memory, size_t size,
                                         const char** err) {
   return LoadEXRFromMemory(out_rgba, width, height, memory, size, err);
+}
+
+// ****************************
+// * useful utility functions *
+// ****************************
+EXPORT_API void FreeImageData(float* rgba) {
+  std::free(rgba);
 }
 
 #ifdef __cplusplus
