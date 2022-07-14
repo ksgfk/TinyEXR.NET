@@ -4,7 +4,7 @@
     <TargetFramework>netstandard2.1</TargetFramework>
     <AssemblyName>$(MSBuildProjectName)</AssemblyName>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <RootNamespace>TinyEXR</RootNamespace>
+    <RootNamespace>$(MSBuildProjectName)</RootNamespace>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
     <AssemblyVersion>0.0.1</AssemblyVersion>
     <FileVersion>0.0.1</FileVersion>
@@ -17,8 +17,9 @@
     <RepositoryUrl>https://github.com/ksgfk/TinyEXR.NET</RepositoryUrl>
     <PackageTags>OpenEXR,HDR</PackageTags>
     <PackageReleaseNotes>test nuget</PackageReleaseNotes>
-    <PackageLicenseFile>LICENSE</PackageLicenseFile>
-    <Version>0.0.1</Version>
+	<PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <Version>0.0.2-alpha.1</Version>
+    <Nullable>enable</Nullable>
   </PropertyGroup>
 	
   <Target Name="IncludeAllDependencies" BeforeTargets="_GetPackageFiles">
@@ -29,10 +30,6 @@
 	
   <ItemGroup>
     <None Include="..\README.md">
-      <Pack>True</Pack>
-      <PackagePath>\</PackagePath>
-    </None>
-	<None Include="..\LICENSE">
       <Pack>True</Pack>
       <PackagePath>\</PackagePath>
     </None>

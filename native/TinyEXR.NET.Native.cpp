@@ -1,4 +1,3 @@
-#include <corecrt_malloc.h>
 #ifdef _WIN32
 #define EXPORT_API __declspec(dllexport)
 #else
