@@ -6,7 +6,7 @@
 
 The target framework of `TinyEXR.NET`  is `.NET Standard 2.1`
 
-**WARNING:**  This library is WIP. API is unstable
+The goal of this library is **easy to use**. Therefore, API is very simple (not flexible). 
 
 ## Download
 
@@ -21,20 +21,35 @@ Key:
 * ⌛: planned, not yet started
 * ❌: no plan
 
-| Platform      | State |
-| ------------- | ----- |
-| Windows x64   | 🚧     |
-| Windows x86   | ❌     |
-| Windows arm64 | ❌     |
-| Linux x64     | ⌛     |
-| Linux x86     | ❌     |
-| Linux arm64   | ❌     |
-| macOS x64     | ⌛     |
-| macOS arm64   | ❌     |
+| Platform    | State |
+| ----------- | ----- |
+| Windows x64 | ✅     |
+| Linux x64   | ⌛     |
+
+Unlisted platforms are also unplanned.
+
+But you can contribute to support any other platform! :)
 
 ## Usage
 
-WIP
+### Load from file
+
+```c#
+ResultType loadResult = OpenExr.Load(@"D:\hello.exr", out float[] rgba, out var w, out var h);
+```
+
+`rgba` format is: `float x RGBA x width x hight`
+
+### Save to file
+
+```c#
+float[] rgb = new float[w * h * 3];
+ResultType saveResult = OpenExr.Save(rgb, w, h, 3, false, @"D:\hello.exr");
+```
+
+`image` image format is: `float x width x height`, or `float x RGB(A) x width x hight`
+
+`components` must be 1(Grayscale), 3(RGB) or 4(RGBA).
 
 ## Development build
 
@@ -55,13 +70,7 @@ First, clone this project or download the latest release and unzip.
 
 Run `build_win-x64.ps1`
 
-#### 3. Build TinyEXR.NET
-
-You can use dotnet command in `TinyEXR.NET` folder: `dotnet build --configuration Release`
-
-Or, you can open `TinyEXR.NET/TinyEXR.NET.sln` in VS or any other IDE and compile
-
-#### 4. Finish
+#### 3. Finish
 
 Finally, we can find NuGet package in `TinyEXR.NET\bin\Release`. You can use it anywhere
 

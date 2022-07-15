@@ -10,7 +10,7 @@
 #endif
 #endif
 
-#include <cstdlib> //for free()
+#include <cstdlib>  //for free()
 #define TINYEXR_USE_OPENMP 0
 #define TINYEXR_IMPLEMENTATION
 #include "tinyexr/tinyexr.h"
@@ -158,8 +158,19 @@ EXPORT_API int LoadEXRFromMemory_Export(float** out_rgba, int* width, int* heigh
 // ****************************
 // * useful utility functions *
 // ****************************
-EXPORT_API void FreeImageData(float* rgba) {
-  std::free(rgba);
+// I know that all memory allocations use std::malloc
+// Therefore we should ues std::free to free them
+// But what if it is modified?
+EXPORT_API void FreeImageData(float* rgba) { 
+  if (rgba != nullptr) {
+    std::free(rgba);
+  }
+}
+
+EXPORT_API void FreeMemory(unsigned char* memory) {
+  if (memory != nullptr) {
+    std::free(memory);
+  }
 }
 
 #ifdef __cplusplus

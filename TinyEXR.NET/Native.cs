@@ -3,7 +3,7 @@ using System.Runtime.InteropServices;
 
 namespace TinyEXR.NET
 {
-    public enum CallResult
+    public enum ResultType
     {
         Success = 0,
         InvalidMagicNumver = -1,
@@ -208,5 +208,8 @@ namespace TinyEXR.NET
 
         [DllImport(LibraryName)]
         public static extern void FreeImageData(float* rgba);
+
+        [DllImport(LibraryName)]
+        public static extern void FreeMemory(byte* memory);
     }
 }
