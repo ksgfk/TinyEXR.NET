@@ -50,6 +50,16 @@ namespace TinyEXR.NET
             return SaveToFile(data, width, height, components, asFp16, filename, out _);
         }
 
+        public static ResultType GetLayers(string filename, out string[] layers, out string error)
+        {
+            return GetLayersImpl(filename, out layers, out error);
+        }
+
+        public static ResultType GetLayers(string filename, out string[] layers)
+        {
+            return GetLayersImpl(filename, out layers, out _);
+        }
+
         private unsafe static long StrLen(byte* ptr)
         {
             byte* p = ptr;
@@ -301,6 +311,59 @@ namespace TinyEXR.NET
             }
             finally
             {
+                if (errorPtr != null)
+                {
+                    Native.FreeEXRErrorMessage_Export(errorPtr);
+                    errorPtr = null;
+                }
+            }
+            return result;
+        }
+
+        private static unsafe ResultType GetLayersImpl(string filename, out string[] layers, out string error)
+        {
+            int fileNameByteLength = Encoding.UTF8.GetByteCount(filename);
+            Span<byte> fileNameBytes = fileNameByteLength <= 256 ? stackalloc byte[256] : new byte[fileNameByteLength];
+            Encoding.UTF8.GetBytes(filename, fileNameBytes);
+
+            byte** layerNames;
+            int count;
+            byte* errorPtr;
+            ResultType result;
+            fixed (byte* fileNamePtr = fileNameBytes)
+            {
+                result = (ResultType)Native.EXRLayers_Export(fileNamePtr, &layerNames, &count, &errorPtr);
+            }
+
+            try
+            {
+                if (result == ResultType.Success)
+                {
+                    layers = new string[count];
+                    for (int i = 0; i < count; i++)
+                    {
+                        byte* layerName = layerNames[i];
+                        layers[i] = Encoding.UTF8.GetString(layerName, (int)StrLen(layerName));
+                    }
+                    error = string.Empty;
+                }
+                else
+                {
+                    layers = default!;
+                    error = Encoding.UTF8.GetString(errorPtr, (int)StrLen(errorPtr));
+                }
+            }
+            catch (Exception e)
+            {
+                throw new LoadExrException("managed part exception", e);
+            }
+            finally
+            {
+                if (layerNames != null)
+                {
+                    Native.FreeMemory(layerNames);
+                    layerNames = null;
+                }
                 if (errorPtr != null)
                 {
                     Native.FreeEXRErrorMessage_Export(errorPtr);

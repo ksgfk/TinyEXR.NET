@@ -44,6 +44,13 @@ namespace TinyEXR.NET
             byte** err);
 
         [DllImport(LibraryName)]
+        public static extern int EXRLayers_Export(
+             byte* filename,
+             byte*** layer_names,
+             int* num_layers,
+             byte** err);
+
+        [DllImport(LibraryName)]
         public static extern int IsEXR_Export(char* filename);
 
         [DllImport(LibraryName)]
@@ -210,6 +217,6 @@ namespace TinyEXR.NET
         public static extern void FreeImageData(float* rgba);
 
         [DllImport(LibraryName)]
-        public static extern void FreeMemory(byte* memory);
+        public static extern void FreeMemory(void* memory);
     }
 }

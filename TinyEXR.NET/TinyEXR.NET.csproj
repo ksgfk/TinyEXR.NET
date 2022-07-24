@@ -6,8 +6,8 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <RootNamespace>$(MSBuildProjectName)</RootNamespace>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
-    <AssemblyVersion>0.0.1</AssemblyVersion>
-    <FileVersion>0.0.1</FileVersion>
+    <AssemblyVersion>0.1.1</AssemblyVersion>
+    <FileVersion>0.1.1</FileVersion>
     <RepositoryType>git</RepositoryType>
     <Description>TinyEXR.NET is a C# wrapper of single header-only C++ library tinyexr</Description>
     <Company>ksgfk</Company>
@@ -16,9 +16,9 @@
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <RepositoryUrl>https://github.com/ksgfk/TinyEXR.NET</RepositoryUrl>
     <PackageTags>OpenEXR,HDR</PackageTags>
-    <PackageReleaseNotes>Allows users to load and save exr files to hard disk or memory</PackageReleaseNotes>
+    <PackageReleaseNotes>New API: GetLayers</PackageReleaseNotes>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <Version>0.1.0</Version>
+    <Version>0.1.1</Version>
     <Nullable>enable</Nullable>
 
     <PublishRepositoryUrl>true</PublishRepositoryUrl>

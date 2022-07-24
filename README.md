@@ -23,7 +23,7 @@ Key:
 
 | Platform    | State |
 | ----------- | ----- |
-| Windows x64 | ✅     |
+| Windows x64 | 🚧     |
 | Linux x64   | ⌛     |
 
 Unlisted platforms are also unplanned.
@@ -50,6 +50,14 @@ ResultType saveResult = OpenExr.Save(rgb, w, h, 3, false, @"D:\hello.exr");
 `image` image format is: `float x width x height`, or `float x RGB(A) x width x hight`
 
 `components` must be 1(Grayscale), 3(RGB) or 4(RGBA).
+
+### Get Layers
+
+```C#
+ResultType r = OpenExr.GetLayers(@"D:\hello.exr", out string[] layers);
+```
+
+I can't find an image with layers...I don't know if this function works...It may cause bugs :)
 
 ## Development build
 
