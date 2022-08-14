@@ -155,7 +155,7 @@ namespace TinyEXR
         }
 
         [StructLayout(LayoutKind.Sequential, Size = 40)]
-        public partial struct DeepImage
+        public struct DeepImage
         {
             internal IntPtr channel_names;
             internal IntPtr image;
@@ -167,12 +167,23 @@ namespace TinyEXR
         }
 
         [StructLayout(LayoutKind.Sequential, Size = 16)]
-        public partial struct EXRBox2i
+        public struct EXRBox2i
         {
             internal int min_x;
             internal int min_y;
             internal int max_x;
             internal int max_y;
+        }
+
+        [StructLayout(LayoutKind.Sequential, Size = 272)]
+        public struct EXRChannelInfo
+        {
+            internal fixed sbyte name[256];
+            internal int pixel_type;
+            internal int x_sampling;
+            internal int y_sampling;
+            internal byte p_linear;
+            internal fixed byte pad[3];
         }
     }
 }

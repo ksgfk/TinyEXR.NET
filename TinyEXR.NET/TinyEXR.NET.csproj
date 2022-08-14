@@ -7,7 +7,7 @@
     <RootNamespace>TinyEXR</RootNamespace>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
     <AssemblyVersion>0.2.0</AssemblyVersion>
-    <FileVersion>0.1.1</FileVersion>
+    <FileVersion>0.2.0</FileVersion>
     <RepositoryType>git</RepositoryType>
     <Description>TinyEXR.NET is a C# wrapper of single header-only C++ library tinyexr</Description>
     <Company>ksgfk</Company>
@@ -18,7 +18,7 @@
     <PackageTags>OpenEXR,HDR</PackageTags>
     <PackageReleaseNotes>use cppsharp to generate interop code</PackageReleaseNotes>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <Version>0.2.0</Version>
+    <Version>0.2.0-alpha</Version>
     <Nullable>enable</Nullable>
 
     <PublishRepositoryUrl>true</PublishRepositoryUrl>

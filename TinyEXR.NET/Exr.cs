@@ -5,7 +5,7 @@ namespace TinyEXR
 {
     public static class Exr
     {
-        private unsafe static long StrLen(byte* ptr)
+        internal unsafe static long StrLen(byte* ptr)
         {
             byte* p = ptr;
             for (; *p != '\0'; p++) ;
@@ -342,6 +342,153 @@ namespace TinyEXR
             {
                 Native.GlobalFree(errorPtr);
                 errorPtr = null;
+            }
+            return result;
+        }
+
+        public unsafe static ResultCode ParseVersionFromFile(string filename, out ExrVersion version)
+        {
+            int fileNameByteLength = Encoding.ASCII.GetByteCount(filename);
+            Span<byte> fileNameBytes = fileNameByteLength <= 256 ? stackalloc byte[256] : new byte[fileNameByteLength];
+            Encoding.UTF8.GetBytes(filename, fileNameBytes);
+
+            ResultCode result;
+            fixed (byte* filenamePtr = fileNameBytes)
+            {
+                fixed (ExrVersion* versionPtr = &version)
+                {
+                    result = (ResultCode)Native.ParseEXRVersionFromFileInternal(new IntPtr(versionPtr), filenamePtr);
+                }
+            }
+
+            return result;
+        }
+
+        public unsafe static ResultCode ParseVersionFromMemory(ReadOnlySpan<byte> data, out ExrVersion version)
+        {
+            ResultCode result;
+            fixed (byte* dataPtr = data)
+            {
+                fixed (ExrVersion* versionPtr = &version)
+                {
+                    result = (ResultCode)Native.ParseEXRVersionFromMemoryInternal(new IntPtr(versionPtr), dataPtr, (ulong)data.Length);
+                }
+            }
+
+            return result;
+        }
+
+        public unsafe static ResultCode ParseHeaderFromFile(string filename, ExrVersion version, out Native.EXRHeader header)
+        {
+            int fileNameByteLength = Encoding.ASCII.GetByteCount(filename);
+            Span<byte> fileNameBytes = fileNameByteLength <= 256 ? stackalloc byte[256] : new byte[fileNameByteLength];
+            Encoding.UTF8.GetBytes(filename, fileNameBytes);
+
+            ResultCode result;
+            ExrVersion* versionPtr = &version;
+            sbyte* errorPtr;
+            fixed (byte* filenamePtr = fileNameBytes)
+            {
+                fixed (Native.EXRHeader* headerPtr = &header)
+                {
+                    result = (ResultCode)Native.ParseEXRHeaderFromFileInternal(new IntPtr(headerPtr), new IntPtr(versionPtr), filenamePtr, &errorPtr);
+                }
+            }
+
+            if (errorPtr != null)
+            {
+                Native.GlobalFree(errorPtr);
+                errorPtr = null;
+            }
+            return result;
+        }
+
+        public unsafe static ResultCode ParseHeaderFromMemory(ReadOnlySpan<byte> data, ExrVersion version, out Native.EXRHeader header)
+        {
+            ResultCode result;
+            ExrVersion* versionPtr = &version;
+            sbyte* errorPtr;
+            fixed (byte* dataPtr = data)
+            {
+                fixed (Native.EXRHeader* headerPtr = &header)
+                {
+                    result = (ResultCode)Native.ParseEXRHeaderFromMemoryInternal(new IntPtr(headerPtr), new IntPtr(versionPtr), dataPtr, (ulong)data.Length, &errorPtr);
+                }
+            }
+
+            if (errorPtr != null)
+            {
+                Native.GlobalFree(errorPtr);
+                errorPtr = null;
+            }
+            return result;
+        }
+
+        public unsafe static ResultCode ParseImageFromFile(string filename, in Native.EXRHeader header, out Native.EXRImage image)
+        {
+            int fileNameByteLength = Encoding.ASCII.GetByteCount(filename);
+            Span<byte> fileNameBytes = fileNameByteLength <= 256 ? stackalloc byte[256] : new byte[fileNameByteLength];
+            Encoding.UTF8.GetBytes(filename, fileNameBytes);
+
+            ResultCode result;
+            sbyte* errorPtr;
+            fixed (byte* filenamePtr = fileNameBytes)
+            {
+                fixed (Native.EXRHeader* headerPtr = &header)
+                {
+                    fixed (Native.EXRImage* imagePtr = &image)
+                    {
+                        result = (ResultCode)Native.LoadEXRImageFromFileInternal(new IntPtr(imagePtr), new IntPtr(headerPtr), filenamePtr, &errorPtr);
+                    }
+                }
+            }
+
+            if (errorPtr != null)
+            {
+                Native.GlobalFree(errorPtr);
+                errorPtr = null;
+            }
+            return result;
+        }
+
+        public unsafe static ResultCode ParseImageFromMemory(ReadOnlySpan<byte> data, in Native.EXRHeader header, out Native.EXRImage image)
+        {
+            ResultCode result;
+            sbyte* errorPtr;
+            fixed (byte* dataPtr = data)
+            {
+                fixed (Native.EXRHeader* headerPtr = &header)
+                {
+                    fixed (Native.EXRImage* imagePtr = &image)
+                    {
+                        result = (ResultCode)Native.LoadEXRImageFromMemoryInternal(new IntPtr(imagePtr), new IntPtr(headerPtr), dataPtr, (ulong)data.Length, &errorPtr);
+                    }
+                }
+            }
+            if (errorPtr != null)
+            {
+                Native.GlobalFree(errorPtr);
+                errorPtr = null;
+            }
+            return result;
+        }
+
+        public unsafe static ResultCode FreeHeader(in Native.EXRHeader header)
+        {
+            ResultCode result;
+            fixed (Native.EXRHeader* headerPtr = &header)
+            {
+                result = (ResultCode)Native.FreeEXRHeaderInternal(new IntPtr(headerPtr));
+            }
+            return result;
+        }
+
+        public unsafe static ResultCode FreeImage(in Native.EXRImage image)
+        {
+            ResultCode result;
+            fixed (Native.EXRImage* imagePtr = &image)
+            {
+                result = (ResultCode)Native.FreeEXRImageInternal(new IntPtr(imagePtr));
             }
             return result;
         }
