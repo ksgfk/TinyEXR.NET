@@ -30,7 +30,39 @@ But you can contribute to support any other platform! :)
 
 ## Usage
 
-TODO...
+### Simple read/write
+
+```c#
+TinyEXR.Exr.LoadFromFile("114514.exr", out var rgba, out int width, out int height);
+
+float[] data = new float[1919 * 810 * 3];
+TinyEXR.Exr.SaveToFile(data, 1919, 810, 3, false, "a.exr");
+```
+
+### Read layer file
+
+```c#
+TinyEXR.Exr.LoadFromFileWithLayers("4396.exr", "777", out var rgba, out int width, out int height);
+```
+
+### Read single part file
+
+```c#
+using var image = new TinyEXR.ExrImageReader("0721.exr");
+var b = image.GetPixels(0);
+var g = image.GetPixels(1);
+var r = image.GetPixels(2);
+```
+
+### Write scanline file
+
+```c#
+var save = new ExrImageWriter(3, image.Width, image.Height);
+save.SetChannel(0, "B", b);
+save.SetChannel(1, "G", g);
+save.SetChannel(2, "R", r);
+var result = save.WriteToFile("1551.exr");
+```
 
 ## Development build
 

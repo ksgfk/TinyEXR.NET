@@ -12,6 +12,17 @@ namespace TinyEXR
             return p - ptr;
         }
 
+        public static int TypeSize(ExrPixelType type)
+        {
+            return type switch
+            {
+                ExrPixelType.UInt => 1,
+                ExrPixelType.Half => 2,
+                ExrPixelType.Float => 4,
+                _ => throw new NotSupportedException(),
+            };
+        }
+
         public unsafe static ResultCode LoadFromFile(string filename, out float[] rgba, out int width, out int height)
         {
             int fileNameByteLength = Encoding.ASCII.GetByteCount(filename);

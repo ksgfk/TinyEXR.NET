@@ -42,7 +42,7 @@ namespace TinyEXR
             unsafe
             {
                 byte** images = (byte**)_impl.images.ToPointer();
-                return new ReadOnlySpan<byte>(images[channel], Width * Height);
+                return new ReadOnlySpan<byte>(images[channel], Width * Height * Exr.TypeSize(Header.GetChannelInfo(channel).Type));
             }
         }
 

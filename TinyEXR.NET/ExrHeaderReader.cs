@@ -29,6 +29,7 @@ namespace TinyEXR
         }
         public float ScreenWindowWidth => _impl.screen_window_width;
         public bool IsMultipart => _impl.multipart != 0;
+        public int ChannelCount => _impl.num_channels;
         public ExrChannelInfo[] Channels
         {
             get
@@ -90,6 +91,28 @@ namespace TinyEXR
             if (Exr.ParseHeaderFromMemory(data, version, out _impl) != ResultCode.Success)
             {
                 throw new TinyExrException($"can not parse header");
+            }
+        }
+
+        public ExrChannelInfo GetChannelInfo(int channel)
+        {
+            if (channel < 0 || channel >= ChannelCount)
+            {
+                throw new ArgumentOutOfRangeException(nameof(channel));
+            }
+            int i = channel;
+            unsafe
+            {
+                Native.EXRChannelInfo* infoPtr = (Native.EXRChannelInfo*)_impl.channels.ToPointer();
+                ExrChannelInfo info = new ExrChannelInfo()
+                {
+                    Name = Encoding.UTF8.GetString((byte*)infoPtr[i].name, (int)Exr.StrLen((byte*)infoPtr[i].name)),
+                    Type = (ExrPixelType)infoPtr[i].pixel_type,
+                    SamplingX = infoPtr[i].x_sampling,
+                    SamplingY = infoPtr[i].y_sampling,
+                    Linear = infoPtr[i].p_linear
+                };
+                return info;
             }
         }
 
