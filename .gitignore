@@ -9,3 +9,5 @@ obj
 bin
 
 *.dll
+
+TinyEXR.Native/zconf.h
