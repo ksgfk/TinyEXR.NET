@@ -1,3 +1,6 @@
-[submodule "native/tinyexr"]
-	path = native/tinyexr
+[submodule "TinyEXR.Native/tinyexr"]
+	path = TinyEXR.Native/tinyexr
 	url = https://github.com/syoyo/tinyexr.git
+[submodule "TinyEXR.Native/zlib"]
+	path = TinyEXR.Native/zlib
+	url = https://github.com/madler/zlib.git
