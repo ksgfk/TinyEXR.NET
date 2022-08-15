@@ -66,7 +66,25 @@ var result = save.WriteToFile("1551.exr");
 
 ## Development build
 
-TODO...
+### Windows
+
+my environment is:
+
+* MSVC v143
+* CMake
+* .NET 6
+
+```bash
+cd TinyEXR.Native
+mkdir build
+cd build
+cmake ..
+xcopy /Y zlib\zconf.h ..
+cmake --build . --config Release
+xcopy /Y Release\TinyEXR.Native.dll ..\..\TinyEXR.NET\Assets\runtimes\win-x64\native
+cd ..\..\TinyEXR.NET
+dotnet build --configuration Release
+```
 
 ## Details
 
