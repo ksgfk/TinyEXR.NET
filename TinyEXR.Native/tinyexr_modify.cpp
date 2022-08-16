@@ -4,8 +4,12 @@
 
 #include "tinyexr_modify.h"
 
+#ifdef _MSC_VER
 #include "zconf.h"
 #include "zlib/zlib.h"
+#else
+#include <zlib.h>
+#endif
 
 #ifdef TINYEXR_IMPLEMENTATION
 #ifndef TINYEXR_IMPLEMENTATION_DEFINED

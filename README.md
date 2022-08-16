@@ -22,7 +22,7 @@ Key:
 | Platform    | State |
 | ----------- | ----- |
 | Windows x64 | 🚧     |
-| Linux x64   | ⌛     |
+| Linux x64   | 🚧     |
 
 Unlisted platforms are also unplanned.
 
@@ -85,6 +85,32 @@ xcopy /Y Release\TinyEXR.Native.dll ..\..\TinyEXR.NET\Assets\runtimes\win-x64\na
 cd ..\..\TinyEXR.NET
 dotnet build --configuration Release
 ```
+
+### Linux
+
+my environment is:
+
+* clang 14
+* CMake
+* .NET 6
+
+```bash
+cd TinyEXR.Native/zlib
+mkdir build
+cd build
+cmake .. -DCMAKE_C_COMPILER=clang-14 -DCMAKE_C_FLAGS="-fPIC"
+cmake --build . --config Release
+sudo make install
+cd ../../
+mkdir build
+cd build
+cmake .. -DCMAKE_C_COMPILER=clang-14 -DCMAKE_CXX_COMPILER=clang++-14
+cmake --build . --config Release
+cp libTinyEXR.Native.so ../../TinyEXR.NET/Assets/runtimes/linux-x64/native/
+dotnet build --configuration Release
+```
+
+if you have installed zlib, you can skip some step
 
 ## Details
 

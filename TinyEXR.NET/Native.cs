@@ -6,7 +6,7 @@ namespace TinyEXR
 {
     public unsafe static class Native
     {
-        public const string DllName = "TinyEXR.Native.dll";
+        public const string DllName = "TinyEXR.Native";
 
         [SuppressUnmanagedCodeSecurity, DllImport(DllName, EntryPoint = "LoadEXRInternal", CallingConvention = CallingConvention.Cdecl)]
         internal static extern int LoadEXRInternal(float** out_rgba, int* width, int* height, byte* filename, sbyte** err);

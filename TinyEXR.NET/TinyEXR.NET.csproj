@@ -16,9 +16,9 @@
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <RepositoryUrl>https://github.com/ksgfk/TinyEXR.NET</RepositoryUrl>
     <PackageTags>OpenEXR,HDR</PackageTags>
-    <PackageReleaseNotes>ExrImageWriter support set compression type</PackageReleaseNotes>
+    <PackageReleaseNotes>support linux</PackageReleaseNotes>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <Version>0.2.1</Version>
+    <Version>0.2.2</Version>
     <Nullable>enable</Nullable>
 
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
@@ -35,6 +35,7 @@
   <Target Name="IncludeAllDependencies" BeforeTargets="_GetPackageFiles">
     <ItemGroup>
       <None Include="Assets\runtimes\**\*.dll" Pack="True" PackagePath="runtimes" />
+      <None Include="Assets\runtimes\**\*.so" Pack="True" PackagePath="runtimes" />
     </ItemGroup>
   </Target>
 	
