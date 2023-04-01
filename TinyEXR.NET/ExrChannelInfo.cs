@@ -1,11 +1,20 @@
-﻿namespace TinyEXR
+namespace TinyEXR
 {
-    public class ExrChannelInfo
+    public unsafe partial struct EXRChannelInfo
     {
-        public string Name { get; set; } = string.Empty;
-        public ExrPixelType Type { get; set; }
-        public int SamplingX { get; set; }
-        public int SamplingY { get; set; }
-        public byte Linear { get; set; }
+        [NativeTypeName("char[256]")]
+        public fixed sbyte name[256];
+
+        public int pixel_type;
+
+        public int x_sampling;
+
+        public int y_sampling;
+
+        [NativeTypeName("unsigned char")]
+        public byte p_linear;
+
+        [NativeTypeName("unsigned char[3]")]
+        public fixed byte pad[3];
     }
 }
