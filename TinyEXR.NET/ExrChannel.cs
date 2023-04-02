@@ -1,28 +1,22 @@
-﻿using System.Text;
-using TinyEXR.Native;
+﻿using System;
 
 namespace TinyEXR
 {
-    public struct ExrChannel
+    public class ExrChannel
     {
-        internal EXRChannelInfo _channel;
+        public string Name { get; } = string.Empty;
+        public ExrPixelType Type { get; }
+        public int SamplingX { get; }
+        public int SamplingY { get; }
+        public byte Linear { get; }
 
-        public string Name
+        public ExrChannel(string name, ExrPixelType type, int samplingX, int samplingY, byte linear)
         {
-            get
-            {
-                unsafe
-                {
-                    fixed (sbyte* ptr = _channel.name)
-                    {
-                        return Encoding.UTF8.GetString((byte*)ptr, (int)EXRNative.StrLenInternal(ptr).ToUInt64());
-                    }
-                }
-            }
+            Name = name ?? throw new ArgumentNullException(nameof(name));
+            Type = type;
+            SamplingX = samplingX;
+            SamplingY = samplingY;
+            Linear = linear;
         }
-        public PixelType PixelType => (PixelType)_channel.pixel_type;
-        public byte PLinear => _channel.p_linear;
-        public int XSampling => _channel.x_sampling;
-        public int YSampling => _channel.y_sampling;
     }
 }

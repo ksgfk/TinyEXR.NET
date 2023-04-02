@@ -266,58 +266,58 @@ namespace TinyEXR
             return result;
         }
 
-        public static unsafe int EXRNumLevels(ref ExrImage image)
+        public static unsafe int EXRNumLevels(ref EXRImage image)
         {
-            fixed (EXRImage* ptr = &image._img)
+            fixed (EXRImage* ptr = &image)
             {
                 return EXRNative.EXRNumLevelsInternal(ptr);
             }
         }
 
-        public static unsafe void InitEXRHeader(ref ExrHeader header)
+        public static unsafe void InitEXRHeader(ref EXRHeader header)
         {
-            fixed (EXRHeader* ptr = &header._header)
+            fixed (EXRHeader* ptr = &header)
             {
                 EXRNative.InitEXRHeaderInternal(ptr);
             }
         }
 
-        public static unsafe void EXRSetNameAttr(ref ExrHeader header, string name)
+        public static unsafe void EXRSetNameAttr(ref EXRHeader header, string name)
         {
             int nameByteLength = Encoding.UTF8.GetByteCount(name);
             Span<byte> nameBytes = nameByteLength <= 256 ? stackalloc byte[256] : new byte[nameByteLength];
             Encoding.UTF8.GetBytes(name, nameBytes);
             fixed (byte* nptr = nameBytes)
             {
-                fixed (EXRHeader* hptr = &header._header)
+                fixed (EXRHeader* hptr = &header)
                 {
                     EXRNative.EXRSetNameAttrInternal(hptr, (sbyte*)nptr);
                 }
             }
         }
 
-        public static unsafe void InitEXRImage(ref ExrImage image)
+        public static unsafe void InitEXRImage(ref EXRImage image)
         {
-            fixed (EXRImage* ptr = &image._img)
+            fixed (EXRImage* ptr = &image)
             {
                 EXRNative.InitEXRImageInternal(ptr);
             }
         }
 
-        public static unsafe ResultCode FreeEXRHeader(ref ExrHeader header)
+        public static unsafe ResultCode FreeEXRHeader(ref EXRHeader header)
         {
             ResultCode result;
-            fixed (EXRHeader* ptr = &header._header)
+            fixed (EXRHeader* ptr = &header)
             {
                 result = (ResultCode)EXRNative.FreeEXRHeaderInternal(ptr);
             }
             return result;
         }
 
-        public static unsafe ResultCode FreeEXRImage(ref ExrImage image)
+        public static unsafe ResultCode FreeEXRImage(ref EXRImage image)
         {
             ResultCode result;
-            fixed (EXRImage* ptr = &image._img)
+            fixed (EXRImage* ptr = &image)
             {
                 result = (ResultCode)EXRNative.FreeEXRImageInternal(ptr);
             }
@@ -329,7 +329,7 @@ namespace TinyEXR
             EXRNative.FreeEXRErrorMessageInternal((sbyte*)ptr.ToPointer());
         }
 
-        public unsafe static ResultCode ParseEXRVersionFromFile(string filename, out ExrVersion version)
+        public unsafe static ResultCode ParseEXRVersionFromFile(string filename, out EXRVersion version)
         {
             int fileNameByteLength = Encoding.ASCII.GetByteCount(filename);
             Span<byte> fileNameBytes = fileNameByteLength <= 256 ? stackalloc byte[256] : new byte[fileNameByteLength];
@@ -337,7 +337,7 @@ namespace TinyEXR
             ResultCode result;
             fixed (byte* filenamePtr = fileNameBytes)
             {
-                fixed (EXRVersion* versionPtr = &version._version)
+                fixed (EXRVersion* versionPtr = &version)
                 {
                     result = (ResultCode)EXRNative.ParseEXRVersionFromFileInternal(versionPtr, (sbyte*)filenamePtr);
                 }
@@ -345,12 +345,12 @@ namespace TinyEXR
             return result;
         }
 
-        public static unsafe ResultCode ParseEXRVersionFromMemory(ReadOnlySpan<byte> data, out ExrVersion version)
+        public static unsafe ResultCode ParseEXRVersionFromMemory(ReadOnlySpan<byte> data, out EXRVersion version)
         {
             ResultCode result;
             fixed (byte* dataPtr = data)
             {
-                fixed (EXRVersion* versionPtr = &version._version)
+                fixed (EXRVersion* versionPtr = &version)
                 {
                     result = (ResultCode)EXRNative.ParseEXRVersionFromMemoryInternal(versionPtr, dataPtr, new UIntPtr((uint)data.Length));
                 }
@@ -358,7 +358,7 @@ namespace TinyEXR
             return result;
         }
 
-        public static unsafe ResultCode ParseEXRHeaderFromFile(string filename, ref ExrVersion version, out ExrHeader header)
+        public static unsafe ResultCode ParseEXRHeaderFromFile(string filename, ref EXRVersion version, ref EXRHeader header)
         {
             int fileNameByteLength = Encoding.UTF8.GetByteCount(filename);
             Span<byte> fileNameBytes = fileNameByteLength <= 256 ? stackalloc byte[256] : new byte[fileNameByteLength];
@@ -367,9 +367,9 @@ namespace TinyEXR
             sbyte* errorPtr;
             fixed (byte* filenamePtr = fileNameBytes)
             {
-                fixed (EXRVersion* versionPtr = &version._version)
+                fixed (EXRVersion* versionPtr = &version)
                 {
-                    fixed (EXRHeader* headerPtr = &header._header)
+                    fixed (EXRHeader* headerPtr = &header)
                     {
                         result = (ResultCode)EXRNative.ParseEXRHeaderFromFileInternal(headerPtr, versionPtr, (sbyte*)filenamePtr, &errorPtr);
                     }
@@ -383,15 +383,15 @@ namespace TinyEXR
             return result;
         }
 
-        public static unsafe ResultCode ParseEXRHeaderFromMemory(ReadOnlySpan<byte> data, ref ExrVersion version, out ExrHeader header)
+        public static unsafe ResultCode ParseEXRHeaderFromMemory(ReadOnlySpan<byte> data, ref EXRVersion version, ref EXRHeader header)
         {
             ResultCode result;
             sbyte* errorPtr;
             fixed (byte* dataPtr = data)
             {
-                fixed (EXRVersion* versionPtr = &version._version)
+                fixed (EXRVersion* versionPtr = &version)
                 {
-                    fixed (EXRHeader* headerPtr = &header._header)
+                    fixed (EXRHeader* headerPtr = &header)
                     {
                         result = (ResultCode)EXRNative.ParseEXRHeaderFromMemoryInternal(headerPtr, versionPtr, dataPtr, new UIntPtr((uint)data.Length), &errorPtr);
                     }
@@ -405,7 +405,7 @@ namespace TinyEXR
             return result;
         }
 
-        public static unsafe ResultCode LoadEXRImageFromFile(ref ExrImage image, ref ExrHeader header, string filename)
+        public static unsafe ResultCode LoadEXRImageFromFile(ref EXRImage image, ref EXRHeader header, string filename)
         {
             int fileNameByteLength = Encoding.UTF8.GetByteCount(filename);
             Span<byte> fileNameBytes = fileNameByteLength <= 256 ? stackalloc byte[256] : new byte[fileNameByteLength];
@@ -414,9 +414,9 @@ namespace TinyEXR
             sbyte* errorPtr;
             fixed (byte* filePtr = fileNameBytes)
             {
-                fixed (EXRImage* imagePtr = &image._img)
+                fixed (EXRImage* imagePtr = &image)
                 {
-                    fixed (EXRHeader* headerPtr = &header._header)
+                    fixed (EXRHeader* headerPtr = &header)
                     {
                         result = (ResultCode)EXRNative.LoadEXRImageFromFileInternal(imagePtr, headerPtr, (sbyte*)filePtr, &errorPtr);
                     }
@@ -430,15 +430,15 @@ namespace TinyEXR
             return result;
         }
 
-        public static unsafe ResultCode LoadEXRImageFromMemory(ref ExrImage image, ref ExrHeader header, ReadOnlySpan<byte> data)
+        public static unsafe ResultCode LoadEXRImageFromMemory(ref EXRImage image, ref EXRHeader header, ReadOnlySpan<byte> data)
         {
             ResultCode result;
             sbyte* errorPtr;
             fixed (byte* dataPtr = data)
             {
-                fixed (EXRImage* imagePtr = &image._img)
+                fixed (EXRImage* imagePtr = &image)
                 {
-                    fixed (EXRHeader* headerPtr = &header._header)
+                    fixed (EXRHeader* headerPtr = &header)
                     {
                         result = (ResultCode)EXRNative.LoadEXRImageFromMemoryInternal(imagePtr, headerPtr, dataPtr, new UIntPtr((uint)data.Length), &errorPtr);
                     }
@@ -452,7 +452,7 @@ namespace TinyEXR
             return result;
         }
 
-        public static unsafe ResultCode SaveEXRImageToFile(ref ExrImage image, ref ExrHeader header, string filename)
+        public static unsafe ResultCode SaveEXRImageToFile(ref EXRImage image, ref EXRHeader header, string filename)
         {
             int fileNameByteLength = Encoding.UTF8.GetByteCount(filename);
             Span<byte> fileNameBytes = fileNameByteLength <= 256 ? stackalloc byte[256] : new byte[fileNameByteLength];
@@ -461,9 +461,9 @@ namespace TinyEXR
             sbyte* errorPtr;
             fixed (byte* filePtr = fileNameBytes)
             {
-                fixed (EXRImage* imagePtr = &image._img)
+                fixed (EXRImage* imagePtr = &image)
                 {
-                    fixed (EXRHeader* headerPtr = &header._header)
+                    fixed (EXRHeader* headerPtr = &header)
                     {
                         result = (ResultCode)EXRNative.SaveEXRImageToFileInternal(imagePtr, headerPtr, (sbyte*)filePtr, &errorPtr);
                     }
@@ -477,14 +477,14 @@ namespace TinyEXR
             return result;
         }
 
-        public static unsafe byte[]? SaveEXRImageFromMemory(ref ExrImage image, ref ExrHeader header)
+        public static unsafe byte[]? SaveEXRImageFromMemory(ref EXRImage image, ref EXRHeader header)
         {
             UIntPtr rawLen;
             sbyte* errorPtr;
             byte* dataPtr;
-            fixed (EXRImage* imagePtr = &image._img)
+            fixed (EXRImage* imagePtr = &image)
             {
-                fixed (EXRHeader* headerPtr = &header._header)
+                fixed (EXRHeader* headerPtr = &header)
                 {
                     rawLen = EXRNative.SaveEXRImageToMemoryInternal(imagePtr, headerPtr, &dataPtr, &errorPtr);
                 }
@@ -526,7 +526,7 @@ namespace TinyEXR
             return result;
         }
 
-        public static unsafe ResultCode LoadDeepEXR(ref ExrDeepImage deep, string filename)
+        public static unsafe ResultCode LoadDeepEXR(ref DeepImage deep, string filename)
         {
             int fileNameByteLength = Encoding.UTF8.GetByteCount(filename);
             Span<byte> fileNameBytes = fileNameByteLength <= 256 ? stackalloc byte[256] : new byte[fileNameByteLength];
@@ -535,7 +535,7 @@ namespace TinyEXR
             sbyte* errorPtr;
             fixed (byte* filePtr = fileNameBytes)
             {
-                fixed (DeepImage* deepPtr = &deep._deep)
+                fixed (DeepImage* deepPtr = &deep)
                 {
                     result = (ResultCode)EXRNative.LoadDeepEXRInternal(deepPtr, (sbyte*)filePtr, &errorPtr);
                 }
@@ -590,6 +590,26 @@ namespace TinyEXR
                 }
             }
             return result;
+        }
+
+        //------------some helper functions------------
+        public static unsafe string ReadExrChannelInfoName(ref EXRChannelInfo info)
+        {
+            fixed (sbyte* ptr = info.name)
+            {
+                return Encoding.UTF8.GetString((byte*)ptr, (int)EXRNative.StrLenInternal(ptr).ToUInt64());
+            }
+        }
+
+        public static int TypeSize(ExrPixelType type)
+        {
+            return type switch
+            {
+                ExrPixelType.UInt => 4,
+                ExrPixelType.Half => 2,
+                ExrPixelType.Float => 4,
+                _ => 0,
+            };
         }
     }
 }

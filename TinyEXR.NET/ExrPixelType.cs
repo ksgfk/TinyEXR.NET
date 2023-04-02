@@ -2,7 +2,7 @@
 
 namespace TinyEXR
 {
-    public enum PixelType
+    public enum ExrPixelType
     {
         UInt = EXRNative.TINYEXR_PIXELTYPE_UINT,
         Half = EXRNative.TINYEXR_PIXELTYPE_HALF,
