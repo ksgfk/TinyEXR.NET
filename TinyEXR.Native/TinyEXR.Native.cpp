@@ -1,4 +1,5 @@
 #include "TinyEXR.Native.h"
+#include <cstring>
 
 #define TINYEXR_IMPLEMENTATION
 #include "tinyexr/tinyexr.h"
@@ -168,4 +169,8 @@ int LoadEXRFromMemoryInternal(float** out_rgba, int* width, int* height,
 
 void FreeInternal(void* ptr){
   std::free(ptr);
+}
+
+size_t StrLenInternal(const char* str) {
+  return std::strlen(str);
 }

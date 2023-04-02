@@ -1,9 +1,9 @@
 using System;
 using System.Runtime.InteropServices;
 
-namespace TinyEXR
+namespace TinyEXR.Native
 {
-    public static unsafe partial class Native
+    public static unsafe partial class EXRNative
     {
         [DllImport("TinyEXR.Native", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         public static extern int LoadEXRInternal(float** out_rgba, int* width, int* height, [NativeTypeName("const char *")] sbyte* filename, [NativeTypeName("const char **")] sbyte** err);
@@ -99,5 +99,111 @@ namespace TinyEXR
 
         [DllImport("TinyEXR.Native", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         public static extern void FreeInternal(void* ptr);
+
+        [DllImport("TinyEXR.Native", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        [return: NativeTypeName("size_t")]
+        public static extern UIntPtr StrLenInternal([NativeTypeName("const char *")] sbyte* str);
+
+        [NativeTypeName("#define TINYEXR_SUCCESS (0)")]
+        public const int TINYEXR_SUCCESS = 0;
+
+        [NativeTypeName("#define TINYEXR_ERROR_INVALID_MAGIC_NUMBER (-1)")]
+        public const int TINYEXR_ERROR_INVALID_MAGIC_NUMBER = -1;
+
+        [NativeTypeName("#define TINYEXR_ERROR_INVALID_EXR_VERSION (-2)")]
+        public const int TINYEXR_ERROR_INVALID_EXR_VERSION = -2;
+
+        [NativeTypeName("#define TINYEXR_ERROR_INVALID_ARGUMENT (-3)")]
+        public const int TINYEXR_ERROR_INVALID_ARGUMENT = -3;
+
+        [NativeTypeName("#define TINYEXR_ERROR_INVALID_DATA (-4)")]
+        public const int TINYEXR_ERROR_INVALID_DATA = -4;
+
+        [NativeTypeName("#define TINYEXR_ERROR_INVALID_FILE (-5)")]
+        public const int TINYEXR_ERROR_INVALID_FILE = -5;
+
+        [NativeTypeName("#define TINYEXR_ERROR_INVALID_PARAMETER (-6)")]
+        public const int TINYEXR_ERROR_INVALID_PARAMETER = -6;
+
+        [NativeTypeName("#define TINYEXR_ERROR_CANT_OPEN_FILE (-7)")]
+        public const int TINYEXR_ERROR_CANT_OPEN_FILE = -7;
+
+        [NativeTypeName("#define TINYEXR_ERROR_UNSUPPORTED_FORMAT (-8)")]
+        public const int TINYEXR_ERROR_UNSUPPORTED_FORMAT = -8;
+
+        [NativeTypeName("#define TINYEXR_ERROR_INVALID_HEADER (-9)")]
+        public const int TINYEXR_ERROR_INVALID_HEADER = -9;
+
+        [NativeTypeName("#define TINYEXR_ERROR_UNSUPPORTED_FEATURE (-10)")]
+        public const int TINYEXR_ERROR_UNSUPPORTED_FEATURE = -10;
+
+        [NativeTypeName("#define TINYEXR_ERROR_CANT_WRITE_FILE (-11)")]
+        public const int TINYEXR_ERROR_CANT_WRITE_FILE = -11;
+
+        [NativeTypeName("#define TINYEXR_ERROR_SERIALIZATION_FAILED (-12)")]
+        public const int TINYEXR_ERROR_SERIALIZATION_FAILED = -12;
+
+        [NativeTypeName("#define TINYEXR_ERROR_LAYER_NOT_FOUND (-13)")]
+        public const int TINYEXR_ERROR_LAYER_NOT_FOUND = -13;
+
+        [NativeTypeName("#define TINYEXR_ERROR_DATA_TOO_LARGE (-14)")]
+        public const int TINYEXR_ERROR_DATA_TOO_LARGE = -14;
+
+        [NativeTypeName("#define TINYEXR_PIXELTYPE_UINT (0)")]
+        public const int TINYEXR_PIXELTYPE_UINT = 0;
+
+        [NativeTypeName("#define TINYEXR_PIXELTYPE_HALF (1)")]
+        public const int TINYEXR_PIXELTYPE_HALF = 1;
+
+        [NativeTypeName("#define TINYEXR_PIXELTYPE_FLOAT (2)")]
+        public const int TINYEXR_PIXELTYPE_FLOAT = 2;
+
+        [NativeTypeName("#define TINYEXR_MAX_HEADER_ATTRIBUTES (1024)")]
+        public const int TINYEXR_MAX_HEADER_ATTRIBUTES = 1024;
+
+        [NativeTypeName("#define TINYEXR_MAX_CUSTOM_ATTRIBUTES (128)")]
+        public const int TINYEXR_MAX_CUSTOM_ATTRIBUTES = 128;
+
+        [NativeTypeName("#define TINYEXR_COMPRESSIONTYPE_NONE (0)")]
+        public const int TINYEXR_COMPRESSIONTYPE_NONE = 0;
+
+        [NativeTypeName("#define TINYEXR_COMPRESSIONTYPE_RLE (1)")]
+        public const int TINYEXR_COMPRESSIONTYPE_RLE = 1;
+
+        [NativeTypeName("#define TINYEXR_COMPRESSIONTYPE_ZIPS (2)")]
+        public const int TINYEXR_COMPRESSIONTYPE_ZIPS = 2;
+
+        [NativeTypeName("#define TINYEXR_COMPRESSIONTYPE_ZIP (3)")]
+        public const int TINYEXR_COMPRESSIONTYPE_ZIP = 3;
+
+        [NativeTypeName("#define TINYEXR_COMPRESSIONTYPE_PIZ (4)")]
+        public const int TINYEXR_COMPRESSIONTYPE_PIZ = 4;
+
+        [NativeTypeName("#define TINYEXR_COMPRESSIONTYPE_ZFP (128)")]
+        public const int TINYEXR_COMPRESSIONTYPE_ZFP = 128;
+
+        [NativeTypeName("#define TINYEXR_ZFP_COMPRESSIONTYPE_RATE (0)")]
+        public const int TINYEXR_ZFP_COMPRESSIONTYPE_RATE = 0;
+
+        [NativeTypeName("#define TINYEXR_ZFP_COMPRESSIONTYPE_PRECISION (1)")]
+        public const int TINYEXR_ZFP_COMPRESSIONTYPE_PRECISION = 1;
+
+        [NativeTypeName("#define TINYEXR_ZFP_COMPRESSIONTYPE_ACCURACY (2)")]
+        public const int TINYEXR_ZFP_COMPRESSIONTYPE_ACCURACY = 2;
+
+        [NativeTypeName("#define TINYEXR_TILE_ONE_LEVEL (0)")]
+        public const int TINYEXR_TILE_ONE_LEVEL = 0;
+
+        [NativeTypeName("#define TINYEXR_TILE_MIPMAP_LEVELS (1)")]
+        public const int TINYEXR_TILE_MIPMAP_LEVELS = 1;
+
+        [NativeTypeName("#define TINYEXR_TILE_RIPMAP_LEVELS (2)")]
+        public const int TINYEXR_TILE_RIPMAP_LEVELS = 2;
+
+        [NativeTypeName("#define TINYEXR_TILE_ROUND_DOWN (0)")]
+        public const int TINYEXR_TILE_ROUND_DOWN = 0;
+
+        [NativeTypeName("#define TINYEXR_TILE_ROUND_UP (1)")]
+        public const int TINYEXR_TILE_ROUND_UP = 1;
     }
 }

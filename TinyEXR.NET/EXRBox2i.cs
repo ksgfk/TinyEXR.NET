@@ -1,13 +1,14 @@
+﻿using TinyEXR.Native;
+
 namespace TinyEXR
 {
-    public partial struct EXRBox2i
+    public struct ExrBox2i
     {
-        public int min_x;
+        internal EXRBox2i _box;
 
-        public int min_y;
-
-        public int max_x;
-
-        public int max_y;
+        public int MinX => _box.min_x;
+        public int MinY => _box.min_y;
+        public int MaxX => _box.max_x;
+        public int MaxY => _box.max_y;
     }
 }

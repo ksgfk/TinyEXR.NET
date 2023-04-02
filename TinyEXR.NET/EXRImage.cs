@@ -1,25 +1,14 @@
+﻿using TinyEXR.Native;
+
 namespace TinyEXR
 {
-    public unsafe partial struct EXRImage
+    public struct ExrImage
     {
-        public EXRTile* tiles;
+        internal EXRImage _img;
 
-        [NativeTypeName("struct TEXRImage *")]
-        public EXRImage* next_level;
-
-        public int level_x;
-
-        public int level_y;
-
-        [NativeTypeName("unsigned char **")]
-        public byte** images;
-
-        public int width;
-
-        public int height;
-
-        public int num_channels;
-
-        public int num_tiles;
+        public int LevelX => _img.level_x;
+        public int LevelY => _img.level_y;
+        public int Width => _img.width;
+        public int Height => _img.height;
     }
 }

@@ -1,4 +1,4 @@
-namespace TinyEXR
+namespace TinyEXR.Native
 {
     public unsafe partial struct EXRAttribute
     {

@@ -100,6 +100,7 @@ EXPORT_API int LoadEXRFromMemoryInternal(float** out_rgba, int* width, int* heig
                                          const char** err);
 
 EXPORT_API void FreeInternal(void* ptr);
+EXPORT_API size_t StrLenInternal(const char* str);
 
 #ifdef __cplusplus
 }

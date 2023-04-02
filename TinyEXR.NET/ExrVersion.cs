@@ -1,15 +1,18 @@
+﻿using TinyEXR.Native;
+
 namespace TinyEXR
 {
-    public partial struct EXRVersion
+    /// <summary>
+    /// https://openexr.com/en/latest/OpenEXRFileLayout.html#version-field
+    /// </summary>
+    public struct ExrVersion
     {
-        public int version;
+        internal EXRVersion _version;
 
-        public int tiled;
-
-        public int long_name;
-
-        public int non_image;
-
-        public int multipart;
+        public int Version => _version.version;
+        public int Tiled => _version.tiled;
+        public int LongName => _version.long_name;
+        public int NonImage => _version.non_image;
+        public int Multipart => _version.multipart;
     }
 }

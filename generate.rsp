@@ -26,11 +26,11 @@ TinyEXR.Native/tinyexr
 TinyEXR.Native/zlib
 TinyEXR.Native/build/zlib
 --methodClassName
-Native
+EXRNative
 --libraryPath
 TinyEXR.Native
 --namespace
-TinyEXR
+TinyEXR.Native
 --remap
 TEXRVersion=EXRVersion
 TEXRAttribute=EXRAttribute
