@@ -14,19 +14,22 @@ The API is completely consistent with tinyexr. You can find them in the class `T
 
 Besides, I add some simple helper class, like `TinyEXR.SinglePartExrReader` and `TinyEXR.ScanlineExrWriter`. You can use them to easily read and save exr images.
 
-If you don't like them, you can also use native functions in the class `TinyEXR.Native.EXRNative`.
+If you don't like them, you can also use native functions in the class `TinyEXR.Native.EXRNative`. Of course, you should be clear about what you are doing :).
 
 ## Details
 
 This lib use [ClangSharp](https://github.com/dotnet/ClangSharp) to generate binding code.
 
-tinyexr did not export any symbols, so I have to make a wrapper for these API. Fortunately, they are not so much. The wrapper lib is in the folder `TinyEXR.Native`
+API is unstable. May be modified at any time.
+
+tinyexr did not export any symbols, so I have to make a wrapper for these C++ functions. Fortunately, they are not so much. The wrapper lib is in the folder `TinyEXR.Native`
 
 Currently, only `win-x64`, `linux-x64` and `osx-x64` are available. If you want use this lib on other platforms, you have to build them by your self.
+
+## TODO
+
+multi-part wrapper
 
 ## License
 
 `TinyEXR.NET` is under MIT license
-
-and wrapped C++ lib `tinyexr` is under 3-clause BSD
-
