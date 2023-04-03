@@ -36,6 +36,7 @@
     <ItemGroup>
       <None Include="Assets\runtimes\**\*.dll" Pack="True" PackagePath="runtimes" />
       <None Include="Assets\runtimes\**\*.so" Pack="True" PackagePath="runtimes" />
+      <None Include="Assets\runtimes\**\*.dylib" Pack="True" PackagePath="runtimes" />
     </ItemGroup>
   </Target>
 	
