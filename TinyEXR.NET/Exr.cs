@@ -477,7 +477,7 @@ namespace TinyEXR
             return result;
         }
 
-        public static unsafe byte[]? SaveEXRImageFromMemory(ref EXRImage image, ref EXRHeader header)
+        public static unsafe byte[]? SaveEXRImageToMemory(ref EXRImage image, ref EXRHeader header)
         {
             UIntPtr rawLen;
             sbyte* errorPtr;

@@ -18,5 +18,7 @@ namespace TinyEXR
             SamplingY = samplingY;
             Linear = linear;
         }
+
+        public ExrChannel(string name, ExrPixelType type) : this(name, type, 1, 1, 1) { }
     }
 }
