@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Numerics;
 using TinyEXR.Native;
 
 namespace TinyEXR
@@ -10,7 +11,16 @@ namespace TinyEXR
         int[] _length = null!;
         ExrChannel[] _channels = null!;
 
+        public int Width { get; internal set; }
+        public int Height { get; internal set; }
         public ExrChannel[] Channels => _channels;
+        public float PixelAspectRatio { get; internal set; }
+        public EXRBox2i DataWindow { get; internal set; }
+        public EXRBox2i DisplayWindow { get; internal set; }
+        public CompressionType Compression { get; internal set; }
+        public LineOrderType LineOrder { get; internal set; }
+        public Vector2 ScreenWindowCenter { get; internal set; }
+        public float ScreenWindowWidth { get; internal set; }
 
         public void Read(string path)
         {
@@ -147,6 +157,18 @@ namespace TinyEXR
                     throw new ArgumentException($"internal error");
                 }
             }
+            Width = image.width;
+            Height = image.height;
+            PixelAspectRatio = header.pixel_aspect_ratio;
+            DataWindow = header.data_window;
+            DisplayWindow = header.display_window;
+            Compression = (CompressionType)header.compression_type;
+            LineOrder = (LineOrderType)header.line_order;
+            unsafe
+            {
+                ScreenWindowCenter = new Vector2(header.screen_window_center[0], header.screen_window_center[1]);
+            }
+            ScreenWindowWidth = header.screen_window_width;
         }
 
         public ReadOnlySpan<byte> GetImageData(int channel)
