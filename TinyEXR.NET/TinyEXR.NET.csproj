@@ -9,14 +9,14 @@
     <AssemblyVersion>0.3.1</AssemblyVersion>
     <FileVersion>0.3.1</FileVersion>
     <RepositoryType>git</RepositoryType>
-    <Description>TinyEXR.NET is a C# wrapper of  C++ library tinyexr</Description>
+    <Description>TinyEXR.NET is a C# wrapper of tinyexr</Description>
     <Company>ksgfk</Company>
     <Authors>ksgfk</Authors>
-    <Copyright>Copyright (c) 2022 ksgfk(1537100607@qq.com)</Copyright>
+    <Copyright>Copyright (c) 2023 ksgfk(1537100607@qq.com)</Copyright>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <RepositoryUrl>https://github.com/ksgfk/TinyEXR.NET</RepositoryUrl>
     <PackageTags>OpenEXR,HDR</PackageTags>
-    <PackageReleaseNotes>update tinyexr</PackageReleaseNotes>
+    <PackageReleaseNotes>use ClangSharp to generate bindings</PackageReleaseNotes>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <Version>0.3.1</Version>
     <Nullable>enable</Nullable>
@@ -30,6 +30,7 @@
     <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
     <Deterministic>true</Deterministic>
     <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <EnablePackageValidation>true</EnablePackageValidation>
   </PropertyGroup>
 	
   <Target Name="IncludeAllDependencies" BeforeTargets="_GetPackageFiles">

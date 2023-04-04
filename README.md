@@ -1,6 +1,6 @@
 # TinyEXR.NET
 
-`TinyEXR.NET` is a C# wrapper of C++ library [tinyexr](https://github.com/syoyo/tinyexr)
+`TinyEXR.NET` is a C# wrapper of [tinyexr](https://github.com/syoyo/tinyexr)
 
 The target framework of `TinyEXR.NET`  is `.NET Standard 2.1`
 
