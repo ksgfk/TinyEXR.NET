@@ -16,6 +16,8 @@ jobs:
     runs-on: windows-latest
     steps:
     - uses: actions/checkout@v3
+      with:
+        submodules: 'true'
     - name: 'Configure CMake'
       run: cmake -B ${{github.workspace}}/TinyEXR.Native/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} ${{github.workspace}}/TinyEXR.Native
     - name: 'Build'
@@ -33,6 +35,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
+      with:
+        submodules: 'true'
     - name: Configure CMake
       run: cmake -B ${{github.workspace}}/TinyEXR.Native/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} ${{github.workspace}}/TinyEXR.Native
     - name: Build
@@ -50,6 +54,8 @@ jobs:
     runs-on: macos-latest
     steps:
     - uses: actions/checkout@v3
+      with:
+        submodules: 'true'
     - name: Configure CMake
       run: cmake -B ${{github.workspace}}/TinyEXR.Native/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} ${{github.workspace}}/TinyEXR.Native
     - name: Build
