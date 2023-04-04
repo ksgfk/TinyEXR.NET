@@ -89,6 +89,8 @@ jobs:
     - name: Setup .NET
       uses: actions/setup-dotnet@v3
     - name: Build
+      run: dotnet build ${{github.workspace}}/TinyEXR.NET --configuration Release
+    - name: Pack
       run: dotnet pack ${{github.workspace}}/TinyEXR.NET --configuration Release --output ${{env.NuGetDirectory}}
     - name: 'Upload Artifact'
       uses: actions/upload-artifact@v3
@@ -111,7 +113,7 @@ jobs:
       uses: actions/setup-dotnet@v3
     - name: Publish NuGet package
       run: |
-          foreach($file in (Get-ChildItem "${{ env.NuGetDirectory }}" -Recurse -Include *.nupkg)) {
-              dotnet nuget push $file --api-key "${{ secrets.NUGET_APIKEY }}" --source https://api.nuget.org/v3/index.json --skip-duplicate
+          foreach($file in (Get-ChildItem "${{env.NuGetDirectory}}" -Recurse -Include *.nupkg)) {
+              dotnet nuget push $file --api-key "${{secrets.NUGET_APIKEY}}" --source https://api.nuget.org/v3/index.json --skip-duplicate
           }
   
