@@ -27,4 +27,5 @@ endif()
 # add -fPIC for linux
 if(CMAKE_SYSTEM_NAME MATCHES "Linux")
 target_compile_options(TinyEXR.Native PUBLIC -fPIC)
+target_compile_options(zlibstatic PUBLIC -fPIC)
 endif()
