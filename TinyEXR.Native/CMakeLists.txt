@@ -24,3 +24,7 @@ set_target_properties(TinyEXR.Native PROPERTIES
     MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>"
 )
 endif()
+# add -fPIC for linux
+if(CMAKE_SYSTEM_NAME MATCHES "Linux")
+target_compile_options(TinyEXR.Native PUBLIC -fPIC)
+endif()
