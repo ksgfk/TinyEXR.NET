@@ -1,13 +1,10 @@
 #include "TinyEXR.Native.h"
+#include <cstring>
+
+#define TINYEXR_IMPLEMENTATION
+#include "tinyexr/tinyexr.h"
 
 #include <cstdlib>
-
-int __LetGeneraterHappy(const EXRImage& image,
-                        const EXRHeader& header,
-                        const EXRVersion& v,
-                        const DeepImage& d) {
-  return image.height + header.chunk_count + v.multipart + d.height;
-}
 
 int LoadEXRInternal(float** out_rgba, int* width, int* height,
                     const char* filename, const char** err) {
@@ -170,6 +167,10 @@ int LoadEXRFromMemoryInternal(float** out_rgba, int* width, int* height,
   return LoadEXRFromMemory(out_rgba, width, height, memory, size, err);
 }
 
-void GlobalFree(void* ptr){
+void FreeInternal(void* ptr){
   std::free(ptr);
+}
+
+size_t StrLenInternal(const char* str) {
+  return std::strlen(str);
 }

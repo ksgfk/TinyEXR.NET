@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net7.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="SixLabors.ImageSharp" Version="3.0.1" />
+    <PackageReference Include="TinyEXR.NET" Version="0.3.1" />
+    <None Update="100639413_p0.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="table_mountain_2_puresky_1k.exr" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

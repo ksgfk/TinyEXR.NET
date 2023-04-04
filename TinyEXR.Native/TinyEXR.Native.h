@@ -13,7 +13,11 @@
 #endif
 #endif
 
-#include "tinyexr_modify.h"
+#include "zlib/zlib.h"
+
+#define TINYEXR_USE_MINIZ 0
+#define TINYEXR_USE_OPENMP 0
+#include "tinyexr/tinyexr.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -95,7 +99,8 @@ EXPORT_API int LoadEXRFromMemoryInternal(float** out_rgba, int* width, int* heig
                                          const unsigned char* memory, size_t size,
                                          const char** err);
 
-EXPORT_API void GlobalFree(void* ptr);
+EXPORT_API void FreeInternal(void* ptr);
+EXPORT_API size_t StrLenInternal(const char* str);
 
 #ifdef __cplusplus
 }
