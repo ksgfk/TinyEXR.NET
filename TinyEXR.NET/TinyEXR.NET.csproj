@@ -18,7 +18,7 @@
     <PackageTags>OpenEXR,HDR</PackageTags>
     <PackageReleaseNotes>update tinyexr</PackageReleaseNotes>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <Version>0.3.3</Version>
+    <Version>0.3.4</Version>
     <Nullable>enable</Nullable>
 
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
