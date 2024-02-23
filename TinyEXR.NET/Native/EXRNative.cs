@@ -21,7 +21,7 @@ namespace TinyEXR.Native
         public static extern int IsEXRFromMemoryInternal([NativeTypeName("const unsigned char *")] byte* memory, [NativeTypeName("size_t")] UIntPtr size);
 
         [DllImport("TinyEXR.Native", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        public static extern int SaveEXRToMemoryInternal([NativeTypeName("const float *")] float* data, [NativeTypeName("const int")] int width, [NativeTypeName("const int")] int height, [NativeTypeName("const int")] int components, [NativeTypeName("const int")] int save_as_fp16, [NativeTypeName("const unsigned char **")] byte** buffer, [NativeTypeName("const char **")] sbyte** err);
+        public static extern int SaveEXRToMemoryInternal([NativeTypeName("const float *")] float* data, [NativeTypeName("const int")] int width, [NativeTypeName("const int")] int height, [NativeTypeName("const int")] int components, [NativeTypeName("const int")] int save_as_fp16, [NativeTypeName("unsigned char **")] byte** buffer, [NativeTypeName("const char **")] sbyte** err);
 
         [DllImport("TinyEXR.Native", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         public static extern int SaveEXRInternal([NativeTypeName("const float *")] float* data, [NativeTypeName("const int")] int width, [NativeTypeName("const int")] int height, [NativeTypeName("const int")] int components, [NativeTypeName("const int")] int save_as_fp16, [NativeTypeName("const char *")] sbyte* filename, [NativeTypeName("const char **")] sbyte** err);

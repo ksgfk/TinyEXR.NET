@@ -29,7 +29,7 @@ int IsEXRFromMemoryInternal(const unsigned char* memory, size_t size) { return I
 int SaveEXRToMemoryInternal(const float* data, const int width,
                             const int height, const int components,
                             const int save_as_fp16,
-                            const unsigned char** outbuf,
+                            unsigned char** outbuf,
                             const char** err) {
   return SaveEXRToMemory(data, width, height, components, save_as_fp16, outbuf, err);
 }

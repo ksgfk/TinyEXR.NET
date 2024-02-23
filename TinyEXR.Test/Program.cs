@@ -1,6 +1,6 @@
-﻿using System.Reflection.PortableExecutable;
-using System.Runtime.InteropServices;
+﻿using System.Runtime.InteropServices;
 using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.PixelFormats;
 using TinyEXR;
 
 {//test reader

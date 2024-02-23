@@ -34,7 +34,7 @@ EXPORT_API int IsEXRInternal(const char* filename);
 EXPORT_API int IsEXRFromMemoryInternal(const unsigned char* memory, size_t size);
 EXPORT_API int SaveEXRToMemoryInternal(const float* data, const int width, const int height,
                                        const int components, const int save_as_fp16,
-                                       const unsigned char** buffer, const char** err);
+                                       unsigned char** buffer, const char** err);
 EXPORT_API int SaveEXRInternal(const float* data, const int width, const int height,
                                const int components, const int save_as_fp16,
                                const char* filename, const char** err);
