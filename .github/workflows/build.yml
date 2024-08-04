@@ -1,0 +1,85 @@
+name: 'Build'
+
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+
+env:
+  BUILD_TYPE: Release
+  NuGetDirectory: ${{github.workspace}}/nuget
+
+jobs:
+  build-native:
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-13, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: 'true'
+    - name: 'Configure CMake'
+      run: cmake -B ${{github.workspace}}/TinyEXR.Native/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} ${{github.workspace}}/TinyEXR.Native
+    - name: 'Build'
+      run: cmake --build ${{github.workspace}}/TinyEXR.Native/build --config ${{env.BUILD_TYPE}}
+    - name: 'Upload win'
+      if: ${{ startsWith(matrix.os, 'windows') }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: TinyEXR.Native.dll
+        if-no-files-found: error
+        path: TinyEXR.Native/build/Release/TinyEXR.Native.dll
+    - name: 'Upload linux'
+      if: ${{ startsWith(matrix.os, 'ubuntu') }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: libTinyEXR.Native.so
+        if-no-files-found: error
+        path: TinyEXR.Native/build/libTinyEXR.Native.so
+    - name: 'Upload macos'
+      if: ${{ startsWith(matrix.os, 'macos') }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ format('libTinyEXR.Native-{0}.dylib', matrix.os) }}
+        if-no-files-found: error
+        path: TinyEXR.Native/build/libTinyEXR.Native.dylib
+
+  build-tinyexr-net:
+    name: Build TinyEXR.NET
+    runs-on: windows-latest
+    needs: [build-native]
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/download-artifact@v4
+      with:
+        name: TinyEXR.Native.dll
+        path: TinyEXR.NET/Assets/runtimes/win-x64/native
+    - uses: actions/download-artifact@v4
+      with:
+        name: libTinyEXR.Native.so
+        path: TinyEXR.NET/Assets/runtimes/linux-x64/native
+    - uses: actions/download-artifact@v4
+      with:
+        name: libTinyEXR.Native-macos-13.dylib
+        path: TinyEXR.NET/Assets/runtimes/osx-x64/native
+    - uses: actions/download-artifact@v4
+      with:
+        name: libTinyEXR.Native-macos-latest.dylib
+        path: TinyEXR.NET/Assets/runtimes/osx-arm64/native
+    - name: Rename osx-x64
+      run: Rename-Item -Path ${{github.workspace}}/TinyEXR.NET/Assets/runtimes/osx-x64/native/libTinyEXR.Native-macos-13.dylib -NewName libTinyEXR.Native.dylib
+    - name: Rename osx-arm64
+      run: Rename-Item -Path ${{github.workspace}}/TinyEXR.NET/Assets/runtimes/osx-arm64/native/libTinyEXR.Native-macos-latest.dylib -NewName libTinyEXR.Native.dylib
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+    - name: Build
+      run: dotnet build ${{github.workspace}}/TinyEXR.NET --configuration Release
+    - name: Pack
+      run: dotnet pack ${{github.workspace}}/TinyEXR.NET --configuration Release --output ${{env.NuGetDirectory}}
+    - name: 'Upload Artifact'
+      uses: actions/upload-artifact@v4
+      with:
+        if-no-files-found: error
+        path: ${{env.NuGetDirectory}}/*.nupkg
