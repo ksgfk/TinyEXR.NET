@@ -6,8 +6,8 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <RootNamespace>TinyEXR</RootNamespace>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
-    <AssemblyVersion>0.3.7</AssemblyVersion>
-    <FileVersion>0.3.7</FileVersion>
+    <AssemblyVersion>0.3.8</AssemblyVersion>
+    <FileVersion>0.3.8</FileVersion>
     <RepositoryType>git</RepositoryType>
     <Description>TinyEXR.NET is a C# wrapper of tinyexr</Description>
     <Company>ksgfk</Company>
@@ -18,7 +18,7 @@
     <PackageTags>OpenEXR,HDR</PackageTags>
     <PackageReleaseNotes>strong sign</PackageReleaseNotes>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <Version>0.3.7</Version>
+    <Version>0.3.8</Version>
     <Nullable>enable</Nullable>
 
     <PublishRepositoryUrl>true</PublishRepositoryUrl>

@@ -9,3 +9,7 @@ obj
 bin
 
 .cache
+
+*.dll
+*.so
+*.dylib
