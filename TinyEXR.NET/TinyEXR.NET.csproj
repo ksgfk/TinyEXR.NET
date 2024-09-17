@@ -12,11 +12,11 @@
     <Description>TinyEXR.NET is a C# wrapper of tinyexr</Description>
     <Company>ksgfk</Company>
     <Authors>ksgfk</Authors>
-    <Copyright>Copyright (c) 2023 ksgfk(1537100607@qq.com)</Copyright>
+    <Copyright>Copyright (c) 2023-2024 ksgfk</Copyright>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <RepositoryUrl>https://github.com/ksgfk/TinyEXR.NET</RepositoryUrl>
     <PackageTags>OpenEXR,HDR</PackageTags>
-    <PackageReleaseNotes>update tinyexr</PackageReleaseNotes>
+    <PackageReleaseNotes>strong sign</PackageReleaseNotes>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <Version>0.3.7</Version>
     <Nullable>enable</Nullable>
@@ -24,6 +24,8 @@
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <DebugType>embedded</DebugType>
     <DebugSymbols>true</DebugSymbols>
+    <SignAssembly>True</SignAssembly>
+    <AssemblyOriginatorKeyFile>E:\csharp\ksgfk.snk</AssemblyOriginatorKeyFile>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)' == 'Release'">
@@ -49,7 +51,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.SourceLink.GitHub" Version="8.0.0" PrivateAssets="All"/>
+    <PackageReference Include="Microsoft.SourceLink.GitHub" Version="8.0.0" PrivateAssets="All" />
   </ItemGroup>
 
 </Project>
