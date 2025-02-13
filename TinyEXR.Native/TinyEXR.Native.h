@@ -17,6 +17,7 @@
 
 #define TINYEXR_USE_MINIZ 0
 #define TINYEXR_USE_OPENMP 0
+#define TINYEXR_USE_COMPILER_FP16 1
 #include "tinyexr/tinyexr.h"
 
 #ifdef __cplusplus

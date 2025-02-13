@@ -6,26 +6,26 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <RootNamespace>TinyEXR</RootNamespace>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
-    <AssemblyVersion>0.3.8</AssemblyVersion>
-    <FileVersion>0.3.8</FileVersion>
+    <AssemblyVersion>0.3.9</AssemblyVersion>
+    <FileVersion>0.3.9</FileVersion>
     <RepositoryType>git</RepositoryType>
     <Description>TinyEXR.NET is a C# wrapper of tinyexr</Description>
     <Company>ksgfk</Company>
     <Authors>ksgfk</Authors>
-    <Copyright>Copyright (c) 2023-2024 ksgfk</Copyright>
+    <Copyright>Copyright (c) 2023-2025 ksgfk</Copyright>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <RepositoryUrl>https://github.com/ksgfk/TinyEXR.NET</RepositoryUrl>
     <PackageTags>OpenEXR,HDR</PackageTags>
     <PackageReleaseNotes>strong sign</PackageReleaseNotes>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <Version>0.3.8</Version>
+    <Version>0.3.9</Version>
     <Nullable>enable</Nullable>
 
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <DebugType>embedded</DebugType>
     <DebugSymbols>true</DebugSymbols>
     <SignAssembly>True</SignAssembly>
-    <AssemblyOriginatorKeyFile>E:\csharp\ksgfk.snk</AssemblyOriginatorKeyFile>
+    <AssemblyOriginatorKeyFile>F:\csharp\ksgfk.snk</AssemblyOriginatorKeyFile>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)' == 'Release'">
