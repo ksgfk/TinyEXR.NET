@@ -18,7 +18,7 @@
     <PackageTags>OpenEXR,HDR</PackageTags>
     <PackageReleaseNotes>strong sign</PackageReleaseNotes>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <Version>0.3.9</Version>
+    <Version>0.3.10</Version>
     <Nullable>enable</Nullable>
 
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
