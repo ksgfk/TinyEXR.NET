@@ -28,7 +28,15 @@ Currently, only `win-x64`, `linux-x64`, `osx-x64` and `osx-arm64` are available.
 
 ## TODO
 
-multi-part wrapper
+### multi-part wrapper
+
+### No P/Invoke?
+
+I think port C++ to C# is not difficult. Thus, we obtain better compatibility.
+
+Why not?
+
+Of course, this takes a lot of time...
 
 ## License
 
