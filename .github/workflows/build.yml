@@ -27,18 +27,18 @@ jobs:
       with:
         name: ${{ format('TinyEXR.Native-{0}.dll', matrix.os) }}
         if-no-files-found: error
-        path: TinyEXR.Native/build/Release/TinyEXR.Native.dll
+        path: TinyEXR.Native/build/Release/TinyEXRNative.dll
     - name: 'Upload linux'
       if: ${{ startsWith(matrix.os, 'ubuntu') }}
       uses: actions/upload-artifact@v4
       with:
         name: ${{ format('libTinyEXR.Native-{0}.so', matrix.os) }}
         if-no-files-found: error
-        path: TinyEXR.Native/build/libTinyEXR.Native.so
+        path: TinyEXR.Native/build/libTinyEXRNative.so
     - name: 'Upload macos'
       if: ${{ startsWith(matrix.os, 'macos') }}
       uses: actions/upload-artifact@v4
       with:
         name: ${{ format('libTinyEXR.Native-{0}.dylib', matrix.os) }}
         if-no-files-found: error
-        path: TinyEXR.Native/build/libTinyEXR.Native.dylib
+        path: TinyEXR.Native/build/libTinyEXRNative.dylib
