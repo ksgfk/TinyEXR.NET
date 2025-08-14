@@ -24,12 +24,14 @@ if (-not ($supported -contains $Platform)) {
 Write-Info "Platform: $Platform"
 
 switch -Regex ($Platform) {
-	'^win-'   { $sharedName = 'TinyEXR.Native.dll' }
-	'^linux-' { $sharedName = 'libTinyEXR.Native.so' }
-	'^osx-'   { $sharedName = 'libTinyEXR.Native.dylib' }
+	'^win-'   { $sharedName = 'TinyEXRNative.dll' }
+	'^linux-' { $sharedName = 'libTinyEXRNative.so' }
+	'^osx-'   { $sharedName = 'libTinyEXRNative.dylib' }
 	default   { throw "Unrecognized platform: $Platform" }
 }
-
+if (Test-Path $buildDir) {
+    Remove-Item -Path $buildDir -Recurse -Force
+}
 if (-not (Test-Path $buildDir)) { New-Item -ItemType Directory -Path $buildDir | Out-Null }
 
 function Invoke-CMakeConfigure {
@@ -64,7 +66,7 @@ function Invoke-CMakeBuild {
 	param(
 		[string]$BuildDir
 	)
-	$buildArgs = @('--build', $BuildDir, '--target', 'TinyEXR.Native', '--config', 'Release', '--parallel')
+	$buildArgs = @('--build', $BuildDir, '--target', 'TinyEXRNative', '--config', 'Release', '--parallel')
 	Write-Info "Building with: cmake $($buildArgs -join ' ')"
 	& cmake @buildArgs
 	if ($LASTEXITCODE -ne 0) { throw "CMake build failed" }
