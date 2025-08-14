@@ -24,8 +24,13 @@
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <DebugType>embedded</DebugType>
     <DebugSymbols>true</DebugSymbols>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(SignAssemblyKey)' == 'true'">
     <SignAssembly>True</SignAssembly>
     <AssemblyOriginatorKeyFile>F:\csharp\ksgfk.snk</AssemblyOriginatorKeyFile>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(SignAssemblyKey)' != 'true'">
+    <SignAssembly>False</SignAssembly>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)' == 'Release'">
