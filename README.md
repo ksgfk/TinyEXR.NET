@@ -24,7 +24,7 @@ API is unstable. May be modified at any time.
 
 tinyexr did not export any symbols, so I have to make a wrapper for these C++ functions. Fortunately, they are not so much. The wrapper lib is in the folder `TinyEXR.Native`
 
-Currently, only `win-x64`, `linux-x64`, `osx-x64` and `osx-arm64` are available. If you want use this lib on other platforms, you have to build them by your self.
+Currently, only `win-x64`, `win-arm64`, `linux-x64`, `linux-arm64`, `osx-x64` and `osx-arm64` are available. If you want use this lib on other platforms, you have to build them by your self.
 
 ## TODO
 
