@@ -41,8 +41,8 @@ jobs:
       with:
         dotnet-version: '8.0.x'
 
-    - name: Restore
-      run: dotnet restore TinyEXR.Test/TinyEXR.Test.sln
+    - name: Build
+      run: dotnet build TinyEXR.Test/TinyEXR.Test.sln --configuration Release
 
     - name: Test
       run: dotnet test TinyEXR.Test/TinyEXR.Test.sln --configuration Release --logger "trx;LogFileName=test-results.trx" -p:SignAssembly=false
