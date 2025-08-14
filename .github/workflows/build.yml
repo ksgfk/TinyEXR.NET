@@ -14,7 +14,7 @@ jobs:
   build-native:
     strategy:
       matrix:
-        os: [windows-latest, ubuntu-latest, macos-13, macos-latest]
+        os: [windows-latest, ubuntu-latest, macos-13, macos-latest, ubuntu-24.04-arm, windows-11-arm]
     runs-on: ${{ matrix.os }}
     steps:
     - uses: actions/checkout@v4
@@ -28,14 +28,14 @@ jobs:
       if: ${{ startsWith(matrix.os, 'windows') }}
       uses: actions/upload-artifact@v4
       with:
-        name: TinyEXR.Native.dll
+  name: ${{ format('TinyEXR.Native-{0}.dll', matrix.os) }}
         if-no-files-found: error
         path: TinyEXR.Native/build/Release/TinyEXR.Native.dll
     - name: 'Upload linux'
       if: ${{ startsWith(matrix.os, 'ubuntu') }}
       uses: actions/upload-artifact@v4
       with:
-        name: libTinyEXR.Native.so
+  name: ${{ format('libTinyEXR.Native-{0}.so', matrix.os) }}
         if-no-files-found: error
         path: TinyEXR.Native/build/libTinyEXR.Native.so
     - name: 'Upload macos'
