@@ -26,7 +26,7 @@ Write-Info "Platform: $Platform"
 switch -Regex ($Platform) {
 	'^win-'   { $sharedName = 'TinyEXRNative.dll' }
 	'^linux-' { $sharedName = 'libTinyEXRNative.so' }
-	'^osx-'   { $sharedName = 'libTinyEXRNative.dylib' }
+	'^osx-'   { $sharedName = 'TinyEXRNative.dylib' }
 	default   { throw "Unrecognized platform: $Platform" }
 }
 if (Test-Path $buildDir) {
@@ -93,7 +93,25 @@ $configureBase = @(
 Invoke-CMakeConfigure -BaseArgs $configureBase -Platform $Platform
 Invoke-CMakeBuild -BuildDir $buildDir
 
-$artifactPath = Find-Artifact -Root $buildDir -FileName $sharedName
+$artifactPath = $null
+try {
+	$artifactPath = Find-Artifact -Root $buildDir -FileName $sharedName
+} catch {
+	# On macOS, some toolchains may still emit lib-prefixed name; try fallback and rename
+	if ($Platform.StartsWith('osx-')) {
+		$fallback = 'lib' + $sharedName
+		try {
+			$fallbackPath = Find-Artifact -Root $buildDir -FileName $fallback
+			if ($fallbackPath) {
+				$newPath = Join-Path (Split-Path $fallbackPath -Parent) $sharedName
+				Write-Warn "Fallback found: $fallbackPath; renaming to $newPath"
+				Rename-Item -Path $fallbackPath -NewName (Split-Path $newPath -Leaf) -Force
+				$artifactPath = $newPath
+			}
+		} catch {}
+	}
+	if (-not $artifactPath) { throw }
+}
 Write-Info "Artifact located: $artifactPath"
 
 $destDir = Join-Path (Join-Path $assetsRoot 'runtimes') (Join-Path $Platform 'native')
