@@ -121,4 +121,11 @@ $destPath = Join-Path $destDir (Split-Path $artifactPath -Leaf)
 Copy-Item -Path $artifactPath -Destination $destPath -Force
 Write-Info "Copied to: $destPath"
 
+# Additionally, place a copy directly into TinyEXR.Test output for all platforms
+$testOutDir = Join-Path $repoRoot (Join-Path 'TinyEXR.Test/TinyEXR.Test' 'bin/Release/net8.0')
+if (-not (Test-Path $testOutDir)) { New-Item -ItemType Directory -Path $testOutDir -Force | Out-Null }
+$testOutPath = Join-Path $testOutDir (Split-Path $artifactPath -Leaf)
+Copy-Item -Path $artifactPath -Destination $testOutPath -Force
+Write-Info "Copied to test output: $testOutPath"
+
 Write-Host "Done." -ForegroundColor Green
