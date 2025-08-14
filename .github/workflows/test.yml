@@ -1,0 +1,48 @@
+name: 'Build'
+
+on:
+  push:
+    branches: [ "master" ]
+
+env:
+  BUILD_TYPE: Release
+
+jobs:
+  build-native:
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-13, macos-latest, ubuntu-24.04-arm, windows-11-arm]
+    runs-on: ${{ matrix.os }}
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: 'true'
+
+    - name: Compute RID
+      id: rid
+      shell: pwsh
+      run: |
+        $os = "${{ runner.os }}".ToLower()
+        $arch = "${{ runner.arch }}".ToLower()
+        switch ($os) {
+          'windows' { if ($arch -eq 'arm64') { $rid = 'win-arm64' } elseif ($arch -eq 'arm') { $rid = 'win-arm' } else { $rid = 'win-x64' } }
+          'linux'   { if ($arch -eq 'arm64') { $rid = 'linux-arm64' } else { $rid = 'linux-x64' } }
+          'macos'   { if ($arch -eq 'arm64') { $rid = 'osx-arm64' } else { $rid = 'osx-x64' } }
+          default   { throw "Unknown OS: $os" }
+        }
+        "rid=$rid" >> $env:GITHUB_OUTPUT
+
+    - name: Build native and copy
+      shell: pwsh
+      run: .\build_native_and_copy.ps1 ${{ steps.rid.outputs.rid }}
+
+    - name: Setup .NET 8
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+
+    - name: Restore
+      run: dotnet restore TinyEXR.Test/TinyEXR.Test.sln
+
+    - name: Test
+      run: dotnet test TinyEXR.Test/TinyEXR.Test.sln --configuration Release --logger "trx;LogFileName=test-results.trx" -p:SignAssembly=false
