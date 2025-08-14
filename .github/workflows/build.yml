@@ -28,14 +28,14 @@ jobs:
       if: ${{ startsWith(matrix.os, 'windows') }}
       uses: actions/upload-artifact@v4
       with:
-  name: ${{ format('TinyEXR.Native-{0}.dll', matrix.os) }}
+        name: ${{ format('TinyEXR.Native-{0}.dll', matrix.os) }}
         if-no-files-found: error
         path: TinyEXR.Native/build/Release/TinyEXR.Native.dll
     - name: 'Upload linux'
       if: ${{ startsWith(matrix.os, 'ubuntu') }}
       uses: actions/upload-artifact@v4
       with:
-  name: ${{ format('libTinyEXR.Native-{0}.so', matrix.os) }}
+        name: ${{ format('libTinyEXR.Native-{0}.so', matrix.os) }}
         if-no-files-found: error
         path: TinyEXR.Native/build/libTinyEXR.Native.so
     - name: 'Upload macos'
@@ -45,37 +45,3 @@ jobs:
         name: ${{ format('libTinyEXR.Native-{0}.dylib', matrix.os) }}
         if-no-files-found: error
         path: TinyEXR.Native/build/libTinyEXR.Native.dylib
-
-  # build-tinyexr-net:
-  #   name: Build TinyEXR.NET
-  #   runs-on: windows-latest
-  #   needs: [build-native]
-  #   steps:
-  #   - uses: actions/checkout@v4
-  #   - uses: actions/download-artifact@v4
-  #     with:
-  #       name: TinyEXR.Native.dll
-  #       path: TinyEXR.NET/Assets/runtimes/win-x64/native
-  #   - uses: actions/download-artifact@v4
-  #     with:
-  #       name: libTinyEXR.Native.so
-  #       path: TinyEXR.NET/Assets/runtimes/linux-x64/native
-  #   - uses: actions/download-artifact@v4
-  #     with:
-  #       name: libTinyEXR.Native-macos-13.dylib
-  #       path: TinyEXR.NET/Assets/runtimes/osx-x64/native
-  #   - uses: actions/download-artifact@v4
-  #     with:
-  #       name: libTinyEXR.Native-macos-latest.dylib
-  #       path: TinyEXR.NET/Assets/runtimes/osx-arm64/native
-  #   - name: Setup .NET
-  #     uses: actions/setup-dotnet@v4
-  #   - name: Build
-  #     run: dotnet build ${{github.workspace}}/TinyEXR.NET --configuration Release
-  #   - name: Pack
-  #     run: dotnet pack ${{github.workspace}}/TinyEXR.NET --configuration Release --output ${{env.NuGetDirectory}}
-  #   - name: 'Upload Artifact'
-  #     uses: actions/upload-artifact@v4
-  #     with:
-  #       if-no-files-found: error
-  #       path: ${{env.NuGetDirectory}}/*.nupkg

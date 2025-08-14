@@ -18,7 +18,7 @@
     <PackageTags>OpenEXR,HDR</PackageTags>
     <PackageReleaseNotes>strong sign</PackageReleaseNotes>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <Version>0.3.10</Version>
+    <Version>0.3.11</Version>
     <Nullable>enable</Nullable>
 
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
@@ -42,7 +42,17 @@
       <None Include="Assets\runtimes\**\*.dylib" Pack="True" PackagePath="runtimes" />
     </ItemGroup>
   </Target>
-	
+
+  <Target Name="CopyRuntimes" AfterTargets="Build">
+    <ItemGroup>
+      <RuntimeFiles Include="Assets\runtimes\**\*" />
+    </ItemGroup>
+    <Copy
+      SourceFiles="@(RuntimeFiles)"
+      DestinationFiles="@(RuntimeFiles->'$(OutputPath)runtimes\%(RecursiveDir)%(Filename)%(Extension)')"
+      SkipUnchangedFiles="true" />
+  </Target>
+
   <ItemGroup>
     <None Include="..\README.md">
       <Pack>True</Pack>
