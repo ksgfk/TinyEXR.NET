@@ -167,6 +167,61 @@ int LoadEXRFromMemoryInternal(float** out_rgba, int* width, int* height,
   return LoadEXRFromMemory(out_rgba, width, height, memory, size, err);
 }
 
+int IsSpectralEXRInternal(const char* filename) {
+  return IsSpectralEXR(filename);
+}
+
+int IsSpectralEXRFromMemoryInternal(const unsigned char* memory, size_t size) {
+  return IsSpectralEXRFromMemory(memory, size);
+}
+
+int EXRGetSpectrumTypeInternal(const EXRHeader* exr_header) {
+  return EXRGetSpectrumType(exr_header);
+}
+
+void EXRFormatWavelengthInternal(char* buffer, size_t buffer_size,
+                                 float wavelength_nm) {
+  EXRFormatWavelength(buffer, buffer_size, wavelength_nm);
+}
+
+void EXRSpectralChannelNameInternal(char* buffer, size_t buffer_size,
+                                    float wavelength_nm,
+                                    int stokes_component) {
+  EXRSpectralChannelName(buffer, buffer_size, wavelength_nm, stokes_component);
+}
+
+void EXRReflectiveChannelNameInternal(char* buffer, size_t buffer_size,
+                                      float wavelength_nm) {
+  EXRReflectiveChannelName(buffer, buffer_size, wavelength_nm);
+}
+
+float EXRParseSpectralChannelWavelengthInternal(const char* channel_name) {
+  return EXRParseSpectralChannelWavelength(channel_name);
+}
+
+int EXRGetStokesComponentInternal(const char* channel_name) {
+  return EXRGetStokesComponent(channel_name);
+}
+
+int EXRIsSpectralChannelInternal(const char* channel_name) {
+  return EXRIsSpectralChannel(channel_name);
+}
+
+int EXRGetWavelengthsInternal(const EXRHeader* exr_header,
+                              float* wavelengths, int max_wavelengths) {
+  return EXRGetWavelengths(exr_header, wavelengths, max_wavelengths);
+}
+
+int EXRSetSpectralAttributesInternal(EXRHeader* exr_header,
+                                     int spectrum_type,
+                                     const char* units) {
+  return EXRSetSpectralAttributes(exr_header, spectrum_type, units);
+}
+
+const char* EXRGetSpectralUnitsInternal(const EXRHeader* exr_header) {
+  return EXRGetSpectralUnits(exr_header);
+}
+
 void FreeInternal(void* ptr){
   std::free(ptr);
 }

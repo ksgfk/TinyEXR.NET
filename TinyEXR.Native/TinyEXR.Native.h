@@ -99,6 +99,25 @@ EXPORT_API int LoadDeepEXRInternal(DeepImage* out_image, const char* filename,
 EXPORT_API int LoadEXRFromMemoryInternal(float** out_rgba, int* width, int* height,
                                          const unsigned char* memory, size_t size,
                                          const char** err);
+EXPORT_API int IsSpectralEXRInternal(const char* filename);
+EXPORT_API int IsSpectralEXRFromMemoryInternal(const unsigned char* memory, size_t size);
+EXPORT_API int EXRGetSpectrumTypeInternal(const EXRHeader* exr_header);
+EXPORT_API void EXRFormatWavelengthInternal(char* buffer, size_t buffer_size,
+                                            float wavelength_nm);
+EXPORT_API void EXRSpectralChannelNameInternal(char* buffer, size_t buffer_size,
+                                               float wavelength_nm,
+                                               int stokes_component);
+EXPORT_API void EXRReflectiveChannelNameInternal(char* buffer, size_t buffer_size,
+                                                 float wavelength_nm);
+EXPORT_API float EXRParseSpectralChannelWavelengthInternal(const char* channel_name);
+EXPORT_API int EXRGetStokesComponentInternal(const char* channel_name);
+EXPORT_API int EXRIsSpectralChannelInternal(const char* channel_name);
+EXPORT_API int EXRGetWavelengthsInternal(const EXRHeader* exr_header,
+                                         float* wavelengths, int max_wavelengths);
+EXPORT_API int EXRSetSpectralAttributesInternal(EXRHeader* exr_header,
+                                                int spectrum_type,
+                                                const char* units);
+EXPORT_API const char* EXRGetSpectralUnitsInternal(const EXRHeader* exr_header);
 
 EXPORT_API void FreeInternal(void* ptr);
 EXPORT_API size_t StrLenInternal(const char* str);

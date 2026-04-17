@@ -101,6 +101,43 @@ namespace TinyEXR.Native
         public static extern int LoadEXRFromMemoryInternal(float** out_rgba, int* width, int* height, [NativeTypeName("const unsigned char *")] byte* memory, [NativeTypeName("size_t")] UIntPtr size, [NativeTypeName("const char **")] sbyte** err);
 
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        public static extern int IsSpectralEXRInternal([NativeTypeName("const char *")] sbyte* filename);
+
+        [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        public static extern int IsSpectralEXRFromMemoryInternal([NativeTypeName("const unsigned char *")] byte* memory, [NativeTypeName("size_t")] UIntPtr size);
+
+        [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        public static extern int EXRGetSpectrumTypeInternal([NativeTypeName("const EXRHeader *")] EXRHeader* exr_header);
+
+        [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        public static extern void EXRFormatWavelengthInternal([NativeTypeName("char *")] sbyte* buffer, [NativeTypeName("size_t")] UIntPtr buffer_size, float wavelength_nm);
+
+        [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        public static extern void EXRSpectralChannelNameInternal([NativeTypeName("char *")] sbyte* buffer, [NativeTypeName("size_t")] UIntPtr buffer_size, float wavelength_nm, int stokes_component);
+
+        [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        public static extern void EXRReflectiveChannelNameInternal([NativeTypeName("char *")] sbyte* buffer, [NativeTypeName("size_t")] UIntPtr buffer_size, float wavelength_nm);
+
+        [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        public static extern float EXRParseSpectralChannelWavelengthInternal([NativeTypeName("const char *")] sbyte* channel_name);
+
+        [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        public static extern int EXRGetStokesComponentInternal([NativeTypeName("const char *")] sbyte* channel_name);
+
+        [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        public static extern int EXRIsSpectralChannelInternal([NativeTypeName("const char *")] sbyte* channel_name);
+
+        [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        public static extern int EXRGetWavelengthsInternal([NativeTypeName("const EXRHeader *")] EXRHeader* exr_header, float* wavelengths, int max_wavelengths);
+
+        [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        public static extern int EXRSetSpectralAttributesInternal(EXRHeader* exr_header, int spectrum_type, [NativeTypeName("const char *")] sbyte* units);
+
+        [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        [return: NativeTypeName("const char *")]
+        public static extern sbyte* EXRGetSpectralUnitsInternal([NativeTypeName("const EXRHeader *")] EXRHeader* exr_header);
+
+        [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         public static extern void FreeInternal(void* ptr);
 
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
@@ -182,6 +219,21 @@ namespace TinyEXR.Native
         [NativeTypeName("#define TINYEXR_COMPRESSIONTYPE_PIZ (4)")]
         public const int TINYEXR_COMPRESSIONTYPE_PIZ = 4;
 
+        [NativeTypeName("#define TINYEXR_COMPRESSIONTYPE_PXR24 (5)")]
+        public const int TINYEXR_COMPRESSIONTYPE_PXR24 = 5;
+
+        [NativeTypeName("#define TINYEXR_COMPRESSIONTYPE_B44 (6)")]
+        public const int TINYEXR_COMPRESSIONTYPE_B44 = 6;
+
+        [NativeTypeName("#define TINYEXR_COMPRESSIONTYPE_B44A (7)")]
+        public const int TINYEXR_COMPRESSIONTYPE_B44A = 7;
+
+        [NativeTypeName("#define TINYEXR_COMPRESSIONTYPE_DWAA (8)")]
+        public const int TINYEXR_COMPRESSIONTYPE_DWAA = 8;
+
+        [NativeTypeName("#define TINYEXR_COMPRESSIONTYPE_DWAB (9)")]
+        public const int TINYEXR_COMPRESSIONTYPE_DWAB = 9;
+
         [NativeTypeName("#define TINYEXR_COMPRESSIONTYPE_ZFP (128)")]
         public const int TINYEXR_COMPRESSIONTYPE_ZFP = 128;
 
@@ -208,5 +260,14 @@ namespace TinyEXR.Native
 
         [NativeTypeName("#define TINYEXR_TILE_ROUND_UP (1)")]
         public const int TINYEXR_TILE_ROUND_UP = 1;
+
+        [NativeTypeName("#define TINYEXR_SPECTRUM_REFLECTIVE (0)")]
+        public const int TINYEXR_SPECTRUM_REFLECTIVE = 0;
+
+        [NativeTypeName("#define TINYEXR_SPECTRUM_EMISSIVE (1)")]
+        public const int TINYEXR_SPECTRUM_EMISSIVE = 1;
+
+        [NativeTypeName("#define TINYEXR_SPECTRUM_POLARISED (2)")]
+        public const int TINYEXR_SPECTRUM_POLARISED = 2;
     }
 }
