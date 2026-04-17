@@ -36,13 +36,13 @@ jobs:
       shell: pwsh
       run: .\build_native_and_copy.ps1 ${{ steps.rid.outputs.rid }}
 
-    - name: Setup .NET 8
+    - name: Setup .NET 10
       uses: actions/setup-dotnet@v4
       with:
-        dotnet-version: '8.0.x'
+        dotnet-version: '10.0.x'
 
     - name: Build
       run: dotnet build TinyEXR.Test/TinyEXR.Test.sln --configuration Release -p:SignAssemblyKey=false
 
     - name: Test
-      run: dotnet test TinyEXR.Test/TinyEXR.Test.sln --configuration Release --logger "trx;LogFileName=test-results.trx" -p:SignAssemblyKey=false
+      run: dotnet test --solution TinyEXR.Test/TinyEXR.Test.sln --configuration Release --no-build --report-trx --report-trx-filename test-results.trx -p:SignAssemblyKey=false
