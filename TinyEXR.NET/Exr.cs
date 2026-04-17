@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Text;
 using TinyEXR.Native;
 
 namespace TinyEXR
@@ -9,11 +8,12 @@ namespace TinyEXR
     //TODO: SaveEXRMultipartImage
     public static class Exr
     {
+        private const int WavelengthBufferSize = 32;
+        private const int ChannelNameBufferSize = 64;
+
         public unsafe static ResultCode LoadEXR(string filename, out float[] rgba, out int width, out int height)
         {
-            int fileNameByteLength = Encoding.UTF8.GetByteCount(filename);
-            Span<byte> fileNameBytes = fileNameByteLength <= 256 ? stackalloc byte[256] : new byte[fileNameByteLength];
-            Encoding.UTF8.GetBytes(filename, fileNameBytes);
+            byte[] fileNameBytes = NativeUtf8.ToNullTerminated(filename);
             float* img = null;
             int x = 0;
             int y = 0;
@@ -58,21 +58,17 @@ namespace TinyEXR
 
         public static unsafe ResultCode LoadEXRWithLayer(string filename, string? layer, out float[] rgba, out int width, out int height)
         {
-            int fileNameByteLength = Encoding.UTF8.GetByteCount(filename);
-            Span<byte> fileNameBytes = fileNameByteLength <= 256 ? stackalloc byte[256] : new byte[fileNameByteLength];
-            Encoding.UTF8.GetBytes(filename, fileNameBytes);
+            byte[] fileNameBytes = NativeUtf8.ToNullTerminated(filename);
             if (string.IsNullOrWhiteSpace(layer))
             {
                 layer = string.Empty;
             }
-            int layerByteLength = Encoding.UTF8.GetByteCount(filename);
-            Span<byte> layerBytes = fileNameByteLength <= 256 ? stackalloc byte[256] : new byte[fileNameByteLength];
-            Encoding.UTF8.GetBytes(layer, layerBytes);
+            byte[] layerBytes = NativeUtf8.ToNullTerminated(layer);
             float* img = null;
             int x = 0;
             int y = 0;
             ResultCode result;
-            sbyte* errorPtr;
+            sbyte* errorPtr = null;
             fixed (byte* fileNamePtr = fileNameBytes)
             {
                 fixed (byte* layerPtr = layerBytes)
@@ -115,12 +111,10 @@ namespace TinyEXR
 
         public static unsafe ResultCode EXRLayers(string filename, out string[] layers)
         {
-            int fileNameByteLength = Encoding.UTF8.GetByteCount(filename);
-            Span<byte> fileNameBytes = fileNameByteLength <= 256 ? stackalloc byte[256] : new byte[fileNameByteLength];
-            Encoding.UTF8.GetBytes(filename, fileNameBytes);
-            sbyte** layerNames;
-            int count;
-            sbyte* errorPtr;
+            byte[] fileNameBytes = NativeUtf8.ToNullTerminated(filename);
+            sbyte** layerNames = null;
+            int count = 0;
+            sbyte* errorPtr = null;
             ResultCode result;
             fixed (byte* fileNamePtr = fileNameBytes)
             {
@@ -133,14 +127,7 @@ namespace TinyEXR
                     layers = new string[count];
                     for (int i = 0; i < count; i++)
                     {
-                        sbyte* layerName = layerNames[i];
-                        UIntPtr sizeT = EXRNative.StrLenInternal(layerName);
-                        ulong size = sizeT.ToUInt64();
-                        if (size >= int.MaxValue)
-                        {
-                            throw new ArgumentOutOfRangeException(nameof(layerName));
-                        }
-                        layers[i] = Encoding.UTF8.GetString((byte*)layerName, (int)size);
+                        layers[i] = NativeUtf8.Read(layerNames[i]);
                     }
                 }
                 else
@@ -166,9 +153,7 @@ namespace TinyEXR
 
         public unsafe static bool IsExr(string filename)
         {
-            int fileNameByteLength = Encoding.UTF8.GetByteCount(filename);
-            Span<byte> fileNameBytes = fileNameByteLength <= 256 ? stackalloc byte[256] : new byte[fileNameByteLength];
-            Encoding.UTF8.GetBytes(filename, fileNameBytes);
+            byte[] fileNameBytes = NativeUtf8.ToNullTerminated(filename);
             ResultCode result;
             fixed (byte* fileNamePtr = fileNameBytes)
             {
@@ -246,9 +231,7 @@ namespace TinyEXR
             {
                 throw new ArgumentException($"{nameof(data)} length must equal {nameof(width)} * {nameof(height)} * {nameof(components)}");
             }
-            int fileNameByteLength = Encoding.UTF8.GetByteCount(filename);
-            Span<byte> fileNameBytes = fileNameByteLength <= 256 ? stackalloc byte[256] : new byte[fileNameByteLength];
-            Encoding.UTF8.GetBytes(filename, fileNameBytes);
+            byte[] fileNameBytes = NativeUtf8.ToNullTerminated(filename);
             sbyte* errorPtr = null;
             ResultCode result;
             fixed (byte* fileNamePtr = fileNameBytes)
@@ -284,9 +267,7 @@ namespace TinyEXR
 
         public static unsafe void EXRSetNameAttr(ref EXRHeader header, string name)
         {
-            int nameByteLength = Encoding.UTF8.GetByteCount(name);
-            Span<byte> nameBytes = nameByteLength <= 256 ? stackalloc byte[256] : new byte[nameByteLength];
-            Encoding.UTF8.GetBytes(name, nameBytes);
+            byte[] nameBytes = NativeUtf8.ToNullTerminated(name);
             fixed (byte* nptr = nameBytes)
             {
                 fixed (EXRHeader* hptr = &header)
@@ -331,9 +312,7 @@ namespace TinyEXR
 
         public unsafe static ResultCode ParseEXRVersionFromFile(string filename, out EXRVersion version)
         {
-            int fileNameByteLength = Encoding.ASCII.GetByteCount(filename);
-            Span<byte> fileNameBytes = fileNameByteLength <= 256 ? stackalloc byte[256] : new byte[fileNameByteLength];
-            Encoding.UTF8.GetBytes(filename, fileNameBytes);
+            byte[] fileNameBytes = NativeUtf8.ToNullTerminated(filename);
             ResultCode result;
             fixed (byte* filenamePtr = fileNameBytes)
             {
@@ -360,11 +339,9 @@ namespace TinyEXR
 
         public static unsafe ResultCode ParseEXRHeaderFromFile(string filename, ref EXRVersion version, ref EXRHeader header)
         {
-            int fileNameByteLength = Encoding.UTF8.GetByteCount(filename);
-            Span<byte> fileNameBytes = fileNameByteLength <= 256 ? stackalloc byte[256] : new byte[fileNameByteLength];
-            Encoding.UTF8.GetBytes(filename, fileNameBytes);
+            byte[] fileNameBytes = NativeUtf8.ToNullTerminated(filename);
             ResultCode result;
-            sbyte* errorPtr;
+            sbyte* errorPtr = null;
             fixed (byte* filenamePtr = fileNameBytes)
             {
                 fixed (EXRVersion* versionPtr = &version)
@@ -386,7 +363,7 @@ namespace TinyEXR
         public static unsafe ResultCode ParseEXRHeaderFromMemory(ReadOnlySpan<byte> data, ref EXRVersion version, ref EXRHeader header)
         {
             ResultCode result;
-            sbyte* errorPtr;
+            sbyte* errorPtr = null;
             fixed (byte* dataPtr = data)
             {
                 fixed (EXRVersion* versionPtr = &version)
@@ -407,11 +384,9 @@ namespace TinyEXR
 
         public static unsafe ResultCode LoadEXRImageFromFile(ref EXRImage image, ref EXRHeader header, string filename)
         {
-            int fileNameByteLength = Encoding.UTF8.GetByteCount(filename);
-            Span<byte> fileNameBytes = fileNameByteLength <= 256 ? stackalloc byte[256] : new byte[fileNameByteLength];
-            Encoding.UTF8.GetBytes(filename, fileNameBytes);
+            byte[] fileNameBytes = NativeUtf8.ToNullTerminated(filename);
             ResultCode result;
-            sbyte* errorPtr;
+            sbyte* errorPtr = null;
             fixed (byte* filePtr = fileNameBytes)
             {
                 fixed (EXRImage* imagePtr = &image)
@@ -433,7 +408,7 @@ namespace TinyEXR
         public static unsafe ResultCode LoadEXRImageFromMemory(ref EXRImage image, ref EXRHeader header, ReadOnlySpan<byte> data)
         {
             ResultCode result;
-            sbyte* errorPtr;
+            sbyte* errorPtr = null;
             fixed (byte* dataPtr = data)
             {
                 fixed (EXRImage* imagePtr = &image)
@@ -454,11 +429,9 @@ namespace TinyEXR
 
         public static unsafe ResultCode SaveEXRImageToFile(ref EXRImage image, ref EXRHeader header, string filename)
         {
-            int fileNameByteLength = Encoding.UTF8.GetByteCount(filename);
-            Span<byte> fileNameBytes = fileNameByteLength <= 256 ? stackalloc byte[256] : new byte[fileNameByteLength];
-            Encoding.UTF8.GetBytes(filename, fileNameBytes);
+            byte[] fileNameBytes = NativeUtf8.ToNullTerminated(filename);
             ResultCode result;
-            sbyte* errorPtr;
+            sbyte* errorPtr = null;
             fixed (byte* filePtr = fileNameBytes)
             {
                 fixed (EXRImage* imagePtr = &image)
@@ -480,8 +453,8 @@ namespace TinyEXR
         public static unsafe byte[]? SaveEXRImageToMemory(ref EXRImage image, ref EXRHeader header)
         {
             UIntPtr rawLen;
-            sbyte* errorPtr;
-            byte* dataPtr;
+            sbyte* errorPtr = null;
+            byte* dataPtr = null;
             fixed (EXRImage* imagePtr = &image)
             {
                 fixed (EXRHeader* headerPtr = &header)
@@ -528,11 +501,9 @@ namespace TinyEXR
 
         public static unsafe ResultCode LoadDeepEXR(ref DeepImage deep, string filename)
         {
-            int fileNameByteLength = Encoding.UTF8.GetByteCount(filename);
-            Span<byte> fileNameBytes = fileNameByteLength <= 256 ? stackalloc byte[256] : new byte[fileNameByteLength];
-            Encoding.UTF8.GetBytes(filename, fileNameBytes);
+            byte[] fileNameBytes = NativeUtf8.ToNullTerminated(filename);
             ResultCode result;
-            sbyte* errorPtr;
+            sbyte* errorPtr = null;
             fixed (byte* filePtr = fileNameBytes)
             {
                 fixed (DeepImage* deepPtr = &deep)
@@ -554,7 +525,7 @@ namespace TinyEXR
             int x = 0;
             int y = 0;
             ResultCode result;
-            sbyte* errorPtr;
+            sbyte* errorPtr = null;
             fixed (byte* dataPtr = data)
             {
                 result = (ResultCode)EXRNative.LoadEXRFromMemoryInternal(&img, &x, &y, dataPtr, new UIntPtr((uint)data.Length), &errorPtr);
@@ -592,12 +563,159 @@ namespace TinyEXR
             return result;
         }
 
+        public unsafe static bool IsSpectralEXR(string filename)
+        {
+            byte[] fileNameBytes = NativeUtf8.ToNullTerminated(filename);
+            int result;
+            fixed (byte* fileNamePtr = fileNameBytes)
+            {
+                result = EXRNative.IsSpectralEXRInternal((sbyte*)fileNamePtr);
+            }
+
+            return result == EXRNative.TINYEXR_SUCCESS;
+        }
+
+        public unsafe static bool IsSpectralEXRFromMemory(ReadOnlySpan<byte> data)
+        {
+            int result;
+            fixed (byte* dataPtr = data)
+            {
+                result = EXRNative.IsSpectralEXRFromMemoryInternal(dataPtr, new UIntPtr((uint)data.Length));
+            }
+
+            return result == EXRNative.TINYEXR_SUCCESS;
+        }
+
+        public static unsafe SpectrumType? EXRGetSpectrumType(ref EXRHeader header)
+        {
+            fixed (EXRHeader* headerPtr = &header)
+            {
+                int value = EXRNative.EXRGetSpectrumTypeInternal(headerPtr);
+                if (value < 0)
+                {
+                    return null;
+                }
+
+                return (SpectrumType)value;
+            }
+        }
+
+        public static unsafe string EXRFormatWavelength(float wavelengthNm)
+        {
+            Span<byte> buffer = stackalloc byte[WavelengthBufferSize];
+            fixed (byte* ptr = buffer)
+            {
+                EXRNative.EXRFormatWavelengthInternal((sbyte*)ptr, new UIntPtr(WavelengthBufferSize), wavelengthNm);
+                return NativeUtf8.Read((sbyte*)ptr);
+            }
+        }
+
+        public static unsafe string EXRSpectralChannelName(float wavelengthNm, int stokesComponent)
+        {
+            Span<byte> buffer = stackalloc byte[ChannelNameBufferSize];
+            fixed (byte* ptr = buffer)
+            {
+                EXRNative.EXRSpectralChannelNameInternal((sbyte*)ptr, new UIntPtr(ChannelNameBufferSize), wavelengthNm, stokesComponent);
+                return NativeUtf8.Read((sbyte*)ptr);
+            }
+        }
+
+        public static unsafe string EXRReflectiveChannelName(float wavelengthNm)
+        {
+            Span<byte> buffer = stackalloc byte[ChannelNameBufferSize];
+            fixed (byte* ptr = buffer)
+            {
+                EXRNative.EXRReflectiveChannelNameInternal((sbyte*)ptr, new UIntPtr(ChannelNameBufferSize), wavelengthNm);
+                return NativeUtf8.Read((sbyte*)ptr);
+            }
+        }
+
+        public static unsafe float EXRParseSpectralChannelWavelength(string channelName)
+        {
+            byte[] channelNameBytes = NativeUtf8.ToNullTerminated(channelName);
+            fixed (byte* ptr = channelNameBytes)
+            {
+                return EXRNative.EXRParseSpectralChannelWavelengthInternal((sbyte*)ptr);
+            }
+        }
+
+        public static unsafe int EXRGetStokesComponent(string channelName)
+        {
+            byte[] channelNameBytes = NativeUtf8.ToNullTerminated(channelName);
+            fixed (byte* ptr = channelNameBytes)
+            {
+                return EXRNative.EXRGetStokesComponentInternal((sbyte*)ptr);
+            }
+        }
+
+        public static unsafe bool EXRIsSpectralChannel(string channelName)
+        {
+            byte[] channelNameBytes = NativeUtf8.ToNullTerminated(channelName);
+            fixed (byte* ptr = channelNameBytes)
+            {
+                return EXRNative.EXRIsSpectralChannelInternal((sbyte*)ptr) != 0;
+            }
+        }
+
+        public static unsafe float[] EXRGetWavelengths(ref EXRHeader header)
+        {
+            if (header.num_channels <= 0)
+            {
+                return Array.Empty<float>();
+            }
+
+            float[] wavelengths = new float[header.num_channels];
+            fixed (EXRHeader* headerPtr = &header)
+            {
+                fixed (float* wavelengthsPtr = wavelengths)
+                {
+                    int count = EXRNative.EXRGetWavelengthsInternal(headerPtr, wavelengthsPtr, wavelengths.Length);
+                    if (count <= 0)
+                    {
+                        return Array.Empty<float>();
+                    }
+
+                    if (count == wavelengths.Length)
+                    {
+                        return wavelengths;
+                    }
+
+                    float[] result = new float[count];
+                    Array.Copy(wavelengths, result, count);
+                    return result;
+                }
+            }
+        }
+
+        public static unsafe ResultCode EXRSetSpectralAttributes(ref EXRHeader header,
+                                                                 SpectrumType spectrumType,
+                                                                 string units)
+        {
+            byte[] unitsBytes = NativeUtf8.ToNullTerminated(units);
+            fixed (EXRHeader* headerPtr = &header)
+            {
+                fixed (byte* unitsPtr = unitsBytes)
+                {
+                    return (ResultCode)EXRNative.EXRSetSpectralAttributesInternal(headerPtr, (int)spectrumType, (sbyte*)unitsPtr);
+                }
+            }
+        }
+
+        public static unsafe string? EXRGetSpectralUnits(ref EXRHeader header)
+        {
+            fixed (EXRHeader* headerPtr = &header)
+            {
+                sbyte* unitsPtr = EXRNative.EXRGetSpectralUnitsInternal(headerPtr);
+                return unitsPtr == null ? null : NativeUtf8.Read(unitsPtr);
+            }
+        }
+
         //------------some helper functions------------
         public static unsafe string ReadExrChannelInfoName(ref EXRChannelInfo info)
         {
             fixed (sbyte* ptr = info.name)
             {
-                return Encoding.UTF8.GetString((byte*)ptr, (int)EXRNative.StrLenInternal(ptr).ToUInt64());
+                return NativeUtf8.Read(ptr);
             }
         }
 

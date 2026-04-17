@@ -1,7 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
 using TinyEXR.Native;
 
 namespace TinyEXR
@@ -56,7 +55,7 @@ namespace TinyEXR
 
         private unsafe byte[]? SaveFunc(Func<EXRHeader, EXRImage, byte[]?> func)
         {
-            if (_compression == CompressionType.PXR24 || _compression == CompressionType.B44 || _compression == CompressionType.B44A)
+            if (_compression == CompressionType.DWAA || _compression == CompressionType.DWAB)
             {
                 throw new InvalidOperationException($"tinyexr unsupport compression type: {_compression}");
             }
@@ -80,7 +79,7 @@ namespace TinyEXR
                     {
                         for (int i = 0; i < chlist.Length; i++)
                         {
-                            Encoding.UTF8.GetBytes(_channels[i].Channel.Name, new Span<byte>(chPtr[i].name, 256));
+                            NativeUtf8.WriteNullTerminated(_channels[i].Channel.Name, new Span<byte>(chPtr[i].name, 256));
                             chlist[i].pixel_type = (int)_channels[i].Channel.Type;
                             chlist[i].x_sampling = _channels[i].Channel.SamplingX;
                             chlist[i].y_sampling = _channels[i].Channel.SamplingY;
