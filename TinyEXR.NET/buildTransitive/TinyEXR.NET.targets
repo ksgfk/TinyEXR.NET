@@ -45,6 +45,28 @@
     </ItemGroup>
   </Target>
 
+  <Target Name="TinyEXRIncludeDynamicNativePublishAsset"
+          AfterTargets="ResolveLockFileCopyLocalFiles;_ComputeResolvedCopyLocalPublishAssets"
+          BeforeTargets="ComputeResolvedFilesToPublishList"
+          Condition="'$(PublishAot)' == 'true' and '$(_TinyEXRSourceStaticEnabled)' != 'true'">
+    <PropertyGroup>
+      <_TinyEXRDynamicNativePublishAsset Condition="'$(_TinyEXRIsWindowsRid)' == 'true'">$(MSBuildThisFileDirectory)..\runtimes\$(RuntimeIdentifier)\native\TinyEXRNative.dll</_TinyEXRDynamicNativePublishAsset>
+      <_TinyEXRDynamicNativePublishAsset Condition="'$(_TinyEXRIsWindowsRid)' != 'true' and '$(_TinyEXRIsOsxRid)' == 'true'">$(MSBuildThisFileDirectory)..\runtimes\$(RuntimeIdentifier)\native\libTinyEXRNative.dylib</_TinyEXRDynamicNativePublishAsset>
+      <_TinyEXRDynamicNativePublishAsset Condition="'$(_TinyEXRIsWindowsRid)' != 'true' and '$(_TinyEXRIsOsxRid)' != 'true'">$(MSBuildThisFileDirectory)..\runtimes\$(RuntimeIdentifier)\native\libTinyEXRNative.so</_TinyEXRDynamicNativePublishAsset>
+    </PropertyGroup>
+
+    <ItemGroup Condition="Exists('$(_TinyEXRDynamicNativePublishAsset)')">
+      <ResolvedFileToPublish Include="$(_TinyEXRDynamicNativePublishAsset)">
+        <RelativePath>$([System.IO.Path]::GetFileName('$(_TinyEXRDynamicNativePublishAsset)'))</RelativePath>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+        <IsKeyOutput>false</IsKeyOutput>
+      </ResolvedFileToPublish>
+    </ItemGroup>
+
+    <Error Condition="!Exists('$(_TinyEXRDynamicNativePublishAsset)')"
+           Text="TinyEXR.NET dynamic NativeAOT publish expected native asset '$(_TinyEXRDynamicNativePublishAsset)' but it was not found in the package." />
+  </Target>
+
   <Target Name="TinyEXRBuildSourceStaticLibrary"
           BeforeTargets="SetupOSSpecificProps"
           Condition="'$(_TinyEXRSourceStaticEnabled)' == 'true'">
