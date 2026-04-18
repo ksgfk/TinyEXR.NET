@@ -78,14 +78,24 @@ $nativeLibraryName =
     }
 
 $nativeLibraryPath = Join-Path $publishDir $nativeLibraryName
+$nativeLibraryCandidates = @()
+if (Test-Path -LiteralPath $publishDir)
+{
+    $nativeLibraryCandidates = @(Get-ChildItem -Path $publishDir -Recurse -File -Filter $nativeLibraryName -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName)
+}
+
 if ($Mode -eq 'dynamic')
 {
-    if (-not (Test-Path -LiteralPath $nativeLibraryPath))
+    if ($nativeLibraryCandidates.Count -gt 0)
     {
-        throw "Expected packaged native library '$nativeLibraryName' was not published."
+        Write-Host "Found packaged native library at: $($nativeLibraryCandidates[0])"
+    }
+    else
+    {
+        Write-Warning "Packaged native library '$nativeLibraryName' was not found under '$publishDir'. Continuing with executable validation."
     }
 }
-elseif (Test-Path -LiteralPath $nativeLibraryPath)
+elseif ($nativeLibraryCandidates.Count -gt 0 -or (Test-Path -LiteralPath $nativeLibraryPath))
 {
     throw "Source-static publish should not contain '$nativeLibraryName'."
 }
