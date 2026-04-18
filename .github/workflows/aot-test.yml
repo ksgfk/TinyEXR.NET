@@ -8,6 +8,7 @@ on:
 
 jobs:
   nativeaot-smoke:
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -15,6 +16,16 @@ jobs:
         include:
           - os: windows-latest
             rid: win-x64
+          - os: windows-11-arm
+            rid: win-arm64
+          - os: ubuntu-latest
+            rid: linux-x64
+          - os: ubuntu-24.04-arm
+            rid: linux-arm64
+          - os: macos-15-intel
+            rid: osx-x64
+          - os: macos-latest
+            rid: osx-arm64
     runs-on: ${{ matrix.os }}
     steps:
     - uses: actions/checkout@v4
