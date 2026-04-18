@@ -39,7 +39,8 @@ if (Test-Path -LiteralPath $publishDir)
     Remove-Item -LiteralPath $publishDir -Recurse -Force
 }
 
-dotnet pack $libraryProject -c $Configuration -o $packagesDir
+dotnet build $libraryProject -c $Configuration
+dotnet pack $libraryProject -c $Configuration --no-build -o $packagesDir
 
 $publishArgs = @(
     'publish',

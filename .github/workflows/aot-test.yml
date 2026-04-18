@@ -8,12 +8,13 @@ on:
 
 jobs:
   nativeaot-smoke:
+    name: NativeAOT (${{ matrix.mode }}, ${{ matrix.platform.rid }})
     timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
         mode: [dynamic, source]
-        include:
+        platform:
           - os: windows-latest
             rid: win-x64
           - os: windows-11-arm
@@ -26,7 +27,7 @@ jobs:
             rid: osx-x64
           - os: macos-latest
             rid: osx-arm64
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.platform.os }}
     steps:
     - uses: actions/checkout@v4
       with:
@@ -39,4 +40,4 @@ jobs:
 
     - name: Run NativeAOT smoke test
       shell: pwsh
-      run: .\TinyEXR.Test\run_nativeaot_smoke.ps1 -Mode ${{ matrix.mode }} -RuntimeIdentifier ${{ matrix.rid }}
+      run: .\TinyEXR.Test\run_nativeaot_smoke.ps1 -Mode ${{ matrix.mode }} -RuntimeIdentifier ${{ matrix.platform.rid }}
