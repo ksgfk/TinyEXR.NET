@@ -6,8 +6,8 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <RootNamespace>TinyEXR</RootNamespace>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
-    <AssemblyVersion>0.3.12</AssemblyVersion>
-    <FileVersion>0.3.12</FileVersion>
+    <AssemblyVersion>0.3.13</AssemblyVersion>
+    <FileVersion>0.3.13</FileVersion>
     <RepositoryType>git</RepositoryType>
     <Description>TinyEXR.NET is a C# wrapper of tinyexr</Description>
     <Company>ksgfk</Company>
@@ -18,7 +18,7 @@
     <PackageTags>OpenEXR,HDR</PackageTags>
     <PackageReleaseNotes>update</PackageReleaseNotes>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <Version>0.3.12</Version>
+    <Version>0.3.13</Version>
     <Nullable>enable</Nullable>
 
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
@@ -63,6 +63,19 @@
       <Pack>True</Pack>
       <PackagePath>\</PackagePath>
     </None>
+    <None Include="buildTransitive\TinyEXR.NET.props" Pack="True" PackagePath="buildTransitive\" />
+    <None Include="buildTransitive\TinyEXR.NET.targets" Pack="True" PackagePath="buildTransitive\" />
+    <None Include="..\TinyEXR.Native\CMakeLists.txt" Pack="True" PackagePath="buildTransitive\native-src\" />
+    <None Include="..\TinyEXR.Native\TinyEXR.Native.cpp" Pack="True" PackagePath="buildTransitive\native-src\" />
+    <None Include="..\TinyEXR.Native\TinyEXR.Native.h" Pack="True" PackagePath="buildTransitive\native-src\" />
+    <None Include="..\TinyEXR.Native\tinyexr\exr_reader.hh" Pack="True" PackagePath="buildTransitive\native-src\tinyexr\" />
+    <None Include="..\TinyEXR.Native\tinyexr\streamreader.hh" Pack="True" PackagePath="buildTransitive\native-src\tinyexr\" />
+    <None Include="..\TinyEXR.Native\tinyexr\tinyexr.h" Pack="True" PackagePath="buildTransitive\native-src\tinyexr\" />
+    <None Include="..\TinyEXR.Native\tinyexr\LICENSE" Pack="True" PackagePath="buildTransitive\native-src\tinyexr\" />
+    <None Include="..\TinyEXR.Native\zlib\**\*"
+          Exclude="..\TinyEXR.Native\zlib\.git;..\TinyEXR.Native\zlib\.git\**\*;..\TinyEXR.Native\zlib\.gitignore"
+          Pack="True"
+          PackagePath="buildTransitive\native-src\zlib\" />
   </ItemGroup>
 
   <ItemGroup>

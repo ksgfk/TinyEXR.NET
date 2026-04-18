@@ -9,6 +9,7 @@ obj
 bin
 
 .cache
+artifacts
 
 *.dll
 *.so

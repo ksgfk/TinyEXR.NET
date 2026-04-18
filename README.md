@@ -26,6 +26,34 @@ tinyexr did not export any symbols, so I have to make a wrapper for these C++ fu
 
 Currently, only `win-x64`, `win-arm64`, `linux-x64`, `linux-arm64`, `osx-x64` and `osx-arm64` are available. If you want use this lib on other platforms, you have to build them by your self.
 
+## NativeAOT
+
+`TinyEXR.NET` now supports two NativeAOT consumption modes:
+
+- default dynamic mode: consume the packaged `runtimes/<rid>/native` shared library assets
+- source static mode: let the publishing project build `TinyEXRNative` locally with `cmake` and statically link it into the final NativeAOT executable
+
+To enable source static mode in the final application project:
+
+```xml
+<PropertyGroup>
+  <TinyEXRStaticLinkMode>source</TinyEXRStaticLinkMode>
+</PropertyGroup>
+```
+
+Then publish with NativeAOT as usual, for example:
+
+```powershell
+dotnet publish -c Release -r win-x64 -p:PublishAot=true
+```
+
+Requirements for source static mode:
+
+- `cmake` must be available on `PATH`
+- a local C/C++ toolchain compatible with the target RID must be installed
+
+An end-to-end sample is available in [samples/TinyEXR.NativeAot.SourceStatic](samples/TinyEXR.NativeAot.SourceStatic).
+
 ## TODO
 
 ### multi-part wrapper

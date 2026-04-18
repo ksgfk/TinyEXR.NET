@@ -1,0 +1,117 @@
+<Project>
+  <PropertyGroup>
+    <_TinyEXRSourceStaticEnabled Condition="'$(PublishAot)' == 'true' and '$(TinyEXRStaticLinkMode)' == 'source'">true</_TinyEXRSourceStaticEnabled>
+  </PropertyGroup>
+
+  <Target Name="TinyEXRValidateStaticLinkMode" BeforeTargets="ResolvePackageAssets">
+    <Error Condition="'$(TinyEXRStaticLinkMode)' != 'dynamic' and '$(TinyEXRStaticLinkMode)' != 'source'"
+           Text="TinyEXR.NET: TinyEXRStaticLinkMode must be either 'dynamic' or 'source'." />
+  </Target>
+
+  <Target Name="TinyEXRExcludeDynamicNativeAssets"
+          AfterTargets="ResolvePackageAssets"
+          BeforeTargets="ResolveLockFileCopyLocalFiles;_ComputeResolvedCopyLocalPublishAssets"
+          Condition="'$(_TinyEXRSourceStaticEnabled)' == 'true'">
+    <ItemGroup>
+      <_TinyEXRDynamicNativeCopyLocal Include="@(NativeCopyLocalItems)"
+                                      Condition="'%(NativeCopyLocalItems.FileName)' == 'TinyEXRNative' or '%(NativeCopyLocalItems.FileName)' == 'libTinyEXRNative'" />
+      <_TinyEXRDynamicRuntimeTargets Include="@(RuntimeTargetsCopyLocalItems)"
+                                     Condition="'%(RuntimeTargetsCopyLocalItems.FileName)' == 'TinyEXRNative' or '%(RuntimeTargetsCopyLocalItems.FileName)' == 'libTinyEXRNative'" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <NativeCopyLocalItems Remove="@(_TinyEXRDynamicNativeCopyLocal)" />
+      <RuntimeTargetsCopyLocalItems Remove="@(_TinyEXRDynamicRuntimeTargets)" />
+    </ItemGroup>
+  </Target>
+
+  <Target Name="TinyEXRPrunePublishItems"
+          AfterTargets="ResolveLockFileCopyLocalFiles;_ComputeResolvedCopyLocalPublishAssets"
+          BeforeTargets="ComputeResolvedFilesToPublishList"
+          Condition="'$(_TinyEXRSourceStaticEnabled)' == 'true'">
+    <ItemGroup>
+      <_TinyEXRPublishArtifacts Include="@(_ResolvedCopyLocalBuildAssets)"
+                                Condition="'%(_ResolvedCopyLocalBuildAssets.FileName)' == 'TinyEXRNative' or '%(_ResolvedCopyLocalBuildAssets.FileName)' == 'libTinyEXRNative'" />
+      <_TinyEXRPublishArtifacts Include="@(_ResolvedCopyLocalPublishAssets)"
+                                Condition="'%(_ResolvedCopyLocalPublishAssets.FileName)' == 'TinyEXRNative' or '%(_ResolvedCopyLocalPublishAssets.FileName)' == 'libTinyEXRNative'" />
+      <_TinyEXRPublishArtifacts Include="@(ResolvedFileToPublish)"
+                                Condition="'%(ResolvedFileToPublish.FileName)' == 'TinyEXRNative' or '%(ResolvedFileToPublish.FileName)' == 'libTinyEXRNative'" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <_ResolvedCopyLocalBuildAssets Remove="@(_TinyEXRPublishArtifacts)" />
+      <_ResolvedCopyLocalPublishAssets Remove="@(_TinyEXRPublishArtifacts)" />
+      <ResolvedFileToPublish Remove="@(_TinyEXRPublishArtifacts)" />
+    </ItemGroup>
+  </Target>
+
+  <Target Name="TinyEXRBuildSourceStaticLibrary"
+          BeforeTargets="SetupOSSpecificProps"
+          Condition="'$(_TinyEXRSourceStaticEnabled)' == 'true'">
+    <Error Condition="'$(RuntimeIdentifier)' == ''"
+           Text="TinyEXR.NET source static linking requires RuntimeIdentifier to be set on the publishing project." />
+
+    <Exec Command="cmake --version" IgnoreExitCode="true" ConsoleToMSBuild="true">
+      <Output TaskParameter="ExitCode" PropertyName="_TinyEXRCMakeExitCode" />
+    </Exec>
+    <Error Condition="'$(_TinyEXRCMakeExitCode)' != '0'"
+           Text="TinyEXR.NET source static linking requires cmake on PATH." />
+
+    <RemoveDir Directories="$(TinyEXRNativeBuildDir)" />
+    <MakeDir Directories="$(TinyEXRNativeSourceDir);$(TinyEXRNativeBuildDir)" />
+
+    <ItemGroup>
+      <_TinyEXRSourcePayload Include="$(TinyEXRNativeSourceRoot)**\*" />
+    </ItemGroup>
+
+    <Copy SourceFiles="@(_TinyEXRSourcePayload)"
+          DestinationFiles="@(_TinyEXRSourcePayload->'$(TinyEXRNativeSourceDir)\%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+
+    <PropertyGroup>
+      <_TinyEXRCMakeUsesBuildType>true</_TinyEXRCMakeUsesBuildType>
+      <_TinyEXRCMakeUsesBuildType Condition="'$(TinyEXRCMakeGenerator)' == 'Xcode' or '$(TinyEXRCMakeGenerator)' == 'Ninja Multi-Config'">false</_TinyEXRCMakeUsesBuildType>
+      <_TinyEXRCMakeUsesBuildType Condition="'$(TinyEXRCMakeGenerator)' != '' and $([System.String]::Copy('$(TinyEXRCMakeGenerator)').StartsWith('Visual Studio'))">false</_TinyEXRCMakeUsesBuildType>
+    </PropertyGroup>
+
+    <ItemGroup>
+      <_TinyEXRCMakeConfigureArg Include="-S &quot;$(TinyEXRNativeSourceDir)&quot;" />
+      <_TinyEXRCMakeConfigureArg Include="-B &quot;$(TinyEXRNativeBuildDir)&quot;" />
+      <_TinyEXRCMakeConfigureArg Include="-DCMAKE_BUILD_TYPE=$(TinyEXRSourceBuildConfiguration)" Condition="'$(_TinyEXRCMakeUsesBuildType)' == 'true'" />
+      <_TinyEXRCMakeConfigureArg Include="-G &quot;$(TinyEXRCMakeGenerator)&quot;" Condition="'$(TinyEXRCMakeGenerator)' != ''" />
+      <_TinyEXRCMakeConfigureArg Include="-A &quot;$(TinyEXRCMakePlatform)&quot;" Condition="'$(TinyEXRCMakePlatform)' != ''" />
+      <_TinyEXRCMakeConfigureArg Include="-DCMAKE_OSX_ARCHITECTURES=$(TinyEXRCMakeOsxArchitectures)" Condition="'$(TinyEXRCMakeOsxArchitectures)' != ''" />
+    </ItemGroup>
+
+    <Exec Command="cmake @(_TinyEXRCMakeConfigureArg, ' ') $(TinyEXRCMakeAdditionalArguments)" ConsoleToMSBuild="true" />
+    <Exec Command="cmake --build &quot;$(TinyEXRNativeBuildDir)&quot; --target &quot;$(TinyEXRNativeStaticTarget)&quot; --config &quot;$(TinyEXRSourceBuildConfiguration)&quot; --parallel $(TinyEXRCMakeBuildAdditionalArguments)" ConsoleToMSBuild="true" />
+
+    <PropertyGroup>
+      <_TinyEXRWrapperStaticLibrary Condition="'$(_TinyEXRIsWindowsRid)' == 'true' and Exists('$(TinyEXRNativeBuildDir)\artifacts\$(TinyEXRSourceBuildConfiguration)\TinyEXRNative-static.lib')">$(TinyEXRNativeBuildDir)\artifacts\$(TinyEXRSourceBuildConfiguration)\TinyEXRNative-static.lib</_TinyEXRWrapperStaticLibrary>
+      <_TinyEXRWrapperStaticLibrary Condition="'$(_TinyEXRIsWindowsRid)' == 'true' and '$(_TinyEXRWrapperStaticLibrary)' == '' and Exists('$(TinyEXRNativeBuildDir)\artifacts\TinyEXRNative-static.lib')">$(TinyEXRNativeBuildDir)\artifacts\TinyEXRNative-static.lib</_TinyEXRWrapperStaticLibrary>
+      <_TinyEXRWrapperStaticLibrary Condition="'$(_TinyEXRIsWindowsRid)' != 'true' and Exists('$(TinyEXRNativeBuildDir)\artifacts\$(TinyEXRSourceBuildConfiguration)\libTinyEXRNative-static.a')">$(TinyEXRNativeBuildDir)\artifacts\$(TinyEXRSourceBuildConfiguration)\libTinyEXRNative-static.a</_TinyEXRWrapperStaticLibrary>
+      <_TinyEXRWrapperStaticLibrary Condition="'$(_TinyEXRIsWindowsRid)' != 'true' and '$(_TinyEXRWrapperStaticLibrary)' == '' and Exists('$(TinyEXRNativeBuildDir)\artifacts\libTinyEXRNative-static.a')">$(TinyEXRNativeBuildDir)\artifacts\libTinyEXRNative-static.a</_TinyEXRWrapperStaticLibrary>
+
+      <_TinyEXRZlibStaticLibrary Condition="'$(_TinyEXRIsWindowsRid)' == 'true' and Exists('$(TinyEXRNativeBuildDir)\artifacts\$(TinyEXRSourceBuildConfiguration)\zs.lib')">$(TinyEXRNativeBuildDir)\artifacts\$(TinyEXRSourceBuildConfiguration)\zs.lib</_TinyEXRZlibStaticLibrary>
+      <_TinyEXRZlibStaticLibrary Condition="'$(_TinyEXRIsWindowsRid)' == 'true' and '$(_TinyEXRZlibStaticLibrary)' == '' and Exists('$(TinyEXRNativeBuildDir)\artifacts\zs.lib')">$(TinyEXRNativeBuildDir)\artifacts\zs.lib</_TinyEXRZlibStaticLibrary>
+      <_TinyEXRZlibStaticLibrary Condition="'$(_TinyEXRIsWindowsRid)' != 'true' and Exists('$(TinyEXRNativeBuildDir)\artifacts\$(TinyEXRSourceBuildConfiguration)\libz.a')">$(TinyEXRNativeBuildDir)\artifacts\$(TinyEXRSourceBuildConfiguration)\libz.a</_TinyEXRZlibStaticLibrary>
+      <_TinyEXRZlibStaticLibrary Condition="'$(_TinyEXRIsWindowsRid)' != 'true' and '$(_TinyEXRZlibStaticLibrary)' == '' and Exists('$(TinyEXRNativeBuildDir)\artifacts\libz.a')">$(TinyEXRNativeBuildDir)\artifacts\libz.a</_TinyEXRZlibStaticLibrary>
+    </PropertyGroup>
+
+    <Error Condition="'$(_TinyEXRWrapperStaticLibrary)' == ''"
+           Text="TinyEXR.NET source static linking failed to locate TinyEXRNative-static after CMake build." />
+    <Error Condition="'$(_TinyEXRZlibStaticLibrary)' == ''"
+           Text="TinyEXR.NET source static linking failed to locate zlib static library after CMake build." />
+
+    <ItemGroup>
+      <DirectPInvoke Include="TinyEXRNative" />
+      <NativeLibrary Include="$(_TinyEXRWrapperStaticLibrary)" />
+      <NativeLibrary Include="$(_TinyEXRZlibStaticLibrary)" />
+      <NativeSystemLibrary Include="stdc++" Condition="'$(_TinyEXRIsWindowsRid)' != 'true' and '$(_TinyEXRIsOsxRid)' != 'true'" />
+      <NativeSystemLibrary Include="c++" Condition="'$(_TinyEXRIsOsxRid)' == 'true'" />
+    </ItemGroup>
+
+    <Message Importance="high"
+             Text="TinyEXR.NET source static linking enabled. Using wrapper '$(_TinyEXRWrapperStaticLibrary)' and zlib '$(_TinyEXRZlibStaticLibrary)'." />
+  </Target>
+</Project>
