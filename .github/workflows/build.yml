@@ -5,40 +5,63 @@ on:
 
 env:
   BUILD_TYPE: Release
-  NuGetDirectory: ${{github.workspace}}/nuget
 
 jobs:
   build-native:
     strategy:
       matrix:
-        os: [windows-latest, ubuntu-latest, macos-15-intel, macos-latest, ubuntu-24.04-arm, windows-11-arm]
+        include:
+          - os: windows-latest
+            rid: win-x64
+          - os: ubuntu-latest
+            rid: linux-x64
+          - os: macos-15-intel
+            rid: osx-x64
+          - os: macos-latest
+            rid: osx-arm64
+          - os: ubuntu-24.04-arm
+            rid: linux-arm64
+          - os: windows-11-arm
+            rid: win-arm64
     runs-on: ${{ matrix.os }}
     steps:
     - uses: actions/checkout@v4
       with:
         submodules: 'true'
-    - name: 'Configure CMake'
-      run: cmake -B ${{github.workspace}}/TinyEXR.Native/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} ${{github.workspace}}/TinyEXR.Native
-    - name: 'Build'
-      run: cmake --build ${{github.workspace}}/TinyEXR.Native/build --config ${{env.BUILD_TYPE}}
-    - name: 'Upload win'
-      if: ${{ startsWith(matrix.os, 'windows') }}
+    - name: Build native runtime asset
+      shell: pwsh
+      run: .\build_native_and_copy.ps1 ${{ matrix.rid }}
+    - name: Stage native runtime asset
+      shell: pwsh
+      run: |
+        $artifactRoot = Join-Path $env:RUNNER_TEMP 'artifact-bundle'
+        $sourceDir = "$env:GITHUB_WORKSPACE/TinyEXR.NET/Assets/runtimes/${{ matrix.rid }}/native"
+        $targetDir = Join-Path $artifactRoot "Assets/runtimes/${{ matrix.rid }}/native"
+        New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
+        Copy-Item -Path (Join-Path $sourceDir '*') -Destination $targetDir -Force
+    - name: Upload staged native runtime asset
       uses: actions/upload-artifact@v4
       with:
-        name: ${{ format('TinyEXR.Native-{0}.dll', matrix.os) }}
+        name: ${{ format('native-assets-{0}', matrix.rid) }}
         if-no-files-found: error
-        path: TinyEXR.Native/build/Release/TinyEXRNative.dll
-    - name: 'Upload linux'
-      if: ${{ startsWith(matrix.os, 'ubuntu') }}
+        path: ${{ runner.temp }}/artifact-bundle
+
+  bundle-native:
+    needs: build-native
+    runs-on: ubuntu-latest
+    steps:
+    - name: Download staged native runtime assets
+      uses: actions/download-artifact@v4
+      with:
+        pattern: native-assets-*
+        path: ${{ github.workspace }}/artifact-bundle
+        merge-multiple: true
+    - name: Verify bundled layout
+      shell: pwsh
+      run: Get-ChildItem -Path "${{ github.workspace }}/artifact-bundle/Assets/runtimes" -Recurse
+    - name: Upload bundled native runtime assets
       uses: actions/upload-artifact@v4
       with:
-        name: ${{ format('libTinyEXR.Native-{0}.so', matrix.os) }}
+        name: TinyEXR.NET-native-assets
         if-no-files-found: error
-        path: TinyEXR.Native/build/libTinyEXRNative.so
-    - name: 'Upload macos'
-      if: ${{ startsWith(matrix.os, 'macos') }}
-      uses: actions/upload-artifact@v4
-      with:
-        name: ${{ format('libTinyEXR.Native-{0}.dylib', matrix.os) }}
-        if-no-files-found: error
-        path: TinyEXR.Native/build/libTinyEXRNative.dylib
+        path: ${{ github.workspace }}/artifact-bundle
