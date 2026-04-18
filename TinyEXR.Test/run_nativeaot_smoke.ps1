@@ -12,7 +12,25 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
+function Invoke-DotNet
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string[]]$Arguments,
+
+        [Parameter(Mandatory = $true)]
+        [string]$FailureMessage
+    )
+
+    & dotnet @Arguments
+    if ($LASTEXITCODE -ne 0)
+    {
+        throw $FailureMessage
+    }
+}
+
 $repoRoot = Split-Path -Parent $PSScriptRoot
+$nativeBuildScript = Join-Path $repoRoot 'build_native_and_copy.ps1'
 $libraryProject = Join-Path $repoRoot 'TinyEXR.NET\TinyEXR.NET.csproj'
 $smokeProject = Join-Path $repoRoot 'TinyEXR.Test\TinyEXR.NativeAot.Smoke\TinyEXR.NativeAot.Smoke.csproj'
 $packagesDir = Join-Path $repoRoot 'artifacts\packages'
@@ -39,8 +57,15 @@ if (Test-Path -LiteralPath $publishDir)
     Remove-Item -LiteralPath $publishDir -Recurse -Force
 }
 
-dotnet build $libraryProject -c $Configuration
-dotnet pack $libraryProject -c $Configuration --no-build -o $packagesDir
+if ($Mode -eq 'dynamic')
+{
+    & $nativeBuildScript $RuntimeIdentifier
+}
+
+Invoke-DotNet -Arguments @('build', $libraryProject, '-c', $Configuration) `
+              -FailureMessage 'dotnet build failed for TinyEXR.NET.'
+Invoke-DotNet -Arguments @('pack', $libraryProject, '-c', $Configuration, '--no-build', '-o', $packagesDir) `
+              -FailureMessage 'dotnet pack failed for TinyEXR.NET.'
 
 $publishArgs = @(
     'publish',
@@ -57,7 +82,8 @@ if ($Mode -eq 'source')
     $publishArgs += '-p:TinyEXRStaticLinkMode=source'
 }
 
-dotnet @publishArgs
+Invoke-DotNet -Arguments $publishArgs `
+              -FailureMessage "dotnet publish failed for NativeAOT smoke project ($Mode, $RuntimeIdentifier)."
 
 $nativeLibraryName =
     if ($RuntimeIdentifier.StartsWith('win-'))

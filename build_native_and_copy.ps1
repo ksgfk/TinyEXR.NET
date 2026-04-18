@@ -26,7 +26,7 @@ Write-Info "Platform: $Platform"
 switch -Regex ($Platform) {
 	'^win-'   { $sharedName = 'TinyEXRNative.dll' }
 	'^linux-' { $sharedName = 'libTinyEXRNative.so' }
-	'^osx-'   { $sharedName = 'TinyEXRNative.dylib' }
+	'^osx-'   { $sharedName = 'libTinyEXRNative.dylib' }
 	default   { throw "Unrecognized platform: $Platform" }
 }
 if (Test-Path $buildDir) {
@@ -97,9 +97,9 @@ $artifactPath = $null
 try {
 	$artifactPath = Find-Artifact -Root $buildDir -FileName $sharedName
 } catch {
-	# On macOS, some toolchains may still emit lib-prefixed name; try fallback and rename
+	# Keep a fallback for alternate macOS naming, but preserve the package-facing name.
 	if ($Platform.StartsWith('osx-')) {
-		$fallback = 'lib' + $sharedName
+		$fallback = 'TinyEXRNative.dylib'
 		try {
 			$fallbackPath = Find-Artifact -Root $buildDir -FileName $fallback
 			if ($fallbackPath) {
