@@ -1,15 +1,16 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>netstandard2.1</TargetFramework>
+    <TargetFrameworks>netstandard2.1;net10.0</TargetFrameworks>
+    <LangVersion>latest</LangVersion>
     <AssemblyName>$(MSBuildProjectName)</AssemblyName>
-    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
     <RootNamespace>TinyEXR</RootNamespace>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
     <AssemblyVersion>0.3.13</AssemblyVersion>
     <FileVersion>0.3.13</FileVersion>
     <RepositoryType>git</RepositoryType>
-    <Description>TinyEXR.NET is a C# wrapper of tinyexr</Description>
+    <Description>TinyEXR.NET is a pure managed C# implementation of tinyexr v1 APIs</Description>
     <Company>ksgfk</Company>
     <Authors>ksgfk</Authors>
     <Copyright>Copyright (c) 2023-2026 ksgfk</Copyright>
@@ -20,7 +21,7 @@
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <Version>0.3.13</Version>
     <Nullable>enable</Nullable>
-
+    <ImplicitUsings>enable</ImplicitUsings>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <DebugType>embedded</DebugType>
     <DebugSymbols>true</DebugSymbols>
@@ -39,45 +40,12 @@
     <EmbedUntrackedSources>true</EmbedUntrackedSources>
     <EnablePackageValidation>true</EnablePackageValidation>
   </PropertyGroup>
-	
-  <Target Name="IncludeAllDependencies" BeforeTargets="_GetPackageFiles">
-    <ItemGroup>
-      <None Include="Assets\runtimes\**\*.dll" Pack="True" PackagePath="runtimes" />
-      <None Include="Assets\runtimes\**\*.so" Pack="True" PackagePath="runtimes" />
-      <None Include="Assets\runtimes\**\*.dylib" Pack="True" PackagePath="runtimes" />
-      <None Include="buildTransitive\TinyEXR.NET.props" Pack="True" PackagePath="\buildTransitive\TinyEXR.NET.props" />
-      <None Include="buildTransitive\TinyEXR.NET.targets" Pack="True" PackagePath="\buildTransitive\TinyEXR.NET.targets" />
-      <None Include="..\TinyEXR.Native\CMakeLists.txt" Pack="True" PackagePath="buildTransitive\native-src\" />
-      <None Include="..\TinyEXR.Native\TinyEXR.Native.cpp" Pack="True" PackagePath="buildTransitive\native-src\" />
-      <None Include="..\TinyEXR.Native\TinyEXR.Native.h" Pack="True" PackagePath="buildTransitive\native-src\" />
-      <None Include="..\TinyEXR.Native\tinyexr\exr_reader.hh" Pack="True" PackagePath="buildTransitive\native-src\tinyexr\" />
-      <None Include="..\TinyEXR.Native\tinyexr\streamreader.hh" Pack="True" PackagePath="buildTransitive\native-src\tinyexr\" />
-      <None Include="..\TinyEXR.Native\tinyexr\tinyexr.h" Pack="True" PackagePath="buildTransitive\native-src\tinyexr\" />
-      <None Include="..\TinyEXR.Native\tinyexr\LICENSE" Pack="True" PackagePath="buildTransitive\native-src\tinyexr\" />
-      <None Include="..\TinyEXR.Native\zlib\**\*"
-            Exclude="..\TinyEXR.Native\zlib\.git;..\TinyEXR.Native\zlib\.git\**\*;..\TinyEXR.Native\zlib\.gitignore"
-            Pack="True"
-            PackagePath="buildTransitive\native-src\zlib\" />
-    </ItemGroup>
-  </Target>
-
-  <Target Name="CopyRuntimes" AfterTargets="Build">
-    <ItemGroup>
-      <RuntimeFiles Include="Assets\runtimes\**\*" />
-    </ItemGroup>
-    <Copy
-      SourceFiles="@(RuntimeFiles)"
-      DestinationFiles="@(RuntimeFiles->'$(OutputPath)runtimes\%(RecursiveDir)%(Filename)%(Extension)')"
-      SkipUnchangedFiles="true" />
-  </Target>
 
   <ItemGroup>
     <None Include="..\README.md">
       <Pack>True</Pack>
       <PackagePath>\</PackagePath>
     </None>
-    <None Remove="buildTransitive\TinyEXR.NET.props" />
-    <None Remove="buildTransitive\TinyEXR.NET.targets" />
   </ItemGroup>
 
   <ItemGroup>

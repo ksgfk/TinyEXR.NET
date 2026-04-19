@@ -1,45 +1,30 @@
-name: 'Test'
+name: Test
 
 on:
   push:
     branches: [ "master" ]
-
-env:
-  BUILD_TYPE: Release
+  pull_request:
 
 jobs:
-  build-native:
+  test:
     strategy:
+      fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest, macos-15-intel, macos-latest, ubuntu-24.04-arm, windows-11-arm]
+        os: [windows-latest, ubuntu-latest, macos-15-intel, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
     - uses: actions/checkout@v4
       with:
         submodules: 'true'
 
-    - name: Compute RID
-      id: rid
-      shell: pwsh
-      run: |
-        $os = "${{ runner.os }}".ToLower()
-        $arch = "${{ runner.arch }}".ToLower()
-        switch ($os) {
-          'windows' { if ($arch -eq 'arm64') { $rid = 'win-arm64' } elseif ($arch -eq 'arm') { $rid = 'win-arm' } else { $rid = 'win-x64' } }
-          'linux'   { if ($arch -eq 'arm64') { $rid = 'linux-arm64' } else { $rid = 'linux-x64' } }
-          'macos'   { if ($arch -eq 'arm64') { $rid = 'osx-arm64' } else { $rid = 'osx-x64' } }
-          default   { throw "Unknown OS: $os" }
-        }
-        "rid=$rid" >> $env:GITHUB_OUTPUT
-
-    - name: Build native and copy
-      shell: pwsh
-      run: .\build_native_and_copy.ps1 ${{ steps.rid.outputs.rid }}
-
     - name: Setup .NET 10
       uses: actions/setup-dotnet@v4
       with:
         dotnet-version: '10.0.x'
+
+    - name: Prepare openexr-images samples
+      shell: pwsh
+      run: ./TinyEXR.Test/prepare-openexr-images.ps1
 
     - name: Build
       run: dotnet build TinyEXR.Test/TinyEXR.Test.sln --configuration Release -p:SignAssemblyKey=false

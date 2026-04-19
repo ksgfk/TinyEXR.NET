@@ -1,38 +1,31 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
-using System.Linq;
-using TinyEXR.Native;
+using System.IO;
 
 namespace TinyEXR
 {
     public class ScanlineExrWriter
     {
-        private class ChannelData
+        private sealed class ChannelData
         {
-            public ExrChannel Channel;
-            public byte[] Data;
-            public ExrPixelType DataType;
-
             public ChannelData(ExrChannel channel, byte[] data, ExrPixelType dataType)
             {
                 Channel = channel ?? throw new ArgumentNullException(nameof(channel));
                 Data = data ?? throw new ArgumentNullException(nameof(data));
                 DataType = dataType;
             }
+
+            public ExrChannel Channel { get; }
+
+            public byte[] Data { get; }
+
+            public ExrPixelType DataType { get; }
         }
 
-        readonly List<ChannelData> _channels;
-        int _width;
-        int _height;
-        CompressionType _compression;
-
-        public ScanlineExrWriter()
-        {
-            _channels = new List<ChannelData>();
-            _compression = CompressionType.ZIP;
-            _width = 0;
-            _height = 0;
-        }
+        private readonly List<ChannelData> _channels = new List<ChannelData>();
+        private int _width;
+        private int _height;
+        private CompressionType _compression = CompressionType.ZIP;
 
         public ScanlineExrWriter AddChannel(string name, ExrPixelType saveType, byte[] data, ExrPixelType dataType)
         {
@@ -53,88 +46,76 @@ namespace TinyEXR
             return this;
         }
 
-        private unsafe byte[]? SaveFunc(Func<EXRHeader, EXRImage, byte[]?> func)
+        public byte[] Save()
         {
-            if (_compression == CompressionType.DWAA || _compression == CompressionType.DWAB)
-            {
-                throw new InvalidOperationException($"tinyexr unsupport compression type: {_compression}");
-            }
-            if (_width == 0 || _height == 0)
-            {
-                throw new InvalidOperationException($"image size cannot be zero");
-            }
-            EXRChannelInfo[] chlist = new EXRChannelInfo[_channels.Count];
-            int[] reqType = new int[_channels.Count];
-            int[] saveType = new int[_channels.Count];
-            EXRHeader header = default;
-            Exr.InitEXRHeader(ref header);
-            EXRImage image = default;
-            Exr.InitEXRImage(ref image);
-            var dataMemorys = _channels.Select(i => i.Data.AsMemory()).ToArray();
-            fixed (EXRChannelInfo* chPtr = chlist)
-            {
-                fixed (int* reqPtr = reqType)
-                {
-                    fixed (int* savePtr = saveType)
-                    {
-                        for (int i = 0; i < chlist.Length; i++)
-                        {
-                            NativeUtf8.WriteNullTerminated(_channels[i].Channel.Name, new Span<byte>(chPtr[i].name, 256));
-                            chlist[i].pixel_type = (int)_channels[i].Channel.Type;
-                            chlist[i].x_sampling = _channels[i].Channel.SamplingX;
-                            chlist[i].y_sampling = _channels[i].Channel.SamplingY;
-                            chlist[i].p_linear = _channels[i].Channel.Linear;
-                            reqType[i] = (int)_channels[i].DataType;
-                            saveType[i] = (int)_channels[i].Channel.Type;
-                        }
-                        header.num_channels = _channels.Count;
-                        header.channels = chPtr;
-                        header.requested_pixel_types = reqPtr;
-                        header.pixel_types = savePtr;
-                        header.compression_type = (int)_compression;
+            ExrImage image = BuildImage();
+            ExrHeader header = BuildHeader();
 
-                        var dataMemHandle = dataMemorys.Select(i => i.Pin()).ToArray();
-                        var dataPtrArr = dataMemHandle.Select(i => new IntPtr(i.Pointer)).ToArray();
-                        fixed (IntPtr* dataPtr = dataPtrArr)
-                        {
-                            image.num_channels = _channels.Count;
-                            image.images = (byte**)dataPtr;
-                            image.width = _width;
-                            image.height = _height;
-                        }
-                        try
-                        {
-                            return func(header, image);
-                        }
-                        finally
-                        {
-                            Array.ForEach(dataMemHandle, i => i.Dispose());
-                        }
-                    }
-                }
-            }
-        }
-
-        public byte[]? Save()
-        {
-            return SaveFunc((header, image) =>
+            ResultCode result = Exr.TryWriteImage(image, header, out byte[] encoded);
+            if (result == ResultCode.Success)
             {
-                byte[]? result = Exr.SaveEXRImageToMemory(ref image, ref header);
-                return result ?? throw new InvalidOperationException("cannot save image to memory");
-            });
+                return encoded;
+            }
+
+            ThrowOnFailure(result, null);
+            return Array.Empty<byte>();
         }
 
         public void Save(string path)
         {
-            SaveFunc((header, image) =>
+            byte[] encoded = Save();
+            try
             {
-                ResultCode result = Exr.SaveEXRImageToFile(ref image, ref header, path);
-                if (result != ResultCode.Success)
-                {
-                    throw new InvalidOperationException($"cannot save image to file, reason: {result}");
-                }
-                return null;
-            });
+                File.WriteAllBytes(path, encoded);
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is NotSupportedException || ex is ArgumentException)
+            {
+                throw new InvalidOperationException($"cannot save image to file, file: {path}", ex);
+            }
+        }
+
+        private ExrImage BuildImage()
+        {
+            if (_width <= 0 || _height <= 0)
+            {
+                throw new InvalidOperationException("image size cannot be zero");
+            }
+
+            if (_channels.Count == 0)
+            {
+                throw new InvalidOperationException("at least one channel is required");
+            }
+
+            ExrImageChannel[] channels = new ExrImageChannel[_channels.Count];
+            for (int i = 0; i < _channels.Count; i++)
+            {
+                ChannelData channel = _channels[i];
+                channels[i] = new ExrImageChannel(channel.Channel, channel.DataType, channel.Data);
+            }
+
+            return new ExrImage(_width, _height, channels);
+        }
+
+        private ExrHeader BuildHeader()
+        {
+            return new ExrHeader
+            {
+                Compression = _compression,
+            };
+        }
+
+        private static void ThrowOnFailure(ResultCode result, string? path)
+        {
+            string message = path == null
+                ? $"cannot save image, reason: {result}"
+                : $"cannot save image, reason: {result}, file: {path}";
+
+            if (result == ResultCode.UnsupportedFeature)
+            {
+                throw new NotSupportedException(message);
+            }
+
+            throw new InvalidOperationException(message);
         }
     }
 }

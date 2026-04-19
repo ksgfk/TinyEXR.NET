@@ -1,67 +1,22 @@
-name: 'Build'
+name: Build
 
 on:
   workflow_dispatch:
 
-env:
-  BUILD_TYPE: Release
-
 jobs:
-  build-native:
+  build:
     strategy:
+      fail-fast: false
       matrix:
-        include:
-          - os: windows-latest
-            rid: win-x64
-          - os: ubuntu-latest
-            rid: linux-x64
-          - os: macos-15-intel
-            rid: osx-x64
-          - os: macos-latest
-            rid: osx-arm64
-          - os: ubuntu-24.04-arm
-            rid: linux-arm64
-          - os: windows-11-arm
-            rid: win-arm64
+        os: [windows-latest, ubuntu-latest, macos-15-intel, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
     - uses: actions/checkout@v4
-      with:
-        submodules: 'true'
-    - name: Build native runtime asset
-      shell: pwsh
-      run: .\build_native_and_copy.ps1 ${{ matrix.rid }}
-    - name: Stage native runtime asset
-      shell: pwsh
-      run: |
-        $artifactRoot = Join-Path $env:RUNNER_TEMP 'artifact-bundle'
-        $sourceDir = "$env:GITHUB_WORKSPACE/TinyEXR.NET/Assets/runtimes/${{ matrix.rid }}/native"
-        $targetDir = Join-Path $artifactRoot "Assets/runtimes/${{ matrix.rid }}/native"
-        New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
-        Copy-Item -Path (Join-Path $sourceDir '*') -Destination $targetDir -Force
-    - name: Upload staged native runtime asset
-      uses: actions/upload-artifact@v4
-      with:
-        name: ${{ format('native-assets-{0}', matrix.rid) }}
-        if-no-files-found: error
-        path: ${{ runner.temp }}/artifact-bundle
 
-  bundle-native:
-    needs: build-native
-    runs-on: ubuntu-latest
-    steps:
-    - name: Download staged native runtime assets
-      uses: actions/download-artifact@v4
+    - name: Setup .NET 10
+      uses: actions/setup-dotnet@v4
       with:
-        pattern: native-assets-*
-        path: ${{ github.workspace }}/artifact-bundle
-        merge-multiple: true
-    - name: Verify bundled layout
-      shell: pwsh
-      run: Get-ChildItem -Path "${{ github.workspace }}/artifact-bundle/Assets/runtimes" -Recurse
-    - name: Upload bundled native runtime assets
-      uses: actions/upload-artifact@v4
-      with:
-        name: TinyEXR.NET-native-assets
-        if-no-files-found: error
-        path: ${{ github.workspace }}/artifact-bundle
+        dotnet-version: '10.0.x'
+
+    - name: Build library
+      run: dotnet build TinyEXR.NET/TinyEXR.NET.csproj --configuration Release -p:SignAssemblyKey=false

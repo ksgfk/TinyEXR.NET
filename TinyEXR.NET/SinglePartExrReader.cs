@@ -1,196 +1,114 @@
-﻿using System;
+using System;
 using System.Numerics;
-using TinyEXR.Native;
 
 namespace TinyEXR
 {
     public class SinglePartExrReader
     {
-        byte[] _image = null!;
-        int[] _offset = null!;
-        int[] _length = null!;
-        ExrChannel[] _channels = null!;
+        private byte[][] _channelData = Array.Empty<byte[]>();
+        private ExrChannel[] _channels = Array.Empty<ExrChannel>();
 
-        public int Width { get; internal set; }
-        public int Height { get; internal set; }
+        public int Width { get; private set; }
+
+        public int Height { get; private set; }
+
         public ExrChannel[] Channels => _channels;
-        public float PixelAspectRatio { get; internal set; }
-        public EXRBox2i DataWindow { get; internal set; }
-        public EXRBox2i DisplayWindow { get; internal set; }
-        public CompressionType Compression { get; internal set; }
-        public LineOrderType LineOrder { get; internal set; }
-        public Vector2 ScreenWindowCenter { get; internal set; }
-        public float ScreenWindowWidth { get; internal set; }
+
+        public float PixelAspectRatio { get; private set; }
+
+        public ExrBox2i DataWindow { get; private set; }
+
+        public ExrBox2i DisplayWindow { get; private set; }
+
+        public CompressionType Compression { get; private set; }
+
+        public LineOrderType LineOrder { get; private set; }
+
+        public Vector2 ScreenWindowCenter { get; private set; }
+
+        public float ScreenWindowWidth { get; private set; }
 
         public void Read(string path)
         {
-            ResultCode result = Exr.ParseEXRVersionFromFile(path, out EXRVersion version);
-            if (result != ResultCode.Success)
-            {
-                throw new ArgumentException($"cannot parse version, result: {result}, file: {path}");
-            }
-            if (version.multipart != 0)
-            {
-                throw new ArgumentException($"{path} is multi-part");
-            }
-            EXRHeader header = default;
-            EXRImage image = default;
-            try
-            {
-                Exr.InitEXRHeader(ref header);
-                Exr.InitEXRImage(ref image);
-                result = Exr.ParseEXRHeaderFromFile(path, ref version, ref header);
-                if (result != ResultCode.Success)
-                {
-                    throw new ArgumentException($"cannot parse header, result: {result}, file: {path}");
-                }
-                result = Exr.LoadEXRImageFromFile(ref image, ref header, path);
-                if (result != ResultCode.Success)
-                {
-                    throw new ArgumentException($"cannot parse image, result: {result}, file: {path}");
-                }
-                ProcessImage(ref header, ref image);
-            }
-            finally
-            {
-                Exr.FreeEXRHeader(ref header);
-                Exr.FreeEXRImage(ref image);
-            }
+            ResultCode result = Exr.TryReadImage(path, out ExrHeader header, out ExrImage image);
+            ThrowOnFailure(result, path);
+            ProcessImage(header, image);
         }
 
         public void Read(ReadOnlySpan<byte> data)
         {
-            ResultCode result = Exr.ParseEXRVersionFromMemory(data, out EXRVersion version);
-            if (result != ResultCode.Success)
-            {
-                throw new ArgumentException($"cannot parse version, result: {result}");
-            }
-            if (version.multipart != 0)
-            {
-                throw new ArgumentException($"this is multi-part data");
-            }
-            EXRHeader header = default;
-            EXRImage image = default;
-            try
-            {
-                Exr.InitEXRHeader(ref header);
-                Exr.InitEXRImage(ref image);
-                result = Exr.ParseEXRHeaderFromMemory(data, ref version, ref header);
-                if (result != ResultCode.Success)
-                {
-                    throw new ArgumentException($"cannot parse header, result: {result}");
-                }
-                result = Exr.LoadEXRImageFromMemory(ref image, ref header, data);
-                if (result != ResultCode.Success)
-                {
-                    throw new ArgumentException($"cannot parse image, result: {result}");
-                }
-                ProcessImage(ref header, ref image);
-            }
-            finally
-            {
-                Exr.FreeEXRHeader(ref header);
-                Exr.FreeEXRImage(ref image);
-            }
-        }
-
-        private void ProcessImage(ref EXRHeader header, ref EXRImage image)
-        {
-            _channels = new ExrChannel[header.num_channels];
-            _offset = new int[header.num_channels];
-            _length = new int[header.num_channels];
-            int dataSize = 0;
-            for (int i = 0; i < _channels.Length; i++)
-            {
-                unsafe
-                {
-                    ref EXRChannelInfo ch = ref header.channels[i];
-                    _channels[i] = new ExrChannel(
-                        Exr.ReadExrChannelInfoName(ref ch),
-                        (ExrPixelType)ch.pixel_type,
-                        ch.x_sampling,
-                        ch.y_sampling,
-                        ch.p_linear);
-                }
-                _offset[i] = dataSize;
-                _length[i] = image.width * image.height * Exr.TypeSize(_channels[i].Type);
-                dataSize += _length[i];
-            }
-            _image = new byte[dataSize];
-            unsafe
-            {
-                if (image.tiles != null && image.images == null)
-                {
-                    for (int i = 0; i < image.num_tiles; i++)
-                    {
-                        ref EXRTile tile = ref image.tiles[i];
-                        for (int j = 0; j < _offset.Length; j++)
-                        {
-                            int typeSize = Exr.TypeSize(_channels[i].Type);
-                            int length = tile.width * tile.height * typeSize;
-                            for (int y = 0; y < tile.height; y++)
-                            {
-                                for (int x = 0; x < tile.width; x++)
-                                {
-                                    int from = (y * tile.width + x) * typeSize;
-                                    ReadOnlySpan<byte> src = new ReadOnlySpan<byte>(tile.images[j] + from, typeSize);
-                                    int to = ((y + tile.offset_y) * image.width + (x + tile.offset_x)) * typeSize;
-                                    Span<byte> dst = new Span<byte>(_image, to, typeSize);
-                                    src.CopyTo(dst);
-                                }
-                            }
-                        }
-                    }
-                }
-                else if (image.tiles == null && image.images != null)
-                {
-                    for (int i = 0; i < _offset.Length; i++)
-                    {
-                        int length = _length[i];
-                        ReadOnlySpan<byte> src = new ReadOnlySpan<byte>(image.images[i], length);
-                        Span<byte> dst = new Span<byte>(_image, _offset[i], length);
-                        src.CopyTo(dst);
-                    }
-                }
-                else
-                {
-                    throw new ArgumentException($"internal error");
-                }
-            }
-            Width = image.width;
-            Height = image.height;
-            PixelAspectRatio = header.pixel_aspect_ratio;
-            DataWindow = header.data_window;
-            DisplayWindow = header.display_window;
-            Compression = (CompressionType)header.compression_type;
-            LineOrder = (LineOrderType)header.line_order;
-            unsafe
-            {
-                ScreenWindowCenter = new Vector2(header.screen_window_center[0], header.screen_window_center[1]);
-            }
-            ScreenWindowWidth = header.screen_window_width;
+            ResultCode result = Exr.TryReadImage(data, out ExrHeader header, out ExrImage image);
+            ThrowOnFailure(result, null);
+            ProcessImage(header, image);
         }
 
         public ReadOnlySpan<byte> GetImageData(int channel)
         {
-            if (channel < 0 || channel >= _channels.Length)
+            if (channel < 0 || channel >= _channelData.Length)
             {
                 throw new ArgumentOutOfRangeException(nameof(channel));
             }
-            return new ReadOnlySpan<byte>(_image, _offset[channel], _length[channel]);
+
+            return _channelData[channel];
         }
 
         public ReadOnlySpan<byte> GetImageData(string channelName)
         {
             for (int i = 0; i < _channels.Length; i++)
             {
-                ExrChannel ch = _channels[i];
-                if (ch.Name == channelName)
+                if (string.Equals(_channels[i].Name, channelName, StringComparison.Ordinal))
                 {
-                    return GetImageData(i);
+                    return _channelData[i];
                 }
             }
+
             throw new ArgumentOutOfRangeException(nameof(channelName));
+        }
+
+        private void ProcessImage(ExrHeader header, ExrImage image)
+        {
+            _channels = new ExrChannel[image.Channels.Count];
+            _channelData = new byte[image.Channels.Count][];
+            for (int i = 0; i < image.Channels.Count; i++)
+            {
+                ExrImageChannel channel = image.Channels[i];
+                _channels[i] = new ExrChannel(
+                    channel.Channel.Name,
+                    channel.Channel.Type,
+                    channel.Channel.SamplingX,
+                    channel.Channel.SamplingY,
+                    channel.Channel.Linear);
+                _channelData[i] = channel.Data;
+            }
+
+            Width = image.Width;
+            Height = image.Height;
+            PixelAspectRatio = header.PixelAspectRatio;
+            DataWindow = header.DataWindow;
+            DisplayWindow = header.DisplayWindow;
+            Compression = header.Compression;
+            LineOrder = header.LineOrder;
+            ScreenWindowCenter = header.ScreenWindowCenter;
+            ScreenWindowWidth = header.ScreenWindowWidth;
+        }
+
+        private static void ThrowOnFailure(ResultCode result, string? path)
+        {
+            if (result == ResultCode.Success)
+            {
+                return;
+            }
+
+            string message = path == null
+                ? $"cannot read EXR image, result: {result}"
+                : $"cannot read EXR image, result: {result}, file: {path}";
+
+            if (result == ResultCode.UnsupportedFeature)
+            {
+                throw new NotSupportedException(message);
+            }
+
+            throw new InvalidOperationException(message);
         }
     }
 }

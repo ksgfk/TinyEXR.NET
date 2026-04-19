@@ -1,225 +1,182 @@
-﻿using System;
-using TinyEXR.Native;
+using System;
+using System.Buffers.Binary;
+using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
+using TinyEXR.PortV1;
 
 namespace TinyEXR
 {
-    //TODO: ParseEXRMultipartHeader
-    //TODO: ParseEXRMultipartImage
-    //TODO: SaveEXRMultipartImage
     public static class Exr
     {
-        private const int WavelengthBufferSize = 32;
-        private const int ChannelNameBufferSize = 64;
+        private const string SpectralLayoutVersionAttribute = "spectralLayoutVersion";
+        private const string ReflectiveUnitsAttribute = "ROOT/units";
+        private const string EmissiveUnitsAttribute = "emissiveUnits";
+        private const string PolarisationHandednessAttribute = "polarisationHandedness";
 
-        public unsafe static ResultCode LoadEXR(string filename, out float[] rgba, out int width, out int height)
+        public static ResultCode TryReadVersion(string filename, out ExrVersion version)
         {
-            byte[] fileNameBytes = NativeUtf8.ToNullTerminated(filename);
-            float* img = null;
-            int x = 0;
-            int y = 0;
-            ResultCode result;
-            sbyte* errorPtr = null;
-            fixed (byte* fileNamePtr = fileNameBytes)
+            if (!TryReadFile(filename, out byte[] data, out ResultCode fileResult))
             {
-                result = (ResultCode)EXRNative.LoadEXRInternal(&img, &x, &y, (sbyte*)fileNamePtr, &errorPtr);
+                version = new ExrVersion();
+                return fileResult;
             }
-            try
+
+            return TryReadVersion(data, out version);
+        }
+
+        public static ResultCode TryReadVersion(ReadOnlySpan<byte> data, out ExrVersion version)
+        {
+            return ExrImplementation.TryReadVersion(data, out version);
+        }
+
+        public static ResultCode TryReadHeader(string filename, out ExrVersion version, out ExrHeader header)
+        {
+            if (!TryReadFile(filename, out byte[] data, out ResultCode fileResult))
             {
-                if (result == ResultCode.Success)
-                {
-                    Span<float> imgRef = new Span<float>(img, x * y * 4);
-                    float[] data = imgRef.ToArray();
-                    width = x;
-                    height = y;
-                    rgba = data;
-                }
-                else
-                {
-                    width = default;
-                    height = default;
-                    rgba = default!;
-                }
+                version = new ExrVersion();
+                header = new ExrHeader();
+                return fileResult;
             }
-            finally
-            {
-                if (img != null)
-                {
-                    EXRNative.FreeInternal(img);
-                    img = null;
-                }
-                if (errorPtr != null)
-                {
-                    EXRNative.FreeEXRErrorMessageInternal(errorPtr);
-                    errorPtr = null;
-                }
-            }
+
+            return TryReadHeader(data, out version, out header);
+        }
+
+        public static ResultCode TryReadHeader(ReadOnlySpan<byte> data, out ExrVersion version, out ExrHeader header)
+        {
+            return ExrImplementation.TryReadHeader(data, out version, out header);
+        }
+
+        public static ResultCode TryReadHeader(string filename, out ExrHeader header)
+        {
+            ResultCode result = TryReadHeader(filename, out _, out header);
             return result;
         }
 
-        public static unsafe ResultCode LoadEXRWithLayer(string filename, string? layer, out float[] rgba, out int width, out int height)
+        public static ResultCode TryReadHeader(ReadOnlySpan<byte> data, out ExrHeader header)
         {
-            byte[] fileNameBytes = NativeUtf8.ToNullTerminated(filename);
-            if (string.IsNullOrWhiteSpace(layer))
-            {
-                layer = string.Empty;
-            }
-            byte[] layerBytes = NativeUtf8.ToNullTerminated(layer);
-            float* img = null;
-            int x = 0;
-            int y = 0;
-            ResultCode result;
-            sbyte* errorPtr = null;
-            fixed (byte* fileNamePtr = fileNameBytes)
-            {
-                fixed (byte* layerPtr = layerBytes)
-                {
-                    result = (ResultCode)EXRNative.LoadEXRWithLayerInternal(&img, &x, &y, (sbyte*)fileNamePtr, (sbyte*)layerPtr, &errorPtr);
-                }
-            }
-            try
-            {
-                if (result == ResultCode.Success)
-                {
-                    Span<float> imgRef = new Span<float>(img, x * y * 4);
-                    float[] data = imgRef.ToArray();
-                    width = x;
-                    height = y;
-                    rgba = data;
-                }
-                else
-                {
-                    width = default;
-                    height = default;
-                    rgba = default!;
-                }
-            }
-            finally
-            {
-                if (img != null)
-                {
-                    EXRNative.FreeInternal(img);
-                    img = null;
-                }
-                if (errorPtr != null)
-                {
-                    EXRNative.FreeEXRErrorMessageInternal(errorPtr);
-                    errorPtr = null;
-                }
-            }
+            ResultCode result = TryReadHeader(data, out _, out header);
             return result;
         }
 
-        public static unsafe ResultCode EXRLayers(string filename, out string[] layers)
+        public static ResultCode TryReadImage(string filename, out ExrHeader header, out ExrImage image)
         {
-            byte[] fileNameBytes = NativeUtf8.ToNullTerminated(filename);
-            sbyte** layerNames = null;
-            int count = 0;
-            sbyte* errorPtr = null;
-            ResultCode result;
-            fixed (byte* fileNamePtr = fileNameBytes)
+            if (!TryReadFile(filename, out byte[] data, out ResultCode fileResult))
             {
-                result = (ResultCode)EXRNative.EXRLayersInternal((sbyte*)fileNamePtr, &layerNames, &count, &errorPtr);
+                header = new ExrHeader();
+                image = new ExrImage(0, 0, Array.Empty<ExrImageChannel>());
+                return fileResult;
             }
-            try
-            {
-                if (result == ResultCode.Success)
-                {
-                    layers = new string[count];
-                    for (int i = 0; i < count; i++)
-                    {
-                        layers[i] = NativeUtf8.Read(layerNames[i]);
-                    }
-                }
-                else
-                {
-                    layers = default!;
-                }
-            }
-            finally
-            {
-                if (layerNames != null)
-                {
-                    EXRNative.FreeInternal(layerNames);
-                    layerNames = null;
-                }
-                if (errorPtr != null)
-                {
-                    EXRNative.FreeEXRErrorMessageInternal(errorPtr);
-                    errorPtr = null;
-                }
-            }
-            return result;
+
+            return TryReadImage(data, out header, out image);
         }
 
-        public unsafe static bool IsExr(string filename)
+        public static ResultCode TryReadImage(ReadOnlySpan<byte> data, out ExrHeader header, out ExrImage image)
         {
-            byte[] fileNameBytes = NativeUtf8.ToNullTerminated(filename);
-            ResultCode result;
-            fixed (byte* fileNamePtr = fileNameBytes)
-            {
-                result = (ResultCode)EXRNative.IsEXRInternal((sbyte*)fileNamePtr);
-            }
-            return result == ResultCode.Success;
+            return ExrImplementation.TryReadImage(data, out header, out image);
         }
 
-        public unsafe static bool IsExrFromMemory(ReadOnlySpan<byte> data)
+        public static ResultCode TryReadDeepImage(string filename, out ExrHeader header, out ExrDeepImage image)
         {
-            ResultCode result;
-            fixed (byte* dataPtr = data)
+            if (!TryReadFile(filename, out byte[] data, out ResultCode fileResult))
             {
-                result = (ResultCode)EXRNative.IsEXRFromMemoryInternal(dataPtr, new UIntPtr((uint)data.Length));
+                header = new ExrHeader();
+                image = new ExrDeepImage(0, 0, Array.Empty<int[]>(), Array.Empty<ExrDeepChannel>());
+                return fileResult;
             }
-            return result == ResultCode.Success;
+
+            return TryReadDeepImage(data, out header, out image);
         }
 
-        public unsafe static ResultCode SaveEXRToMemory(
+        public static ResultCode TryReadDeepImage(ReadOnlySpan<byte> data, out ExrHeader header, out ExrDeepImage image)
+        {
+            return ExrImplementation.TryReadDeepImage(data, out header, out image);
+        }
+
+        public static ResultCode TryReadLayers(string filename, out string[] layers)
+        {
+            if (!TryReadFile(filename, out byte[] data, out ResultCode fileResult))
+            {
+                layers = Array.Empty<string>();
+                return fileResult;
+            }
+
+            return TryReadLayers(data, out layers);
+        }
+
+        public static ResultCode TryReadLayers(ReadOnlySpan<byte> data, out string[] layers)
+        {
+            return ExrImplementation.TryReadLayers(data, out layers);
+        }
+
+        public static ResultCode TryReadRgba(string filename, out float[] rgba, out int width, out int height)
+        {
+            return TryReadRgba(filename, layerName: null, out rgba, out width, out height);
+        }
+
+        public static ResultCode TryReadRgba(string filename, string? layerName, out float[] rgba, out int width, out int height)
+        {
+            if (!TryReadFile(filename, out byte[] data, out ResultCode fileResult))
+            {
+                rgba = Array.Empty<float>();
+                width = 0;
+                height = 0;
+                return fileResult;
+            }
+
+            return TryReadRgba(data, layerName, out rgba, out width, out height);
+        }
+
+        public static ResultCode TryReadRgba(ReadOnlySpan<byte> data, out float[] rgba, out int width, out int height)
+        {
+            return TryReadRgba(data, layerName: null, out rgba, out width, out height);
+        }
+
+        public static ResultCode TryReadRgba(ReadOnlySpan<byte> data, string? layerName, out float[] rgba, out int width, out int height)
+        {
+            return ExrImplementation.TryReadRgba(data, layerName, out rgba, out width, out height);
+        }
+
+        public static ResultCode TryWriteImage(ExrImage image, out byte[] encoded)
+        {
+            return TryWriteImage(image, header: null, out encoded);
+        }
+
+        public static ResultCode TryWriteImage(ExrImage image, ExrHeader? header, out byte[] encoded)
+        {
+            return ExrImplementation.TryWriteImage(image, header, out encoded);
+        }
+
+        public static ResultCode TryWriteImage(string filename, ExrImage image, ExrHeader? header = null)
+        {
+            ResultCode result = TryWriteImage(image, header, out byte[] encoded);
+            if (result != ResultCode.Success)
+            {
+                return result;
+            }
+
+            return TryWriteFile(filename, encoded);
+        }
+
+        public static ResultCode TryWriteRgba(
             ReadOnlySpan<float> data,
             int width,
             int height,
             int components,
             bool asFp16,
-            out byte[] outBuffer)
+            out byte[] encoded)
         {
-            if (width * height * components != data.Length)
+            encoded = Array.Empty<byte>();
+            ResultCode result = TryBuildRgbaImage(data, width, height, components, asFp16, out ExrImage image, out ExrHeader header);
+            if (result != ResultCode.Success)
             {
-                throw new ArgumentException($"{nameof(data)} length must equal {nameof(width)} * {nameof(height)} * {nameof(components)}");
+                return result;
             }
-            byte* resultPtr = null;
-            sbyte* errorPtr = null;
-            int ret;
-            fixed (float* dataPtr = data)
-            {
-                ret = EXRNative.SaveEXRToMemoryInternal(dataPtr, width, height, components, asFp16 ? 1 : 0, &resultPtr, &errorPtr);
-            }
-            try
-            {
-                if (ret > 0)
-                {
-                    Span<byte> resultData = new Span<byte>(resultPtr, ret);
-                    outBuffer = resultData.ToArray();
-                }
-                else
-                {
-                    outBuffer = default!;
-                }
-            }
-            finally
-            {
-                if (resultPtr != null)
-                {
-                    EXRNative.FreeInternal(resultPtr);
-                    resultPtr = null;
-                }
-                if (errorPtr != null)
-                {
-                    EXRNative.FreeEXRErrorMessageInternal(errorPtr);
-                    errorPtr = null;
-                }
-            }
-            return ret > 0 ? ResultCode.Success : (ResultCode)ret;
+
+            return TryWriteImage(image, header, out encoded);
         }
 
-        public unsafe static ResultCode SaveEXR(
+        public static ResultCode TryWriteRgba(
             ReadOnlySpan<float> data,
             int width,
             int height,
@@ -227,507 +184,545 @@ namespace TinyEXR
             bool asFp16,
             string filename)
         {
-            if (width * height * components != data.Length)
+            ResultCode result = TryWriteRgba(data, width, height, components, asFp16, out byte[] encoded);
+            if (result != ResultCode.Success)
             {
-                throw new ArgumentException($"{nameof(data)} length must equal {nameof(width)} * {nameof(height)} * {nameof(components)}");
+                return result;
             }
-            byte[] fileNameBytes = NativeUtf8.ToNullTerminated(filename);
-            sbyte* errorPtr = null;
-            ResultCode result;
-            fixed (byte* fileNamePtr = fileNameBytes)
+
+            return TryWriteFile(filename, encoded);
+        }
+
+        public static ResultCode LoadEXR(string filename, out float[] rgba, out int width, out int height)
+        {
+            return TryReadRgba(filename, out rgba, out width, out height);
+        }
+
+        public static ResultCode LoadEXRWithLayer(string filename, string? layer, out float[] rgba, out int width, out int height)
+        {
+            return TryReadRgba(filename, layer, out rgba, out width, out height);
+        }
+
+        public static ResultCode LoadEXRFromMemory(ReadOnlySpan<byte> data, out float[] rgba, out int width, out int height)
+        {
+            return TryReadRgba(data, out rgba, out width, out height);
+        }
+
+        public static ResultCode SaveEXRToMemory(
+            ReadOnlySpan<float> data,
+            int width,
+            int height,
+            int components,
+            bool asFp16,
+            out byte[] outBuffer)
+        {
+            return TryWriteRgba(data, width, height, components, asFp16, out outBuffer);
+        }
+
+        public static ResultCode SaveEXR(
+            ReadOnlySpan<float> data,
+            int width,
+            int height,
+            int components,
+            bool asFp16,
+            string filename)
+        {
+            return TryWriteRgba(data, width, height, components, asFp16, filename);
+        }
+
+        public static ResultCode EXRLayers(string filename, out string[] layers)
+        {
+            return TryReadLayers(filename, out layers);
+        }
+
+        public static ResultCode ParseEXRVersionFromFile(string filename, out ExrVersion version)
+        {
+            return TryReadVersion(filename, out version);
+        }
+
+        public static ResultCode ParseEXRVersionFromMemory(ReadOnlySpan<byte> data, out ExrVersion version)
+        {
+            return TryReadVersion(data, out version);
+        }
+
+        public static ResultCode ParseEXRHeaderFromFile(string filename, out ExrVersion version, out ExrHeader header)
+        {
+            return TryReadHeader(filename, out version, out header);
+        }
+
+        public static ResultCode ParseEXRHeaderFromMemory(ReadOnlySpan<byte> data, out ExrVersion version, out ExrHeader header)
+        {
+            return TryReadHeader(data, out version, out header);
+        }
+
+        public static bool IsExr(string filename)
+        {
+            return TryReadVersion(filename, out _) == ResultCode.Success;
+        }
+
+        public static bool IsExr(ReadOnlySpan<byte> data)
+        {
+            return TryReadVersion(data, out _) == ResultCode.Success;
+        }
+
+        public static bool IsExrFromMemory(ReadOnlySpan<byte> data)
+        {
+            return IsExr(data);
+        }
+
+        public static bool IsSpectralEXR(string filename)
+        {
+            return TryReadHeader(filename, out ExrHeader header) == ResultCode.Success &&
+                EXRGetSpectrumType(header).HasValue;
+        }
+
+        public static bool IsSpectralEXRFromMemory(ReadOnlySpan<byte> data)
+        {
+            return TryReadHeader(data, out ExrHeader header) == ResultCode.Success &&
+                EXRGetSpectrumType(header).HasValue;
+        }
+
+        public static SpectrumType? EXRGetSpectrumType(ExrHeader header)
+        {
+            if (header == null)
             {
-                fixed (float* dataPtr = data)
+                return null;
+            }
+
+            if (FindCustomAttribute(header, SpectralLayoutVersionAttribute) == null)
+            {
+                return null;
+            }
+
+            bool hasReflective = false;
+            bool hasEmissive = false;
+            bool hasStokes = false;
+            foreach (ExrChannel channel in header.Channels)
+            {
+                if (channel.Name.StartsWith("T.", StringComparison.Ordinal))
                 {
-                    result = (ResultCode)EXRNative.SaveEXRInternal(dataPtr, width, height, components, asFp16 ? 1 : 0, (sbyte*)fileNamePtr, &errorPtr);
+                    hasReflective = true;
                 }
-            }
-            if (errorPtr != null)
-            {
-                EXRNative.FreeEXRErrorMessageInternal(errorPtr);
-                errorPtr = null;
-            }
-            return result;
-        }
-
-        public static unsafe int EXRNumLevels(ref EXRImage image)
-        {
-            fixed (EXRImage* ptr = &image)
-            {
-                return EXRNative.EXRNumLevelsInternal(ptr);
-            }
-        }
-
-        public static unsafe void InitEXRHeader(ref EXRHeader header)
-        {
-            fixed (EXRHeader* ptr = &header)
-            {
-                EXRNative.InitEXRHeaderInternal(ptr);
-            }
-        }
-
-        public static unsafe void EXRSetNameAttr(ref EXRHeader header, string name)
-        {
-            byte[] nameBytes = NativeUtf8.ToNullTerminated(name);
-            fixed (byte* nptr = nameBytes)
-            {
-                fixed (EXRHeader* hptr = &header)
+                else if (channel.Name.Length >= 3 &&
+                    channel.Name[0] == 'S' &&
+                    channel.Name[1] >= '0' &&
+                    channel.Name[1] <= '3' &&
+                    channel.Name[2] == '.')
                 {
-                    EXRNative.EXRSetNameAttrInternal(hptr, (sbyte*)nptr);
-                }
-            }
-        }
-
-        public static unsafe void InitEXRImage(ref EXRImage image)
-        {
-            fixed (EXRImage* ptr = &image)
-            {
-                EXRNative.InitEXRImageInternal(ptr);
-            }
-        }
-
-        public static unsafe ResultCode FreeEXRHeader(ref EXRHeader header)
-        {
-            ResultCode result;
-            fixed (EXRHeader* ptr = &header)
-            {
-                result = (ResultCode)EXRNative.FreeEXRHeaderInternal(ptr);
-            }
-            return result;
-        }
-
-        public static unsafe ResultCode FreeEXRImage(ref EXRImage image)
-        {
-            ResultCode result;
-            fixed (EXRImage* ptr = &image)
-            {
-                result = (ResultCode)EXRNative.FreeEXRImageInternal(ptr);
-            }
-            return result;
-        }
-
-        public static unsafe void FreeEXRErrorMessage(IntPtr ptr)
-        {
-            EXRNative.FreeEXRErrorMessageInternal((sbyte*)ptr.ToPointer());
-        }
-
-        public unsafe static ResultCode ParseEXRVersionFromFile(string filename, out EXRVersion version)
-        {
-            byte[] fileNameBytes = NativeUtf8.ToNullTerminated(filename);
-            ResultCode result;
-            fixed (byte* filenamePtr = fileNameBytes)
-            {
-                fixed (EXRVersion* versionPtr = &version)
-                {
-                    result = (ResultCode)EXRNative.ParseEXRVersionFromFileInternal(versionPtr, (sbyte*)filenamePtr);
-                }
-            }
-            return result;
-        }
-
-        public static unsafe ResultCode ParseEXRVersionFromMemory(ReadOnlySpan<byte> data, out EXRVersion version)
-        {
-            ResultCode result;
-            fixed (byte* dataPtr = data)
-            {
-                fixed (EXRVersion* versionPtr = &version)
-                {
-                    result = (ResultCode)EXRNative.ParseEXRVersionFromMemoryInternal(versionPtr, dataPtr, new UIntPtr((uint)data.Length));
-                }
-            }
-            return result;
-        }
-
-        public static unsafe ResultCode ParseEXRHeaderFromFile(string filename, ref EXRVersion version, ref EXRHeader header)
-        {
-            byte[] fileNameBytes = NativeUtf8.ToNullTerminated(filename);
-            ResultCode result;
-            sbyte* errorPtr = null;
-            fixed (byte* filenamePtr = fileNameBytes)
-            {
-                fixed (EXRVersion* versionPtr = &version)
-                {
-                    fixed (EXRHeader* headerPtr = &header)
+                    hasEmissive = true;
+                    if (channel.Name[1] != '0')
                     {
-                        result = (ResultCode)EXRNative.ParseEXRHeaderFromFileInternal(headerPtr, versionPtr, (sbyte*)filenamePtr, &errorPtr);
+                        hasStokes = true;
                     }
                 }
             }
-            if (errorPtr != null)
+
+            if (hasReflective)
             {
-                EXRNative.FreeEXRErrorMessageInternal(errorPtr);
-                errorPtr = null;
+                return SpectrumType.Reflective;
             }
+
+            if (hasStokes)
+            {
+                return SpectrumType.Polarised;
+            }
+
+            if (hasEmissive)
+            {
+                return SpectrumType.Emissive;
+            }
+
+            return null;
+        }
+
+        public static string EXRFormatWavelength(float wavelengthNm)
+        {
+            int whole = (int)wavelengthNm;
+            int fraction = (int)((wavelengthNm - whole) * 1000000.0f + 0.5f);
+            return string.Format(CultureInfo.InvariantCulture, "{0},{1:000000}", whole, fraction);
+        }
+
+        public static string EXRSpectralChannelName(float wavelengthNm, int stokesComponent)
+        {
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                "S{0}.{1}nm",
+                stokesComponent,
+                EXRFormatWavelength(wavelengthNm));
+        }
+
+        public static string EXRReflectiveChannelName(float wavelengthNm)
+        {
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                "T.{0}nm",
+                EXRFormatWavelength(wavelengthNm));
+        }
+
+        public static float EXRParseSpectralChannelWavelength(string channelName)
+        {
+            if (string.IsNullOrEmpty(channelName))
+            {
+                return -1.0f;
+            }
+
+            ReadOnlySpan<char> remaining = channelName.AsSpan();
+            if (remaining.Length >= 3 &&
+                remaining[0] == 'S' &&
+                remaining[1] >= '0' &&
+                remaining[1] <= '3' &&
+                remaining[2] == '.')
+            {
+                remaining = remaining.Slice(3);
+            }
+            else if (remaining.Length >= 2 &&
+                remaining[0] == 'T' &&
+                remaining[1] == '.')
+            {
+                remaining = remaining.Slice(2);
+            }
+            else
+            {
+                return -1.0f;
+            }
+
+            int nmIndex = remaining.IndexOf("nm".AsSpan(), StringComparison.Ordinal);
+            if (nmIndex <= 0)
+            {
+                return -1.0f;
+            }
+
+            string wavelength = remaining.Slice(0, nmIndex).ToString().Replace(',', '.');
+            if (!float.TryParse(wavelength, NumberStyles.Float, CultureInfo.InvariantCulture, out float result))
+            {
+                return -1.0f;
+            }
+
             return result;
         }
 
-        public static unsafe ResultCode ParseEXRHeaderFromMemory(ReadOnlySpan<byte> data, ref EXRVersion version, ref EXRHeader header)
+        public static int EXRGetStokesComponent(string channelName)
         {
-            ResultCode result;
-            sbyte* errorPtr = null;
-            fixed (byte* dataPtr = data)
+            if (string.IsNullOrEmpty(channelName) || channelName.Length < 3)
             {
-                fixed (EXRVersion* versionPtr = &version)
-                {
-                    fixed (EXRHeader* headerPtr = &header)
-                    {
-                        result = (ResultCode)EXRNative.ParseEXRHeaderFromMemoryInternal(headerPtr, versionPtr, dataPtr, new UIntPtr((uint)data.Length), &errorPtr);
-                    }
-                }
+                return -1;
             }
-            if (errorPtr != null)
+
+            if (channelName[0] == 'S' &&
+                channelName[1] >= '0' &&
+                channelName[1] <= '3' &&
+                channelName[2] == '.')
             {
-                EXRNative.FreeEXRErrorMessageInternal(errorPtr);
-                errorPtr = null;
+                return channelName[1] - '0';
             }
-            return result;
+
+            return -1;
         }
 
-        public static unsafe ResultCode LoadEXRImageFromFile(ref EXRImage image, ref EXRHeader header, string filename)
+        public static bool EXRIsSpectralChannel(string channelName)
         {
-            byte[] fileNameBytes = NativeUtf8.ToNullTerminated(filename);
-            ResultCode result;
-            sbyte* errorPtr = null;
-            fixed (byte* filePtr = fileNameBytes)
-            {
-                fixed (EXRImage* imagePtr = &image)
-                {
-                    fixed (EXRHeader* headerPtr = &header)
-                    {
-                        result = (ResultCode)EXRNative.LoadEXRImageFromFileInternal(imagePtr, headerPtr, (sbyte*)filePtr, &errorPtr);
-                    }
-                }
-            }
-            if (errorPtr != null)
-            {
-                EXRNative.FreeEXRErrorMessageInternal(errorPtr);
-                errorPtr = null;
-            }
-            return result;
+            return EXRParseSpectralChannelWavelength(channelName) > 0.0f;
         }
 
-        public static unsafe ResultCode LoadEXRImageFromMemory(ref EXRImage image, ref EXRHeader header, ReadOnlySpan<byte> data)
+        public static float[] EXRGetWavelengths(ExrHeader header)
         {
-            ResultCode result;
-            sbyte* errorPtr = null;
-            fixed (byte* dataPtr = data)
-            {
-                fixed (EXRImage* imagePtr = &image)
-                {
-                    fixed (EXRHeader* headerPtr = &header)
-                    {
-                        result = (ResultCode)EXRNative.LoadEXRImageFromMemoryInternal(imagePtr, headerPtr, dataPtr, new UIntPtr((uint)data.Length), &errorPtr);
-                    }
-                }
-            }
-            if (errorPtr != null)
-            {
-                EXRNative.FreeEXRErrorMessageInternal(errorPtr);
-                errorPtr = null;
-            }
-            return result;
-        }
-
-        public static unsafe ResultCode SaveEXRImageToFile(ref EXRImage image, ref EXRHeader header, string filename)
-        {
-            byte[] fileNameBytes = NativeUtf8.ToNullTerminated(filename);
-            ResultCode result;
-            sbyte* errorPtr = null;
-            fixed (byte* filePtr = fileNameBytes)
-            {
-                fixed (EXRImage* imagePtr = &image)
-                {
-                    fixed (EXRHeader* headerPtr = &header)
-                    {
-                        result = (ResultCode)EXRNative.SaveEXRImageToFileInternal(imagePtr, headerPtr, (sbyte*)filePtr, &errorPtr);
-                    }
-                }
-            }
-            if (errorPtr != null)
-            {
-                EXRNative.FreeEXRErrorMessageInternal(errorPtr);
-                errorPtr = null;
-            }
-            return result;
-        }
-
-        public static unsafe byte[]? SaveEXRImageToMemory(ref EXRImage image, ref EXRHeader header)
-        {
-            UIntPtr rawLen;
-            sbyte* errorPtr = null;
-            byte* dataPtr = null;
-            fixed (EXRImage* imagePtr = &image)
-            {
-                fixed (EXRHeader* headerPtr = &header)
-                {
-                    rawLen = EXRNative.SaveEXRImageToMemoryInternal(imagePtr, headerPtr, &dataPtr, &errorPtr);
-                }
-            }
-            byte[]? result;
-            try
-            {
-                var lenUlong = rawLen.ToUInt64();
-                if (lenUlong >= int.MaxValue)
-                {
-                    throw new ArgumentOutOfRangeException(nameof(lenUlong));
-                }
-                int length = (int)lenUlong;
-
-                if (length == 0)
-                {
-                    result = null;
-                }
-                else
-                {
-                    result = new byte[length];
-                    Span<byte> src = new Span<byte>(dataPtr, length);
-                    src.CopyTo(result);
-                }
-            }
-            finally
-            {
-                if (errorPtr != null)
-                {
-                    EXRNative.FreeEXRErrorMessageInternal(errorPtr);
-                    errorPtr = null;
-                }
-                if (dataPtr != null)
-                {
-                    EXRNative.FreeInternal(dataPtr);
-                    dataPtr = null;
-                }
-            }
-            return result;
-        }
-
-        public static unsafe ResultCode LoadDeepEXR(ref DeepImage deep, string filename)
-        {
-            byte[] fileNameBytes = NativeUtf8.ToNullTerminated(filename);
-            ResultCode result;
-            sbyte* errorPtr = null;
-            fixed (byte* filePtr = fileNameBytes)
-            {
-                fixed (DeepImage* deepPtr = &deep)
-                {
-                    result = (ResultCode)EXRNative.LoadDeepEXRInternal(deepPtr, (sbyte*)filePtr, &errorPtr);
-                }
-            }
-            if (errorPtr != null)
-            {
-                EXRNative.FreeEXRErrorMessageInternal(errorPtr);
-                errorPtr = null;
-            }
-            return result;
-        }
-
-        public static unsafe ResultCode LoadEXRFromMemory(ReadOnlySpan<byte> data, out float[] rgba, out int width, out int height)
-        {
-            float* img = null;
-            int x = 0;
-            int y = 0;
-            ResultCode result;
-            sbyte* errorPtr = null;
-            fixed (byte* dataPtr = data)
-            {
-                result = (ResultCode)EXRNative.LoadEXRFromMemoryInternal(&img, &x, &y, dataPtr, new UIntPtr((uint)data.Length), &errorPtr);
-            }
-            try
-            {
-                if (result == ResultCode.Success)
-                {
-                    Span<float> imgRef = new Span<float>(img, x * y * 4);
-                    float[] load = imgRef.ToArray();
-                    width = x;
-                    height = y;
-                    rgba = load;
-                }
-                else
-                {
-                    width = default;
-                    height = default;
-                    rgba = default!;
-                }
-            }
-            finally
-            {
-                if (img != null)
-                {
-                    EXRNative.FreeInternal(img);
-                    img = null;
-                }
-                if (errorPtr != null)
-                {
-                    EXRNative.FreeEXRErrorMessageInternal(errorPtr);
-                    errorPtr = null;
-                }
-            }
-            return result;
-        }
-
-        public unsafe static bool IsSpectralEXR(string filename)
-        {
-            byte[] fileNameBytes = NativeUtf8.ToNullTerminated(filename);
-            int result;
-            fixed (byte* fileNamePtr = fileNameBytes)
-            {
-                result = EXRNative.IsSpectralEXRInternal((sbyte*)fileNamePtr);
-            }
-
-            return result == EXRNative.TINYEXR_SUCCESS;
-        }
-
-        public unsafe static bool IsSpectralEXRFromMemory(ReadOnlySpan<byte> data)
-        {
-            int result;
-            fixed (byte* dataPtr = data)
-            {
-                result = EXRNative.IsSpectralEXRFromMemoryInternal(dataPtr, new UIntPtr((uint)data.Length));
-            }
-
-            return result == EXRNative.TINYEXR_SUCCESS;
-        }
-
-        public static unsafe SpectrumType? EXRGetSpectrumType(ref EXRHeader header)
-        {
-            fixed (EXRHeader* headerPtr = &header)
-            {
-                int value = EXRNative.EXRGetSpectrumTypeInternal(headerPtr);
-                if (value < 0)
-                {
-                    return null;
-                }
-
-                return (SpectrumType)value;
-            }
-        }
-
-        public static unsafe string EXRFormatWavelength(float wavelengthNm)
-        {
-            Span<byte> buffer = stackalloc byte[WavelengthBufferSize];
-            fixed (byte* ptr = buffer)
-            {
-                EXRNative.EXRFormatWavelengthInternal((sbyte*)ptr, new UIntPtr(WavelengthBufferSize), wavelengthNm);
-                return NativeUtf8.Read((sbyte*)ptr);
-            }
-        }
-
-        public static unsafe string EXRSpectralChannelName(float wavelengthNm, int stokesComponent)
-        {
-            Span<byte> buffer = stackalloc byte[ChannelNameBufferSize];
-            fixed (byte* ptr = buffer)
-            {
-                EXRNative.EXRSpectralChannelNameInternal((sbyte*)ptr, new UIntPtr(ChannelNameBufferSize), wavelengthNm, stokesComponent);
-                return NativeUtf8.Read((sbyte*)ptr);
-            }
-        }
-
-        public static unsafe string EXRReflectiveChannelName(float wavelengthNm)
-        {
-            Span<byte> buffer = stackalloc byte[ChannelNameBufferSize];
-            fixed (byte* ptr = buffer)
-            {
-                EXRNative.EXRReflectiveChannelNameInternal((sbyte*)ptr, new UIntPtr(ChannelNameBufferSize), wavelengthNm);
-                return NativeUtf8.Read((sbyte*)ptr);
-            }
-        }
-
-        public static unsafe float EXRParseSpectralChannelWavelength(string channelName)
-        {
-            byte[] channelNameBytes = NativeUtf8.ToNullTerminated(channelName);
-            fixed (byte* ptr = channelNameBytes)
-            {
-                return EXRNative.EXRParseSpectralChannelWavelengthInternal((sbyte*)ptr);
-            }
-        }
-
-        public static unsafe int EXRGetStokesComponent(string channelName)
-        {
-            byte[] channelNameBytes = NativeUtf8.ToNullTerminated(channelName);
-            fixed (byte* ptr = channelNameBytes)
-            {
-                return EXRNative.EXRGetStokesComponentInternal((sbyte*)ptr);
-            }
-        }
-
-        public static unsafe bool EXRIsSpectralChannel(string channelName)
-        {
-            byte[] channelNameBytes = NativeUtf8.ToNullTerminated(channelName);
-            fixed (byte* ptr = channelNameBytes)
-            {
-                return EXRNative.EXRIsSpectralChannelInternal((sbyte*)ptr) != 0;
-            }
-        }
-
-        public static unsafe float[] EXRGetWavelengths(ref EXRHeader header)
-        {
-            if (header.num_channels <= 0)
+            if (header == null || header.Channels.Count == 0)
             {
                 return Array.Empty<float>();
             }
 
-            float[] wavelengths = new float[header.num_channels];
-            fixed (EXRHeader* headerPtr = &header)
+            List<float> wavelengths = new List<float>();
+            foreach (ExrChannel channel in header.Channels)
             {
-                fixed (float* wavelengthsPtr = wavelengths)
+                float wavelength = EXRParseSpectralChannelWavelength(channel.Name);
+                if (wavelength <= 0.0f)
                 {
-                    int count = EXRNative.EXRGetWavelengthsInternal(headerPtr, wavelengthsPtr, wavelengths.Length);
-                    if (count <= 0)
-                    {
-                        return Array.Empty<float>();
-                    }
+                    continue;
+                }
 
-                    if (count == wavelengths.Length)
+                bool exists = false;
+                foreach (float existing in wavelengths)
+                {
+                    if (Math.Abs(existing - wavelength) < 0.01f)
                     {
-                        return wavelengths;
+                        exists = true;
+                        break;
                     }
+                }
 
-                    float[] result = new float[count];
-                    Array.Copy(wavelengths, result, count);
-                    return result;
+                if (!exists)
+                {
+                    wavelengths.Add(wavelength);
                 }
             }
+
+            wavelengths.Sort();
+            return wavelengths.ToArray();
         }
 
-        public static unsafe ResultCode EXRSetSpectralAttributes(ref EXRHeader header,
-                                                                 SpectrumType spectrumType,
-                                                                 string units)
+        public static ResultCode EXRSetSpectralAttributes(ExrHeader header, SpectrumType spectrumType, string units)
         {
-            byte[] unitsBytes = NativeUtf8.ToNullTerminated(units);
-            fixed (EXRHeader* headerPtr = &header)
+            if (header == null)
             {
-                fixed (byte* unitsPtr = unitsBytes)
-                {
-                    return (ResultCode)EXRNative.EXRSetSpectralAttributesInternal(headerPtr, (int)spectrumType, (sbyte*)unitsPtr);
-                }
+                return ResultCode.InvalidArgument;
             }
+
+            SetOrReplaceCustomAttribute(header, ExrAttribute.FromString(SpectralLayoutVersionAttribute, "1.0"));
+            RemoveCustomAttribute(header, ReflectiveUnitsAttribute);
+            RemoveCustomAttribute(header, EmissiveUnitsAttribute);
+            RemoveCustomAttribute(header, PolarisationHandednessAttribute);
+
+            if (!string.IsNullOrEmpty(units))
+            {
+                string unitsAttributeName = spectrumType == SpectrumType.Reflective
+                    ? ReflectiveUnitsAttribute
+                    : EmissiveUnitsAttribute;
+                SetOrReplaceCustomAttribute(header, ExrAttribute.FromString(unitsAttributeName, units));
+            }
+
+            if (spectrumType == SpectrumType.Polarised)
+            {
+                SetOrReplaceCustomAttribute(header, ExrAttribute.FromString(PolarisationHandednessAttribute, "left"));
+            }
+
+            return ResultCode.Success;
         }
 
-        public static unsafe string? EXRGetSpectralUnits(ref EXRHeader header)
+        public static string? EXRGetSpectralUnits(ExrHeader header)
         {
-            fixed (EXRHeader* headerPtr = &header)
-            {
-                sbyte* unitsPtr = EXRNative.EXRGetSpectralUnitsInternal(headerPtr);
-                return unitsPtr == null ? null : NativeUtf8.Read(unitsPtr);
-            }
-        }
-
-        //------------some helper functions------------
-        public static unsafe string ReadExrChannelInfoName(ref EXRChannelInfo info)
-        {
-            fixed (sbyte* ptr = info.name)
-            {
-                return NativeUtf8.Read(ptr);
-            }
+            return FindCustomAttribute(header, ReflectiveUnitsAttribute)?.GetStringValue() ??
+                FindCustomAttribute(header, EmissiveUnitsAttribute)?.GetStringValue();
         }
 
         public static int TypeSize(ExrPixelType type)
         {
-            return type switch
+            switch (type)
             {
-                ExrPixelType.UInt => 4,
-                ExrPixelType.Half => 2,
-                ExrPixelType.Float => 4,
-                _ => 0,
+                case ExrPixelType.UInt:
+                    return 4;
+                case ExrPixelType.Half:
+                    return 2;
+                case ExrPixelType.Float:
+                    return 4;
+                default:
+                    return 0;
+            }
+        }
+
+        internal static float ReadSingleLittleEndian(ReadOnlySpan<byte> data)
+        {
+            return BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(data));
+        }
+
+        internal static void WriteSingleLittleEndian(Span<byte> destination, float value)
+        {
+            BinaryPrimitives.WriteInt32LittleEndian(destination, BitConverter.SingleToInt32Bits(value));
+        }
+
+        private static ResultCode TryBuildRgbaImage(
+            ReadOnlySpan<float> data,
+            int width,
+            int height,
+            int components,
+            bool asFp16,
+            out ExrImage image,
+            out ExrHeader header)
+        {
+            image = new ExrImage(0, 0, Array.Empty<ExrImageChannel>());
+            header = new ExrHeader();
+
+            if (width <= 0 || height <= 0)
+            {
+                return ResultCode.InvalidArgument;
+            }
+
+            if (components != 1 && components != 3 && components != 4)
+            {
+                return ResultCode.InvalidArgument;
+            }
+
+            int pixelCount = checked(width * height);
+            if (pixelCount * components != data.Length)
+            {
+                return ResultCode.InvalidArgument;
+            }
+
+            ExrPixelType saveType = asFp16 ? ExrPixelType.Half : ExrPixelType.Float;
+            string[] channelNames;
+            int[] componentIndices;
+            switch (components)
+            {
+                case 4:
+                    channelNames = new[] { "A", "B", "G", "R" };
+                    componentIndices = new[] { 3, 2, 1, 0 };
+                    break;
+                case 3:
+                    channelNames = new[] { "B", "G", "R" };
+                    componentIndices = new[] { 2, 1, 0 };
+                    break;
+                default:
+                    channelNames = new[] { "A" };
+                    componentIndices = new[] { 0 };
+                    break;
+            }
+
+            ExrImageChannel[] channels = new ExrImageChannel[channelNames.Length];
+            for (int channelIndex = 0; channelIndex < channelNames.Length; channelIndex++)
+            {
+                byte[] channelData = new byte[pixelCount * sizeof(float)];
+                int componentIndex = componentIndices[channelIndex];
+                for (int pixelIndex = 0; pixelIndex < pixelCount; pixelIndex++)
+                {
+                    float value = data[pixelIndex * components + componentIndex];
+                    WriteSingleLittleEndian(channelData.AsSpan(pixelIndex * sizeof(float), sizeof(float)), value);
+                }
+
+                channels[channelIndex] = new ExrImageChannel(
+                    new ExrChannel(channelNames[channelIndex], saveType),
+                    ExrPixelType.Float,
+                    channelData);
+            }
+
+            image = new ExrImage(width, height, channels);
+            header = new ExrHeader
+            {
+                Compression = (width < 16 && height < 16) ? CompressionType.None : CompressionType.ZIP,
             };
+            return ResultCode.Success;
+        }
+
+        private static bool TryReadFile(string filename, out byte[] data, out ResultCode result)
+        {
+            data = Array.Empty<byte>();
+            if (string.IsNullOrWhiteSpace(filename))
+            {
+                result = ResultCode.InvalidArgument;
+                return false;
+            }
+
+            try
+            {
+                data = File.ReadAllBytes(filename);
+                result = ResultCode.Success;
+                return true;
+            }
+            catch (ArgumentException)
+            {
+                result = ResultCode.InvalidArgument;
+                return false;
+            }
+            catch (NotSupportedException)
+            {
+                result = ResultCode.InvalidArgument;
+                return false;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                result = ResultCode.CannotOpenFile;
+                return false;
+            }
+            catch (DirectoryNotFoundException)
+            {
+                result = ResultCode.CannotOpenFile;
+                return false;
+            }
+            catch (FileNotFoundException)
+            {
+                result = ResultCode.CannotOpenFile;
+                return false;
+            }
+            catch (IOException)
+            {
+                result = ResultCode.CannotOpenFile;
+                return false;
+            }
+        }
+
+        private static ResultCode TryWriteFile(string filename, byte[] data)
+        {
+            if (string.IsNullOrWhiteSpace(filename))
+            {
+                return ResultCode.InvalidArgument;
+            }
+
+            try
+            {
+                File.WriteAllBytes(filename, data);
+                return ResultCode.Success;
+            }
+            catch (ArgumentException)
+            {
+                return ResultCode.InvalidArgument;
+            }
+            catch (NotSupportedException)
+            {
+                return ResultCode.InvalidArgument;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return ResultCode.CannotWriteFile;
+            }
+            catch (DirectoryNotFoundException)
+            {
+                return ResultCode.CannotWriteFile;
+            }
+            catch (IOException)
+            {
+                return ResultCode.CannotWriteFile;
+            }
+        }
+
+        private static ExrAttribute? FindCustomAttribute(ExrHeader header, string name)
+        {
+            if (header == null)
+            {
+                return null;
+            }
+
+            foreach (ExrAttribute attribute in header.CustomAttributes)
+            {
+                if (string.Equals(attribute.Name, name, StringComparison.Ordinal))
+                {
+                    return attribute;
+                }
+            }
+
+            return null;
+        }
+
+        private static void SetOrReplaceCustomAttribute(ExrHeader header, ExrAttribute attribute)
+        {
+            int existingIndex = FindCustomAttributeIndex(header, attribute.Name);
+            if (existingIndex >= 0)
+            {
+                header.CustomAttributes[existingIndex] = attribute;
+            }
+            else
+            {
+                header.CustomAttributes.Add(attribute);
+            }
+        }
+
+        private static void RemoveCustomAttribute(ExrHeader header, string name)
+        {
+            int existingIndex = FindCustomAttributeIndex(header, name);
+            if (existingIndex >= 0)
+            {
+                header.CustomAttributes.RemoveAt(existingIndex);
+            }
+        }
+
+        private static int FindCustomAttributeIndex(ExrHeader header, string name)
+        {
+            for (int i = 0; i < header.CustomAttributes.Count; i++)
+            {
+                if (string.Equals(header.CustomAttributes[i].Name, name, StringComparison.Ordinal))
+                {
+                    return i;
+                }
+            }
+
+            return -1;
         }
     }
 }

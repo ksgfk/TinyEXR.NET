@@ -1,18 +1,16 @@
-﻿using TinyEXR.Native;
-
 namespace TinyEXR
 {
     public enum CompressionType
     {
-        None = EXRNative.TINYEXR_COMPRESSIONTYPE_NONE,
-        RLE = EXRNative.TINYEXR_COMPRESSIONTYPE_RLE,
-        ZIPS = EXRNative.TINYEXR_COMPRESSIONTYPE_ZIPS,
-        ZIP = EXRNative.TINYEXR_COMPRESSIONTYPE_ZIP,
-        PIZ = EXRNative.TINYEXR_COMPRESSIONTYPE_PIZ,
-        PXR24 = EXRNative.TINYEXR_COMPRESSIONTYPE_PXR24,
-        B44 = EXRNative.TINYEXR_COMPRESSIONTYPE_B44,
-        B44A = EXRNative.TINYEXR_COMPRESSIONTYPE_B44A,
-        DWAA = EXRNative.TINYEXR_COMPRESSIONTYPE_DWAA,
-        DWAB = EXRNative.TINYEXR_COMPRESSIONTYPE_DWAB,
+        None = 0,
+        RLE = 1,
+        ZIPS = 2,
+        ZIP = 3,
+        PIZ = 4,
+        PXR24 = 5,
+        B44 = 6,
+        B44A = 7,
+        DWAA = 8,
+        DWAB = 9,
     }
 }

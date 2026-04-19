@@ -1,71 +1,100 @@
 # TinyEXR.NET
 
-`TinyEXR.NET` is a C# wrapper of [tinyexr](https://github.com/syoyo/tinyexr)
+`TinyEXR.NET` is a pure managed C# port of the tinyexr v1 single-part API surface.
 
-The target framework of `TinyEXR.NET`  is `.NET Standard 2.1`
+The library targets `netstandard2.1` and `net10.0`. The public API no longer exposes `TinyEXR.Native`, native handles, or `unsafe`-based lifecycle methods.
 
-## Download
+## Package
 
-`TinyEXR.NET` can be found on NuGet [![NuGet](https://img.shields.io/nuget/v/TinyEXR.NET)](https://www.nuget.org/packages/TinyEXR.NET) (← click it !)
+NuGet: [TinyEXR.NET](https://www.nuget.org/packages/TinyEXR.NET)
 
-## Usage
+## Public API
 
-The API is completely consistent with tinyexr. You can find them in the class `TinyEXR.Exr`.
+The entry point is [`TinyEXR.Exr`](TinyEXR.NET/Exr.cs).
 
-Besides, I add some simple helper class, like `TinyEXR.SinglePartExrReader` and `TinyEXR.ScanlineExrWriter`. You can use them to easily read and save exr images.
+The managed facade provides:
 
-If you don't like them, you can also use native functions in the class `TinyEXR.Native.EXRNative`. Of course, you should be clear about what you are doing :).
+- `TryReadVersion`, `TryReadHeader`, `TryReadImage`, `TryReadDeepImage`
+- `TryReadRgba`, `TryReadLayers`, `TryWriteImage`, `TryWriteRgba`
+- convenience wrappers such as `LoadEXR`, `LoadEXRWithLayer`, `SaveEXR`, `SaveEXRToMemory`
+- spectral helpers such as `EXRFormatWavelength`, `EXRSpectralChannelName`, `EXRSetSpectralAttributes`
+- helper classes [`SinglePartExrReader`](TinyEXR.NET/SinglePartExrReader.cs) and [`ScanlineExrWriter`](TinyEXR.NET/ScanlineExrWriter.cs)
 
-## Details
+The public data model is fully managed:
 
-This lib use [ClangSharp](https://github.com/dotnet/ClangSharp) to generate binding code.
+- [`ExrVersion`](TinyEXR.NET/ExrVersion.cs)
+- [`ExrHeader`](TinyEXR.NET/ExrHeader.cs)
+- [`ExrImage`](TinyEXR.NET/ExrImage.cs)
+- [`ExrDeepImage`](TinyEXR.NET/ExrDeepImage.cs)
+- [`ExrAttribute`](TinyEXR.NET/ExrAttribute.cs)
+- [`ExrTileDescription`](TinyEXR.NET/ExrTileDescription.cs)
+- [`ExrChannel`](TinyEXR.NET/ExrChannel.cs)
 
-API is unstable. May be modified at any time.
+## Compression Support
 
-tinyexr did not export any symbols, so I have to make a wrapper for these C++ functions. Fortunately, they are not so much. The wrapper lib is in the folder `TinyEXR.Native`
+Current v1 support is intentionally conservative:
 
-Currently, only `win-x64`, `win-arm64`, `linux-x64`, `linux-arm64`, `osx-x64` and `osx-arm64` are available. If you want use this lib on other platforms, you have to build them by your self.
+- `None`: supported on `netstandard2.1` and `net10.0`
+- `ZIP`, `ZIPS`: supported on `net10.0`
+- `ZIP`, `ZIPS`: reported as `UnsupportedFeature` on `netstandard2.1`
+- `RLE`, `PIZ`, `PXR24`, `B44`, `B44A`, `DWAA`, `DWAB`: recognized but not implemented yet, reported as `UnsupportedFeature`
 
-## NativeAOT
+## Quick Example
 
-`TinyEXR.NET` now supports two NativeAOT consumption modes:
+```csharp
+using TinyEXR;
 
-- default dynamic mode: consume the packaged `runtimes/<rid>/native` shared library assets
-- source static mode: let the publishing project build `TinyEXRNative` locally with `cmake` and statically link it into the final NativeAOT executable
+ResultCode result = Exr.LoadEXR("image.exr", out float[] rgba, out int width, out int height);
+if (result != ResultCode.Success)
+{
+    throw new InvalidOperationException(result.ToString());
+}
 
-To enable source static mode in the final application project:
-
-```xml
-<PropertyGroup>
-  <TinyEXRStaticLinkMode>source</TinyEXRStaticLinkMode>
-</PropertyGroup>
+Console.WriteLine($"{width}x{height}, rgba={rgba.Length}");
 ```
 
-Then publish with NativeAOT as usual, for example:
+```csharp
+using TinyEXR;
+
+float[] rgba =
+{
+    1.0f, 0.25f, 0.5f, 1.0f
+};
+
+ResultCode result = Exr.SaveEXRToMemory(rgba, 1, 1, 4, asFp16: false, out byte[] encoded);
+if (result != ResultCode.Success)
+{
+    throw new InvalidOperationException(result.ToString());
+}
+```
+
+## Tests
+
+The test suite is split into:
+
+- managed unit tests
+- integration tests against `openexr-images`
+- round-trip write/read tests
+- a dedicated `netstandard2.1` fallback runner that validates ZIP/ZIPS unsupported paths
+
+The integration samples are pinned to `openexr-images` commit `e38ffb0790f62f05a6f083a6fa4cac150b3b7452` and are expected under `.cache/openexr-images` by default.
+
+Prepare them with:
 
 ```powershell
-dotnet publish -c Release -r win-x64 -p:PublishAot=true
+pwsh ./TinyEXR.Test/prepare-openexr-images.ps1
 ```
 
-Requirements for source static mode:
+You can override the sample location with `TINYEXR_OPENEXR_IMAGES_ROOT`.
 
-- `cmake` must be available on `PATH`
-- a local C/C++ toolchain compatible with the target RID must be installed
+Run the full suite with:
 
-An end-to-end sample is available in [samples/TinyEXR.NativeAot.SourceStatic](samples/TinyEXR.NativeAot.SourceStatic).
+```powershell
+dotnet test --solution TinyEXR.Test/TinyEXR.Test.sln --configuration Release --report-trx --report-trx-filename portv1.trx -p:SignAssemblyKey=false
+```
 
-## TODO
-
-### multi-part wrapper
-
-### No P/Invoke?
-
-I think port C++ to C# is not difficult. Thus, we obtain better compatibility.
-
-Why not?
-
-Of course, this takes a lot of time...
+Note: the repository still keeps the upstream `tinyexr` submodule for reference and regression samples used by the tests, but the shipped package itself is pure managed.
 
 ## License
 
-`TinyEXR.NET` is under MIT license
+`TinyEXR.NET` is released under the MIT license.
