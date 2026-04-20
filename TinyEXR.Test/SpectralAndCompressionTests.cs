@@ -3,6 +3,12 @@ namespace TinyEXR.Test;
 [TestClass]
 public sealed class SpectralAndCompressionTests
 {
+    public static IEnumerable<object[]> UnsupportedDwaCompressions()
+    {
+        yield return new object[] { CompressionType.DWAA };
+        yield return new object[] { CompressionType.DWAB };
+    }
+
     [TestMethod(DisplayName = "Spectral: Channel naming")]
     public void Case_Spectral_Channel_naming()
     {
@@ -458,6 +464,39 @@ public sealed class SpectralAndCompressionTests
     public void Case_B44A_Subsampled_channels_round_trip()
     {
         AssertSubsampledB44RoundTrip(CompressionType.B44A);
+    }
+
+    [TestMethod(DisplayName = "[TinyEXR.NET Test] DWA compression parse-vs-io contract")]
+    [DynamicData(nameof(UnsupportedDwaCompressions))]
+    public void Case_DWA_Compression_parse_succeeds_but_io_rejected(CompressionType compression)
+    {
+        ExrImage image = new(
+            1,
+            1,
+            new[]
+            {
+                ExrTestHelper.FloatChannel("B", ExrPixelType.Float, new[] { 0.25f }),
+                ExrTestHelper.FloatChannel("G", ExrPixelType.Float, new[] { 0.5f }),
+                ExrTestHelper.FloatChannel("R", ExrPixelType.Float, new[] { 1.0f }),
+            });
+
+        Assert.AreEqual(ResultCode.Success, Exr.SaveEXRImageToMemory(image, new ExrHeader(), out byte[] encoded), compression.ToString());
+        ExrBinaryMutationHelper.SetHeaderByteAttributeValue(encoded, headerIndex: 0, "compression", "compression", (byte)compression);
+
+        Assert.IsTrue(Exr.IsEXRFromMemory(encoded), compression.ToString());
+        Assert.AreEqual(ResultCode.Success, Exr.ParseEXRHeaderFromMemory(encoded, out _, out ExrHeader decodedHeader), compression.ToString());
+        Assert.AreEqual(compression, decodedHeader.Compression, compression.ToString());
+
+        Assert.AreEqual(ResultCode.UnsupportedFeature, Exr.LoadEXRImageFromMemory(encoded, decodedHeader, out ExrImage decodedImage), compression.ToString());
+        Assert.AreEqual(0, decodedImage.Width, compression.ToString());
+        Assert.AreEqual(0, decodedImage.Height, compression.ToString());
+
+        ExrHeader encodeHeader = new()
+        {
+            Compression = compression,
+        };
+        Assert.AreEqual(ResultCode.UnsupportedFeature, Exr.SaveEXRImageToMemory(image, encodeHeader, out byte[] rejectedEncoded), compression.ToString());
+        Assert.AreEqual(0, rejectedEncoded.Length, compression.ToString());
     }
 
     private static ExrImage RoundTrip(
