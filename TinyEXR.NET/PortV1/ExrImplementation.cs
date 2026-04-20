@@ -7,6 +7,11 @@ namespace TinyEXR.PortV1
     internal static class ExrImplementation
     {
         private const int ExrVersionHeaderSize = 8;
+        // OpenEXR uses the low 8 bits of the version field as the file format version
+        // number. The current format version is fixed at 2; tiled/deep/multipart capability
+        // is described by the flag bits that follow. Accepting other values here would
+        // silently treat non-standard or future files as today's v2 layout.
+        private const int SupportedExrVersion = 2;
         private const uint Magic = 20000630;
 
         private sealed class ParsedHeader
@@ -63,12 +68,12 @@ namespace TinyEXR.PortV1
 
             int exrVersion = data[4];
             byte flags = data[5];
-            if (exrVersion <= 0)
+            if (exrVersion != SupportedExrVersion)
             {
                 return ResultCode.InvalidExrVersion;
             }
 
-            version.Version = exrVersion;
+            version.Version = SupportedExrVersion;
             version.Tiled = (flags & 0x2) != 0;
             version.LongName = (flags & 0x4) != 0;
             version.NonImage = (flags & 0x8) != 0;
@@ -2595,7 +2600,9 @@ namespace TinyEXR.PortV1
         {
             Span<byte> version = stackalloc byte[ExrVersionHeaderSize];
             BinaryPrimitives.WriteUInt32LittleEndian(version, Magic);
-            version[4] = 2;
+            // Emit the spec-defined format version. Feature differences belong in the flag
+            // bits below, not in alternative version byte values.
+            version[4] = SupportedExrVersion;
             byte flags = 0;
             if (tiled)
             {

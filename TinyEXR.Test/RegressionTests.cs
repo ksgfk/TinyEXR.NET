@@ -34,6 +34,23 @@ public sealed class RegressionTests
         Assert.AreEqual(ResultCode.InvalidMagicNumver, Exr.ParseEXRHeaderFromMemory(new byte[128], out _, out _));
     }
 
+    [TestMethod(DisplayName = "[TinyEXR.NET Test] Regression: InvalidVersionByte")]
+    public void Case_Regression_InvalidVersionByte()
+    {
+        byte[] original = File.ReadAllBytes(TestPaths.Asakusa);
+        Assert.AreEqual(ResultCode.Success, Exr.ParseEXRHeaderFromMemory(original, out _, out ExrHeader validHeader));
+
+        foreach (byte invalidVersion in new byte[] { 1, 3 })
+        {
+            byte[] mutated = (byte[])original.Clone();
+            mutated[4] = invalidVersion;
+
+            Assert.AreEqual(ResultCode.InvalidExrVersion, Exr.ParseEXRVersionFromMemory(mutated, out _), $"version={invalidVersion}");
+            Assert.AreEqual(ResultCode.InvalidExrVersion, Exr.ParseEXRHeaderFromMemory(mutated, out _, out _), $"version={invalidVersion}");
+            Assert.AreEqual(ResultCode.InvalidExrVersion, Exr.LoadEXRImageFromMemory(mutated, validHeader, out _), $"version={invalidVersion}");
+        }
+    }
+
     [TestMethod(DisplayName = "Compressed is smaller than uncompressed")]
     public void Case_Compressed_is_smaller_than_uncompressed()
     {
