@@ -1161,6 +1161,18 @@ namespace TinyEXR.PortV1
                 offsets[i] = BinaryPrimitives.ReadInt64LittleEndian(data.Slice(offsetTableOffset + i * sizeof(long), sizeof(long)));
             }
 
+            if (ContainsInvalidOffsets(offsets))
+            {
+                ResultCode reconstructResult = header.Tiles == null
+                    ? TryReconstructLineOffsets(data, parsed, offsets)
+                    : TryReconstructTileOffsets(data, parsed, offsets);
+                if (reconstructResult != ResultCode.Success)
+                {
+                    offsets = Array.Empty<long>();
+                    return reconstructResult;
+                }
+            }
+
             return ResultCode.Success;
         }
 
@@ -1220,6 +1232,187 @@ namespace TinyEXR.PortV1
             return parsed.Header.Tiles == null
                 ? TryDecodeScanlineImage(data, parsed, offsets, out image)
                 : TryDecodeTiledImage(data, parsed, offsets, out image);
+        }
+
+        private static bool ContainsInvalidOffsets(ReadOnlySpan<long> offsets)
+        {
+            foreach (long offset in offsets)
+            {
+                if (offset <= 0)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        // Match tinyexr v1's fallback for incomplete line offset tables by rebuilding
+        // offsets from the chunk stream that starts immediately after the table.
+        private static ResultCode TryReconstructLineOffsets(ReadOnlySpan<byte> data, ParsedHeader parsed, Span<long> offsets)
+        {
+            int marker = checked(parsed.HeaderEndOffset + offsets.Length * sizeof(long));
+            if (marker < 0 || marker > data.Length)
+            {
+                return ResultCode.InvalidData;
+            }
+
+            for (int blockIndex = 0; blockIndex < offsets.Length; blockIndex++)
+            {
+                if (marker + sizeof(int) * 2 > data.Length)
+                {
+                    return ResultCode.InvalidData;
+                }
+
+                int packedSize = BinaryPrimitives.ReadInt32LittleEndian(data.Slice(marker + sizeof(int), sizeof(int)));
+                if (packedSize < 0 || packedSize >= data.Length)
+                {
+                    return ResultCode.InvalidData;
+                }
+
+                offsets[blockIndex] = marker;
+                marker = checked(marker + sizeof(int) * 2 + packedSize);
+            }
+
+            return ResultCode.Success;
+        }
+
+        // Match tinyexr v1's tile offset reconstruction by walking the serialized
+        // tile chunks and placing their actual file offsets back into the flat table.
+        private static ResultCode TryReconstructTileOffsets(ReadOnlySpan<byte> data, ParsedHeader parsed, Span<long> offsets)
+        {
+            ExrHeader header = parsed.Header;
+            if (header.Tiles == null)
+            {
+                return ResultCode.InvalidData;
+            }
+
+            CalculateTileInfo(header, header.DataWindow.Width, header.DataWindow.Height, out int[] numXTiles, out int[] numYTiles, out int numXLevels, out int numYLevels, out int totalBlocks);
+            if (offsets.Length != totalBlocks)
+            {
+                return ResultCode.InvalidData;
+            }
+
+            int marker = checked(parsed.HeaderEndOffset + offsets.Length * sizeof(long));
+            if (marker < 0 || marker > data.Length)
+            {
+                return ResultCode.InvalidData;
+            }
+
+            for (int blockIndex = 0; blockIndex < offsets.Length; blockIndex++)
+            {
+                int tileOffset = marker;
+                if (marker + sizeof(int) * 5 > data.Length)
+                {
+                    return ResultCode.InvalidData;
+                }
+
+                int tileX = BinaryPrimitives.ReadInt32LittleEndian(data.Slice(marker, sizeof(int)));
+                int tileY = BinaryPrimitives.ReadInt32LittleEndian(data.Slice(marker + 4, sizeof(int)));
+                int levelX = BinaryPrimitives.ReadInt32LittleEndian(data.Slice(marker + 8, sizeof(int)));
+                int levelY = BinaryPrimitives.ReadInt32LittleEndian(data.Slice(marker + 12, sizeof(int)));
+                int packedSize = BinaryPrimitives.ReadInt32LittleEndian(data.Slice(marker + 16, sizeof(int)));
+                if (packedSize < 0)
+                {
+                    return ResultCode.InvalidData;
+                }
+
+                marker = checked(marker + sizeof(int) * 5 + packedSize);
+                if (marker > data.Length)
+                {
+                    return ResultCode.InvalidData;
+                }
+
+                if (!TryGetTileOffsetIndex(header, numXTiles, numYTiles, numXLevels, numYLevels, tileX, tileY, levelX, levelY, out int offsetIndex))
+                {
+                    return ResultCode.InvalidData;
+                }
+
+                offsets[offsetIndex] = tileOffset;
+            }
+
+            return ContainsInvalidOffsets(offsets) ? ResultCode.InvalidData : ResultCode.Success;
+        }
+
+        private static bool TryGetTileOffsetIndex(
+            ExrHeader header,
+            ReadOnlySpan<int> numXTiles,
+            ReadOnlySpan<int> numYTiles,
+            int numXLevels,
+            int numYLevels,
+            int tileX,
+            int tileY,
+            int levelX,
+            int levelY,
+            out int offsetIndex)
+        {
+            offsetIndex = -1;
+            if (header.Tiles == null || tileX < 0 || tileY < 0 || levelX < 0 || levelY < 0)
+            {
+                return false;
+            }
+
+            switch (header.Tiles.LevelMode)
+            {
+                case ExrTileLevelMode.OneLevel:
+                    if (levelX != 0 || levelY != 0 || tileX >= numXTiles[0] || tileY >= numYTiles[0])
+                    {
+                        return false;
+                    }
+
+                    offsetIndex = checked(tileY * numXTiles[0] + tileX);
+                    return true;
+
+                case ExrTileLevelMode.MipMapLevels:
+                    if (levelX != levelY || levelX >= numXLevels || levelY >= numYLevels || tileX >= numXTiles[levelX] || tileY >= numYTiles[levelY])
+                    {
+                        return false;
+                    }
+
+                    offsetIndex = checked(GetTileLevelOffsetBase(numXTiles, numYTiles, numXLevels, levelX, levelY, ripMap: false) + tileY * numXTiles[levelX] + tileX);
+                    return true;
+
+                case ExrTileLevelMode.RipMapLevels:
+                    if (levelX >= numXLevels || levelY >= numYLevels || tileX >= numXTiles[levelX] || tileY >= numYTiles[levelY])
+                    {
+                        return false;
+                    }
+
+                    offsetIndex = checked(GetTileLevelOffsetBase(numXTiles, numYTiles, numXLevels, levelX, levelY, ripMap: true) + tileY * numXTiles[levelX] + tileX);
+                    return true;
+
+                default:
+                    return false;
+            }
+        }
+
+        private static int GetTileLevelOffsetBase(ReadOnlySpan<int> numXTiles, ReadOnlySpan<int> numYTiles, int numXLevels, int levelX, int levelY, bool ripMap)
+        {
+            int offsetBase = 0;
+            if (ripMap)
+            {
+                for (int y = 0; y < levelY; y++)
+                {
+                    for (int x = 0; x < numXLevels; x++)
+                    {
+                        offsetBase = checked(offsetBase + numXTiles[x] * numYTiles[y]);
+                    }
+                }
+
+                for (int x = 0; x < levelX; x++)
+                {
+                    offsetBase = checked(offsetBase + numXTiles[x] * numYTiles[levelY]);
+                }
+            }
+            else
+            {
+                for (int level = 0; level < levelX; level++)
+                {
+                    offsetBase = checked(offsetBase + numXTiles[level] * numYTiles[level]);
+                }
+            }
+
+            return offsetBase;
         }
 
         private static ResultCode TryDecodeScanlineImage(ReadOnlySpan<byte> data, ParsedHeader parsed, ReadOnlySpan<long> offsets, out ExrImage image)

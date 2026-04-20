@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Collections;
 using System.Reflection;
 using System.Text;
@@ -330,6 +331,89 @@ public sealed class RegressionTests
         Assert.AreEqual(0, images.Images.Count);
     }
 
+    [TestMethod(DisplayName = "[TinyEXR.NET Test] Regression: OffsetTable|Scanline|Reconstruct")]
+    public void Case_Regression_OffsetTable_Scanline_Reconstruct()
+    {
+        ExrImage sourceImage = new(
+            2,
+            4,
+            new[]
+            {
+                ExrTestHelper.FloatChannel("Y", ExrPixelType.Float, new[]
+                {
+                    1.0f, 2.0f,
+                    3.0f, 4.0f,
+                    5.0f, 6.0f,
+                    7.0f, 8.0f,
+                }),
+            });
+
+        ExrHeader sourceHeader = new()
+        {
+            Compression = CompressionType.None,
+        };
+
+        Assert.AreEqual(ResultCode.Success, Exr.SaveEXRImageToMemory(sourceImage, sourceHeader, out byte[] encoded));
+        Assert.AreEqual(ResultCode.Success, Exr.ParseEXRHeaderFromMemory(encoded, out _, out ExrHeader header));
+        Assert.AreEqual(ResultCode.Success, Exr.LoadEXRImageFromMemory(encoded, header, out ExrImage expected));
+
+        byte[] mutated = (byte[])encoded.Clone();
+        ZeroFirstSinglePartOffset(mutated);
+
+        Assert.AreEqual(ResultCode.Success, Exr.ParseEXRHeaderFromMemory(mutated, out _, out ExrHeader mutatedHeader));
+        Assert.AreEqual(ResultCode.Success, Exr.LoadEXRImageFromMemory(mutated, mutatedHeader, out ExrImage actual));
+
+        ExrTestHelper.EqualImages(expected, actual);
+        CollectionAssert.AreEqual(
+            ExrTestHelper.ReadFloatChannel(expected, "Y"),
+            ExrTestHelper.ReadFloatChannel(actual, "Y"));
+    }
+
+    [TestMethod(DisplayName = "[TinyEXR.NET Test] Regression: OffsetTable|Tile|Reconstruct")]
+    public void Case_Regression_OffsetTable_Tile_Reconstruct()
+    {
+        ExrImage sourceImage = new(
+            4,
+            4,
+            new[]
+            {
+                ExrTestHelper.FloatChannel("Y", ExrPixelType.Float, new[]
+                {
+                    1.0f, 2.0f, 3.0f, 4.0f,
+                    5.0f, 6.0f, 7.0f, 8.0f,
+                    9.0f, 10.0f, 11.0f, 12.0f,
+                    13.0f, 14.0f, 15.0f, 16.0f,
+                }),
+            });
+
+        ExrHeader sourceHeader = new()
+        {
+            Compression = CompressionType.None,
+            Tiles = new ExrTileDescription
+            {
+                TileSizeX = 2,
+                TileSizeY = 2,
+                LevelMode = ExrTileLevelMode.OneLevel,
+                RoundingMode = ExrTileRoundingMode.RoundDown,
+            },
+        };
+
+        Assert.AreEqual(ResultCode.Success, Exr.SaveEXRImageToMemory(sourceImage, sourceHeader, out byte[] encoded));
+        Assert.AreEqual(ResultCode.Success, Exr.ParseEXRHeaderFromMemory(encoded, out _, out ExrHeader header));
+        Assert.AreEqual(ResultCode.Success, Exr.LoadEXRImageFromMemory(encoded, header, out ExrImage expected));
+
+        byte[] mutated = (byte[])encoded.Clone();
+        ZeroFirstSinglePartOffset(mutated);
+
+        Assert.AreEqual(ResultCode.Success, Exr.ParseEXRHeaderFromMemory(mutated, out _, out ExrHeader mutatedHeader));
+        Assert.AreEqual(ResultCode.Success, Exr.LoadEXRImageFromMemory(mutated, mutatedHeader, out ExrImage actual));
+
+        ExrTestHelper.EqualImages(expected, actual);
+        CollectionAssert.AreEqual(
+            ExrTestHelper.ReadFloatChannel(expected, "Y"),
+            ExrTestHelper.ReadFloatChannel(actual, "Y"));
+    }
+
     [TestMethod(DisplayName = "[TinyEXR.NET Test] Regression: ScanlineLineOrder|LoadIgnoresHeaderOrder")]
     public void Case_Regression_ScanlineLineOrder_LoadIgnoresHeaderOrder()
     {
@@ -397,6 +481,41 @@ public sealed class RegressionTests
         int valueOffset = valueSizeOffset + sizeof(int);
         Assert.IsTrue(valueOffset < encoded.Length, "lineOrder attribute value was truncated.");
         encoded[valueOffset] = (byte)lineOrder;
+    }
+
+    private static void ZeroFirstSinglePartOffset(byte[] encoded)
+    {
+        int offsetTableOffset = FindSinglePartOffsetTableOffset(encoded);
+        Assert.IsTrue(offsetTableOffset + sizeof(long) <= encoded.Length, "offset table entry was truncated.");
+        Array.Clear(encoded, offsetTableOffset, sizeof(long));
+    }
+
+    private static int FindSinglePartOffsetTableOffset(byte[] encoded)
+    {
+        int offset = 8;
+        while (true)
+        {
+            int nameEnd = Array.IndexOf(encoded, (byte)0, offset);
+            Assert.IsTrue(nameEnd >= 0, "attribute name terminator was not found.");
+            if (nameEnd == offset)
+            {
+                return offset + 1;
+            }
+
+            offset = nameEnd + 1;
+
+            int typeEnd = Array.IndexOf(encoded, (byte)0, offset);
+            Assert.IsTrue(typeEnd >= 0, "attribute type terminator was not found.");
+            offset = typeEnd + 1;
+
+            Assert.IsTrue(offset + sizeof(int) <= encoded.Length, "attribute size field was truncated.");
+            int attributeSize = BinaryPrimitives.ReadInt32LittleEndian(encoded.AsSpan(offset, sizeof(int)));
+            Assert.IsTrue(attributeSize >= 0, "attribute size must be non-negative.");
+            offset += sizeof(int);
+
+            Assert.IsTrue(offset + attributeSize <= encoded.Length, "attribute value was truncated.");
+            offset += attributeSize;
+        }
     }
 
     private static void AssertFuzzedHeaderRejected(string fileName)
