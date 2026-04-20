@@ -400,6 +400,19 @@ namespace TinyEXR.PortV1
             width = 0;
             height = 0;
 
+            ResultCode versionResult = TryReadVersion(data, out ExrVersion version);
+            if (versionResult != ResultCode.Success)
+            {
+                return versionResult;
+            }
+
+            // Match tinyexr convenience API behavior: multipart/deep inputs are
+            // rejected as invalid data before the lower-level image loader runs.
+            if (version.Multipart || version.NonImage)
+            {
+                return ResultCode.InvalidData;
+            }
+
             ResultCode result = TryReadImage(data, out ExrHeader header, out ExrImage image);
             if (result != ResultCode.Success)
             {
