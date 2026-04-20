@@ -161,6 +161,283 @@ public sealed class LoadTests
         Assert.AreEqual(11 * 11, Exr.EXRNumLevels(image));
     }
 
+    [TestMethod(DisplayName = "[TinyEXR.NET Test] ScanLines extensions|Metadata")]
+    public void Case_ScanLines_extensions_Metadata()
+    {
+        foreach (ExpectedSinglePartSample sample in new[]
+        {
+            new ExpectedSinglePartSample(
+                "ScanLines/Cannon.exr",
+                Channels: 3,
+                DataWindow: new ExrBox2i(0, 0, 779, 565),
+                DisplayWindow: new ExrBox2i(0, 0, 779, 565)),
+            new ExpectedSinglePartSample(
+                "ScanLines/Carrots.exr",
+                Channels: 4,
+                DataWindow: new ExrBox2i(0, 0, 599, 399),
+                DisplayWindow: new ExrBox2i(0, 0, 599, 399)),
+        })
+        {
+            AssertSinglePartSampleMetadata(sample);
+        }
+    }
+
+    [TestMethod(DisplayName = "[TinyEXR.NET Test] LuminanceChroma extensions|Metadata")]
+    public void Case_LuminanceChroma_extensions_Metadata()
+    {
+        foreach (ExpectedSinglePartSample sample in new[]
+        {
+            new ExpectedSinglePartSample(
+                "LuminanceChroma/CrissyField.exr",
+                Channels: 3,
+                DataWindow: new ExrBox2i(0, 0, 1217, 809),
+                DisplayWindow: new ExrBox2i(0, 0, 1217, 809)),
+            new ExpectedSinglePartSample(
+                "LuminanceChroma/Flowers.exr",
+                Channels: 3,
+                DataWindow: new ExrBox2i(0, 0, 783, 733),
+                DisplayWindow: new ExrBox2i(0, 0, 783, 733)),
+        })
+        {
+            AssertSinglePartSampleMetadata(sample);
+        }
+    }
+
+    [TestMethod(DisplayName = "[TinyEXR.NET Test] TestImages extensions|Metadata")]
+    public void Case_TestImages_extensions_Metadata()
+    {
+        foreach (ExpectedSinglePartSample sample in new[]
+        {
+            new ExpectedSinglePartSample(
+                "TestImages/GammaChart.exr",
+                Channels: 3,
+                DataWindow: new ExrBox2i(0, 0, 799, 799),
+                DisplayWindow: new ExrBox2i(0, 0, 799, 799)),
+            new ExpectedSinglePartSample(
+                "TestImages/GrayRampsHorizontal.exr",
+                Channels: 1,
+                DataWindow: new ExrBox2i(0, 0, 799, 799),
+                DisplayWindow: new ExrBox2i(0, 0, 799, 799)),
+            new ExpectedSinglePartSample(
+                "TestImages/GrayRampsDiagonal.exr",
+                Channels: 1,
+                DataWindow: new ExrBox2i(0, 0, 799, 799),
+                DisplayWindow: new ExrBox2i(0, 0, 799, 799)),
+            new ExpectedSinglePartSample(
+                "TestImages/RgbRampsDiagonal.exr",
+                Channels: 3,
+                DataWindow: new ExrBox2i(0, 0, 799, 799),
+                DisplayWindow: new ExrBox2i(0, 0, 799, 799)),
+            new ExpectedSinglePartSample(
+                "TestImages/SquaresSwirls.exr",
+                Channels: 3,
+                DataWindow: new ExrBox2i(0, 0, 999, 999),
+                DisplayWindow: new ExrBox2i(0, 0, 999, 999)),
+            new ExpectedSinglePartSample(
+                "TestImages/stripes.exr",
+                Channels: 4,
+                DataWindow: new ExrBox2i(0, 0, 99, 49),
+                DisplayWindow: new ExrBox2i(0, 0, 99, 49)),
+            new ExpectedSinglePartSample(
+                "TestImages/WideFloatRange.exr",
+                Channels: 1,
+                DataWindow: new ExrBox2i(0, 0, 499, 499),
+                DisplayWindow: new ExrBox2i(0, 0, 499, 499)),
+        })
+        {
+            AssertSinglePartSampleMetadata(sample);
+        }
+    }
+
+    [TestMethod(DisplayName = "[TinyEXR.NET Test] Tiles/Spirals.exr|Metadata")]
+    public void Case_Tiles_Spirals_exr_Metadata()
+    {
+        string path = TestPaths.OpenExr("Tiles/Spirals.exr");
+
+        Assert.IsTrue(Exr.IsEXR(path));
+
+        (ExrVersion version, ExrHeader header, ExrImage image) = ExrTestHelper.LoadSinglePart(path);
+        Assert.IsTrue(version.Tiled);
+        Assert.IsFalse(version.NonImage);
+        Assert.IsFalse(version.Multipart);
+        Assert.AreEqual(5, header.Channels.Count);
+        AssertBox(new ExrBox2i(-20, -20, 1019, 1019), header.DataWindow, path);
+        AssertBox(new ExrBox2i(0, 0, 999, 999), header.DisplayWindow, path);
+        Assert.IsNotNull(header.Tiles);
+        Assert.AreEqual(ExrTileLevelMode.OneLevel, header.Tiles!.LevelMode);
+        Assert.AreEqual(ExrTileRoundingMode.RoundDown, header.Tiles.RoundingMode);
+        Assert.AreEqual(287, header.Tiles.TileSizeX);
+        Assert.AreEqual(126, header.Tiles.TileSizeY);
+        Assert.AreEqual(header.DataWindow.Width, image.Width);
+        Assert.AreEqual(header.DataWindow.Height, image.Height);
+        Assert.AreEqual(1, Exr.EXRNumLevels(image));
+        Assert.AreEqual(36, image.Levels[0].Tiles.Count);
+    }
+
+    [TestMethod(DisplayName = "[TinyEXR.NET Test] MultiResolution extensions|MipContract")]
+    public void Case_MultiResolution_extensions_MipContract()
+    {
+        foreach (ExpectedTiledMipSample sample in new[]
+        {
+            new ExpectedTiledMipSample(
+                "MultiResolution/ColorCodedLevels.exr",
+                Channels: 4,
+                DataWindow: new ExrBox2i(0, 0, 511, 511),
+                RoundingMode: ExrTileRoundingMode.RoundDown),
+            new ExpectedTiledMipSample(
+                "MultiResolution/MirrorPattern.exr",
+                Channels: 3,
+                DataWindow: new ExrBox2i(0, 0, 511, 511),
+                RoundingMode: ExrTileRoundingMode.RoundDown),
+            new ExpectedTiledMipSample(
+                "MultiResolution/OrientationCube.exr",
+                Channels: 4,
+                DataWindow: new ExrBox2i(0, 0, 511, 3071),
+                RoundingMode: ExrTileRoundingMode.RoundDown),
+            new ExpectedTiledMipSample(
+                "MultiResolution/OrientationLatLong.exr",
+                Channels: 4,
+                DataWindow: new ExrBox2i(0, 0, 1023, 511),
+                RoundingMode: ExrTileRoundingMode.RoundDown),
+            new ExpectedTiledMipSample(
+                "MultiResolution/StageEnvCube.exr",
+                Channels: 3,
+                DataWindow: new ExrBox2i(0, 0, 255, 1535),
+                RoundingMode: ExrTileRoundingMode.RoundDown),
+            new ExpectedTiledMipSample(
+                "MultiResolution/StageEnvLatLong.exr",
+                Channels: 3,
+                DataWindow: new ExrBox2i(0, 0, 999, 499),
+                RoundingMode: ExrTileRoundingMode.RoundUp),
+            new ExpectedTiledMipSample(
+                "MultiResolution/KernerEnvCube.exr",
+                Channels: 4,
+                DataWindow: new ExrBox2i(0, 0, 255, 1535),
+                RoundingMode: ExrTileRoundingMode.RoundDown),
+            new ExpectedTiledMipSample(
+                "MultiResolution/KernerEnvLatLong.exr",
+                Channels: 4,
+                DataWindow: new ExrBox2i(0, 0, 1023, 511),
+                RoundingMode: ExrTileRoundingMode.RoundDown),
+            new ExpectedTiledMipSample(
+                "MultiResolution/WavyLinesCube.exr",
+                Channels: 3,
+                DataWindow: new ExrBox2i(0, 0, 255, 1535),
+                RoundingMode: ExrTileRoundingMode.RoundDown),
+            new ExpectedTiledMipSample(
+                "MultiResolution/WavyLinesLatLong.exr",
+                Channels: 3,
+                DataWindow: new ExrBox2i(0, 0, 1023, 511),
+                RoundingMode: ExrTileRoundingMode.RoundDown),
+        })
+        {
+            string path = TestPaths.OpenExr(sample.RelativePath);
+
+            Assert.IsTrue(Exr.IsEXR(path), sample.RelativePath);
+
+            (ExrVersion version, ExrHeader header, ExrImage image) = ExrTestHelper.LoadSinglePart(path);
+            Assert.IsTrue(version.Tiled, sample.RelativePath);
+            Assert.IsFalse(version.NonImage, sample.RelativePath);
+            Assert.IsFalse(version.Multipart, sample.RelativePath);
+            Assert.AreEqual(sample.Channels, header.Channels.Count, sample.RelativePath);
+            AssertBox(sample.DataWindow, header.DataWindow, sample.RelativePath);
+            AssertBox(sample.DataWindow, header.DisplayWindow, sample.RelativePath);
+            Assert.IsNotNull(header.Tiles, sample.RelativePath);
+            Assert.AreEqual(ExrTileLevelMode.MipMapLevels, header.Tiles!.LevelMode, sample.RelativePath);
+            Assert.AreEqual(sample.RoundingMode, header.Tiles.RoundingMode, sample.RelativePath);
+            Assert.AreEqual(64, header.Tiles.TileSizeX, sample.RelativePath);
+            Assert.AreEqual(64, header.Tiles.TileSizeY, sample.RelativePath);
+            Assert.AreEqual(
+                ComputeExpectedMipLevelCount(header.DataWindow.Width, header.DataWindow.Height, header.Tiles.RoundingMode),
+                Exr.EXRNumLevels(image),
+                sample.RelativePath);
+
+            foreach (ExrImageLevel level in image.Levels)
+            {
+                Assert.AreEqual(level.LevelX, level.LevelY, sample.RelativePath);
+            }
+
+            Assert.IsTrue(image.Levels[0].Tiles.Count > 0, sample.RelativePath);
+        }
+    }
+
+    [TestMethod(DisplayName = "[TinyEXR.NET Test] MultiResolution cube-latlong layout")]
+    public void Case_MultiResolution_cube_latlong_layout()
+    {
+        foreach (ExpectedLayoutSample sample in new[]
+        {
+            new ExpectedLayoutSample(
+                "MultiResolution/OrientationCube.exr",
+                ExpectedChannels: new[] { "A", "B", "G", "R" },
+                Width: 512,
+                Height: 3072,
+                IsCube: true),
+            new ExpectedLayoutSample(
+                "MultiResolution/OrientationLatLong.exr",
+                ExpectedChannels: new[] { "A", "B", "G", "R" },
+                Width: 1024,
+                Height: 512,
+                IsCube: false),
+            new ExpectedLayoutSample(
+                "MultiResolution/StageEnvCube.exr",
+                ExpectedChannels: new[] { "B", "G", "R" },
+                Width: 256,
+                Height: 1536,
+                IsCube: true),
+            new ExpectedLayoutSample(
+                "MultiResolution/StageEnvLatLong.exr",
+                ExpectedChannels: new[] { "B", "G", "R" },
+                Width: 1000,
+                Height: 500,
+                IsCube: false),
+        })
+        {
+            string path = TestPaths.OpenExr(sample.RelativePath);
+            Assert.AreEqual(ResultCode.Success, Exr.ParseEXRHeaderFromFile(path, out _, out ExrHeader header), sample.RelativePath);
+
+            CollectionAssert.AreEqual(
+                sample.ExpectedChannels,
+                header.Channels.Select(static channel => channel.Name).ToArray(),
+                sample.RelativePath);
+            Assert.AreEqual(sample.Width, header.DataWindow.Width, sample.RelativePath);
+            Assert.AreEqual(sample.Height, header.DataWindow.Height, sample.RelativePath);
+            if (sample.IsCube)
+            {
+                Assert.AreEqual(sample.Width * 6, sample.Height, sample.RelativePath);
+            }
+            else
+            {
+                Assert.AreEqual(sample.Width, sample.Height * 2, sample.RelativePath);
+            }
+        }
+    }
+
+    [TestMethod(DisplayName = "[TinyEXR.NET Test] MultiResolution/WavyLinesSphere.exr|DirectoryCompatibility")]
+    public void Case_MultiResolution_WavyLinesSphere_exr_DirectoryCompatibility()
+    {
+        ExpectedSinglePartSample sample = new(
+            "MultiResolution/WavyLinesSphere.exr",
+            Channels: 4,
+            DataWindow: new ExrBox2i(0, 0, 479, 479),
+            DisplayWindow: new ExrBox2i(0, 0, 479, 479));
+
+        string path = TestPaths.OpenExr(sample.RelativePath);
+
+        Assert.IsTrue(Exr.IsEXR(path), sample.RelativePath);
+
+        (ExrVersion version, ExrHeader header, ExrImage image) = ExrTestHelper.LoadSinglePart(path);
+        Assert.IsFalse(version.Tiled, sample.RelativePath);
+        Assert.IsFalse(version.NonImage, sample.RelativePath);
+        Assert.IsFalse(version.Multipart, sample.RelativePath);
+        Assert.AreEqual(sample.Channels, header.Channels.Count, sample.RelativePath);
+        AssertBox(sample.DataWindow, header.DataWindow, sample.RelativePath);
+        AssertBox(sample.DisplayWindow, header.DisplayWindow, sample.RelativePath);
+        Assert.IsNull(header.Tiles, sample.RelativePath);
+        Assert.AreEqual(1, Exr.EXRNumLevels(image), sample.RelativePath);
+        Assert.AreEqual(sample.DataWindow.Width, image.Width, sample.RelativePath);
+        Assert.AreEqual(sample.DataWindow.Height, image.Height, sample.RelativePath);
+    }
+
     [TestMethod(DisplayName = "Beachball/multipart.0001.exr")]
     public void Case_Beachball_multipart_0001_exr_Version()
     {
@@ -251,4 +528,73 @@ public sealed class LoadTests
         Assert.IsFalse(version.Multipart);
         Assert.IsTrue(image.Levels[0].Tiles.Count > 0);
     }
+
+    private static void AssertSinglePartSampleMetadata(ExpectedSinglePartSample sample)
+    {
+        string path = TestPaths.OpenExr(sample.RelativePath);
+
+        Assert.IsTrue(Exr.IsEXR(path), sample.RelativePath);
+
+        (ExrVersion version, ExrHeader header, ExrImage image) = ExrTestHelper.LoadSinglePart(path);
+        Assert.IsFalse(version.Tiled, sample.RelativePath);
+        Assert.IsFalse(version.NonImage, sample.RelativePath);
+        Assert.IsFalse(version.Multipart, sample.RelativePath);
+        Assert.AreEqual(sample.Channels, header.Channels.Count, sample.RelativePath);
+        AssertBox(sample.DataWindow, header.DataWindow, sample.RelativePath);
+        AssertBox(sample.DisplayWindow, header.DisplayWindow, sample.RelativePath);
+        Assert.AreEqual(sample.DataWindow.Width, image.Width, sample.RelativePath);
+        Assert.AreEqual(sample.DataWindow.Height, image.Height, sample.RelativePath);
+    }
+
+    private static void AssertBox(ExrBox2i expected, ExrBox2i actual, string message)
+    {
+        Assert.AreEqual(expected.MinX, actual.MinX, message);
+        Assert.AreEqual(expected.MinY, actual.MinY, message);
+        Assert.AreEqual(expected.MaxX, actual.MaxX, message);
+        Assert.AreEqual(expected.MaxY, actual.MaxY, message);
+    }
+
+    private static int ComputeExpectedMipLevelCount(int width, int height, ExrTileRoundingMode roundingMode)
+    {
+        int levels = 1;
+        while (width > 1 || height > 1)
+        {
+            width = NextMipDimension(width, roundingMode);
+            height = NextMipDimension(height, roundingMode);
+            levels++;
+        }
+
+        return levels;
+    }
+
+    private static int NextMipDimension(int dimension, ExrTileRoundingMode roundingMode)
+    {
+        if (dimension <= 1)
+        {
+            return 1;
+        }
+
+        return roundingMode == ExrTileRoundingMode.RoundUp
+            ? (dimension + 1) / 2
+            : dimension / 2;
+    }
+
+    private readonly record struct ExpectedSinglePartSample(
+        string RelativePath,
+        int Channels,
+        ExrBox2i DataWindow,
+        ExrBox2i DisplayWindow);
+
+    private readonly record struct ExpectedTiledMipSample(
+        string RelativePath,
+        int Channels,
+        ExrBox2i DataWindow,
+        ExrTileRoundingMode RoundingMode);
+
+    private readonly record struct ExpectedLayoutSample(
+        string RelativePath,
+        string[] ExpectedChannels,
+        int Width,
+        int Height,
+        bool IsCube);
 }
