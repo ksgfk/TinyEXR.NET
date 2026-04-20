@@ -1,8 +1,8 @@
 # TinyEXR.NET
 
-`TinyEXR.NET` is a pure managed C# port of the tinyexr v1 single-part API surface.
+`TinyEXR.NET` is a pure managed C# port of the tinyexr v1 API.
 
-The library targets `netstandard2.1` and `net10.0`. The public API no longer exposes `TinyEXR.Native`, native handles, or `unsafe`-based lifecycle methods.
+The library targets `net10.0`. The public API no longer exposes `TinyEXR.Native`, native handles, or `unsafe`-based lifecycle methods.
 
 ## Package
 
@@ -14,8 +14,6 @@ The entry point is [`TinyEXR.Exr`](TinyEXR.NET/Exr.cs).
 
 The managed facade provides:
 
-- `TryReadVersion`, `TryReadHeader`, `TryReadImage`, `TryReadDeepImage`
-- `TryReadRgba`, `TryReadLayers`, `TryWriteImage`, `TryWriteRgba`
 - convenience wrappers such as `LoadEXR`, `LoadEXRWithLayer`, `SaveEXR`, `SaveEXRToMemory`
 - spectral helpers such as `EXRFormatWavelength`, `EXRSpectralChannelName`, `EXRSetSpectralAttributes`
 - helper classes [`SinglePartExrReader`](TinyEXR.NET/SinglePartExrReader.cs) and [`ScanlineExrWriter`](TinyEXR.NET/ScanlineExrWriter.cs)
@@ -34,10 +32,9 @@ The public data model is fully managed:
 
 Current v1 support is intentionally conservative:
 
-- `None`: supported on `netstandard2.1` and `net10.0`
-- `ZIP`, `ZIPS`: supported on `net10.0`
-- `ZIP`, `ZIPS`: reported as `UnsupportedFeature` on `netstandard2.1`
-- `RLE`, `PIZ`, `PXR24`, `B44`, `B44A`, `DWAA`, `DWAB`: recognized but not implemented yet, reported as `UnsupportedFeature`
+- `None`: supported on `net10.0`
+- `ZIP`, `ZIPS`, `RLE`, `PIZ`, `PXR24`, `B44`, `B44A`: supported on `net10.0`
+- `DWAA`, `DWAB`: recognized but not implemented yet, reported as `UnsupportedFeature`
 
 ## Quick Example
 
@@ -75,7 +72,6 @@ The test suite is split into:
 - managed unit tests
 - integration tests against `openexr-images`
 - round-trip write/read tests
-- a dedicated `netstandard2.1` fallback runner that validates ZIP/ZIPS unsupported paths
 
 The integration samples are pinned to `openexr-images` commit `e38ffb0790f62f05a6f083a6fa4cac150b3b7452` and are expected under `.cache/openexr-images` by default.
 

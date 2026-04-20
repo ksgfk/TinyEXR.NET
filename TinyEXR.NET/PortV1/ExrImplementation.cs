@@ -328,7 +328,7 @@ namespace TinyEXR.PortV1
             ParsedHeader? parsed;
             try
             {
-                ResultCode result = TryParseHeader(data, out parsed);
+                ResultCode result = TryParseDeepHeader(data, out parsed);
                 if (result != ResultCode.Success)
                 {
                     return result;
@@ -1725,6 +1725,223 @@ namespace TinyEXR.PortV1
 
             result.HeaderSectionEndOffset = offset;
             parsed = result;
+            return ResultCode.Success;
+        }
+
+        private static ResultCode TryParseDeepHeader(ReadOnlySpan<byte> data, out ParsedHeader? parsed)
+        {
+            parsed = null;
+            ResultCode versionResult = TryReadVersion(data, out ExrVersion version);
+            if (versionResult != ResultCode.Success)
+            {
+                return versionResult;
+            }
+
+            if (version.Multipart || !version.NonImage || version.Tiled)
+            {
+                return ResultCode.UnsupportedFeature;
+            }
+
+            int offset = ExrVersionHeaderSize;
+            ExrHeader parsedHeader = new ExrHeader
+            {
+                HasLongNames = version.LongName,
+                IsDeep = true,
+                PartType = "deepscanline",
+            };
+
+            bool hasCompression = false;
+            bool hasDataWindow = false;
+            bool hasDisplayWindow = false;
+            bool hasLineOrder = false;
+            bool hasPixelAspectRatio = false;
+            bool hasScreenWindowCenter = false;
+            bool hasScreenWindowWidth = false;
+
+            while (true)
+            {
+                if (offset >= data.Length)
+                {
+                    return ResultCode.InvalidData;
+                }
+
+                if (data[offset] == 0)
+                {
+                    offset++;
+                    break;
+                }
+
+                if (!TryReadNullTerminatedString(data, ref offset, out string attributeName) ||
+                    !TryReadNullTerminatedString(data, ref offset, out string attributeType))
+                {
+                    return ResultCode.InvalidData;
+                }
+
+                if (offset + sizeof(int) > data.Length)
+                {
+                    return ResultCode.InvalidData;
+                }
+
+                int valueSize = BinaryPrimitives.ReadInt32LittleEndian(data.Slice(offset, sizeof(int)));
+                offset += sizeof(int);
+                if (valueSize < 0 || offset + valueSize > data.Length)
+                {
+                    return ResultCode.InvalidData;
+                }
+
+                ReadOnlySpan<byte> value = data.Slice(offset, valueSize);
+                offset += valueSize;
+
+                switch (attributeName)
+                {
+                    case "type":
+                        string partType = DecodeStringAttributeValue(value);
+                        if (string.Equals(partType, "deeptile", StringComparison.Ordinal))
+                        {
+                            return ResultCode.UnsupportedFeature;
+                        }
+
+                        if (!string.IsNullOrEmpty(partType))
+                        {
+                            parsedHeader.PartType = partType;
+                        }
+                        break;
+                    case "channels":
+                        ResultCode channelResult = TryParseChannels(value, parsedHeader.Channels);
+                        if (channelResult != ResultCode.Success)
+                        {
+                            return channelResult;
+                        }
+                        break;
+                    case "compression":
+                        if (value.Length < 1)
+                        {
+                            return ResultCode.InvalidHeader;
+                        }
+
+                        if (!Enum.IsDefined(typeof(CompressionType), (int)value[0]))
+                        {
+                            return ResultCode.UnsupportedFormat;
+                        }
+
+                        parsedHeader.Compression = (CompressionType)value[0];
+                        hasCompression = true;
+                        break;
+                    case "dataWindow":
+                        if (value.Length < 16)
+                        {
+                            return ResultCode.InvalidHeader;
+                        }
+
+                        parsedHeader.DataWindow = new ExrBox2i(
+                            BinaryPrimitives.ReadInt32LittleEndian(value),
+                            BinaryPrimitives.ReadInt32LittleEndian(value.Slice(4)),
+                            BinaryPrimitives.ReadInt32LittleEndian(value.Slice(8)),
+                            BinaryPrimitives.ReadInt32LittleEndian(value.Slice(12)));
+                        hasDataWindow = true;
+                        break;
+                    case "displayWindow":
+                        if (value.Length < 16)
+                        {
+                            return ResultCode.InvalidHeader;
+                        }
+
+                        parsedHeader.DisplayWindow = new ExrBox2i(
+                            BinaryPrimitives.ReadInt32LittleEndian(value),
+                            BinaryPrimitives.ReadInt32LittleEndian(value.Slice(4)),
+                            BinaryPrimitives.ReadInt32LittleEndian(value.Slice(8)),
+                            BinaryPrimitives.ReadInt32LittleEndian(value.Slice(12)));
+                        hasDisplayWindow = true;
+                        break;
+                    case "lineOrder":
+                        if (value.Length < 1)
+                        {
+                            return ResultCode.InvalidHeader;
+                        }
+
+                        parsedHeader.LineOrder = (LineOrderType)value[0];
+                        hasLineOrder = true;
+                        break;
+                    case "pixelAspectRatio":
+                        if (value.Length < 4)
+                        {
+                            return ResultCode.InvalidHeader;
+                        }
+
+                        parsedHeader.PixelAspectRatio = Exr.ReadSingleLittleEndian(value);
+                        hasPixelAspectRatio = true;
+                        break;
+                    case "screenWindowCenter":
+                        if (value.Length < 8)
+                        {
+                            return ResultCode.InvalidHeader;
+                        }
+
+                        parsedHeader.ScreenWindowCenter = new Vector2(
+                            Exr.ReadSingleLittleEndian(value),
+                            Exr.ReadSingleLittleEndian(value.Slice(4)));
+                        hasScreenWindowCenter = true;
+                        break;
+                    case "screenWindowWidth":
+                        if (value.Length < 4)
+                        {
+                            return ResultCode.InvalidHeader;
+                        }
+
+                        parsedHeader.ScreenWindowWidth = Exr.ReadSingleLittleEndian(value);
+                        hasScreenWindowWidth = true;
+                        break;
+                    case "chunkCount":
+                        if (value.Length < sizeof(int))
+                        {
+                            return ResultCode.InvalidHeader;
+                        }
+
+                        parsedHeader.ChunkCount = BinaryPrimitives.ReadInt32LittleEndian(value);
+                        break;
+                    default:
+                        parsedHeader.CustomAttributes.Add(new ExrAttribute(attributeName, attributeType, value.ToArray()));
+                        break;
+                }
+            }
+
+            if (!hasCompression || !hasDataWindow || parsedHeader.Channels.Count == 0)
+            {
+                return ResultCode.InvalidHeader;
+            }
+
+            if (!hasDisplayWindow)
+            {
+                parsedHeader.DisplayWindow = parsedHeader.DataWindow;
+            }
+
+            if (!hasLineOrder)
+            {
+                parsedHeader.LineOrder = LineOrderType.IncreasingY;
+            }
+
+            if (!hasPixelAspectRatio)
+            {
+                parsedHeader.PixelAspectRatio = 1.0f;
+            }
+
+            if (!hasScreenWindowCenter)
+            {
+                parsedHeader.ScreenWindowCenter = Vector2.Zero;
+            }
+
+            if (!hasScreenWindowWidth)
+            {
+                parsedHeader.ScreenWindowWidth = 1.0f;
+            }
+
+            parsedHeader.HeaderLength = offset;
+            parsed = new ParsedHeader
+            {
+                Version = version,
+                Header = parsedHeader,
+                HeaderEndOffset = offset,
+            };
             return ResultCode.Success;
         }
 

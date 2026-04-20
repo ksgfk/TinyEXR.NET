@@ -203,6 +203,26 @@ public sealed class LoadTests
         }
     }
 
+    [TestMethod(DisplayName = "[TinyEXR.NET Test] deepscanline.exr|LoadDeep")]
+    public void Case_deepscanline_exr_LoadDeep()
+    {
+        string path = Path.Combine(TestPaths.NativeTinyExrRoot, "deepscanline.exr");
+
+        Assert.AreEqual(ResultCode.Success, Exr.ParseEXRVersionFromFile(path, out ExrVersion version));
+        Assert.IsFalse(version.Tiled);
+        Assert.IsTrue(version.NonImage);
+        Assert.IsFalse(version.Multipart);
+
+        Assert.AreEqual(ResultCode.Success, Exr.LoadDeepEXR(path, out ExrHeader header, out ExrDeepImage image));
+        Assert.IsTrue(header.IsDeep);
+        Assert.AreEqual("deepscanline", header.PartType);
+        Assert.IsNull(header.Tiles);
+        Assert.IsTrue(image.Width > 0);
+        Assert.IsTrue(image.Height > 0);
+        Assert.AreEqual(image.Height, image.OffsetTable.Length);
+        Assert.AreEqual(header.Channels.Count, image.Channels.Count);
+    }
+
     private static void AssertSinglePartLoads(string relativePath)
     {
         string path = TestPaths.OpenExr(relativePath);
