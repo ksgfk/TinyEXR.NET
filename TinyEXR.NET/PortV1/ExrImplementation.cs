@@ -1129,7 +1129,39 @@ namespace TinyEXR.PortV1
                 }
             }
 
+            ResultCode requestedPixelTypeValidation = ValidateRequestedReadPixelTypes(parsed.Header);
+            if (requestedPixelTypeValidation != ResultCode.Success)
+            {
+                return requestedPixelTypeValidation;
+            }
+
             return ResultCode.Success;
+        }
+
+        private static ResultCode ValidateRequestedReadPixelTypes(ExrHeader header)
+        {
+            foreach (ExrChannel channel in header.Channels)
+            {
+                if (!IsSupportedRequestedReadPixelType(channel.Type, channel.RequestedPixelType))
+                {
+                    return ResultCode.UnsupportedFeature;
+                }
+            }
+
+            return ResultCode.Success;
+        }
+
+        private static bool IsSupportedRequestedReadPixelType(ExrPixelType storedType, ExrPixelType requestedType)
+        {
+            // tinyexr v1 only widens HALF to FLOAT on read. UINT and FLOAT
+            // channels must be loaded using their stored type.
+            return storedType switch
+            {
+                ExrPixelType.Half => requestedType == ExrPixelType.Half || requestedType == ExrPixelType.Float,
+                ExrPixelType.UInt => requestedType == ExrPixelType.UInt,
+                ExrPixelType.Float => requestedType == ExrPixelType.Float,
+                _ => false,
+            };
         }
 
         private static ResultCode TryReadSinglePartChunkOffsets(ReadOnlySpan<byte> data, ParsedHeader parsed, out long[] offsets)

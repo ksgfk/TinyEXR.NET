@@ -468,6 +468,44 @@ public sealed class RegressionTests
         Assert.AreEqual(1.0f, image[(30 * width + 417) * 4 + 2], 0.000001f);
     }
 
+    [TestMethod(DisplayName = "[TinyEXR.NET Test] Regression: RequestedPixelTypes|ReadAcceptsTinyExrMatrix")]
+    public void Case_Regression_RequestedPixelTypes_ReadAcceptsTinyExrMatrix()
+    {
+        byte[] encoded = CreateRequestedPixelTypesRegressionImage();
+
+        Assert.AreEqual(ResultCode.Success, Exr.ParseEXRHeaderFromMemory(encoded, out _, out ExrHeader header));
+        ExrTestHelper.SetRequestedPixelTypes(
+            header,
+            static channel => channel.Name switch
+            {
+                "H" => ExrPixelType.Float,
+                "U" => ExrPixelType.UInt,
+                "F" => ExrPixelType.Float,
+                _ => throw new InvalidOperationException($"Unexpected channel '{channel.Name}'."),
+            });
+
+        Assert.AreEqual(ResultCode.Success, Exr.LoadEXRImageFromMemory(encoded, header, out ExrImage image));
+
+        Assert.AreEqual(ExrPixelType.Float, image.GetChannel("H").DataType);
+        Assert.AreEqual(ExrPixelType.UInt, image.GetChannel("U").DataType);
+        Assert.AreEqual(ExrPixelType.Float, image.GetChannel("F").DataType);
+        CollectionAssert.AreEqual(new[] { 1.5f, 2.0f }, ExrTestHelper.ReadFloatChannel(image, "H"));
+        CollectionAssert.AreEqual(new uint[] { 7u, 42u }, ExrTestHelper.ReadUIntChannel(image, "U"));
+        CollectionAssert.AreEqual(new[] { 3.25f, 4.5f }, ExrTestHelper.ReadFloatChannel(image, "F"));
+    }
+
+    [TestMethod(DisplayName = "[TinyEXR.NET Test] Regression: RequestedPixelTypes|ReadRejectsNonTinyExrMatrix")]
+    public void Case_Regression_RequestedPixelTypes_ReadRejectsNonTinyExrMatrix()
+    {
+        byte[] encoded = CreateRequestedPixelTypesRegressionImage();
+
+        AssertRequestedPixelTypeLoadFails(encoded, "H", ExrPixelType.UInt);
+        AssertRequestedPixelTypeLoadFails(encoded, "U", ExrPixelType.Half);
+        AssertRequestedPixelTypeLoadFails(encoded, "U", ExrPixelType.Float);
+        AssertRequestedPixelTypeLoadFails(encoded, "F", ExrPixelType.Half);
+        AssertRequestedPixelTypeLoadFails(encoded, "F", ExrPixelType.UInt);
+    }
+
     private static void SetLineOrderAttribute(byte[] encoded, LineOrderType lineOrder)
     {
         byte[] marker = Encoding.ASCII.GetBytes("lineOrder\0lineOrder\0");
@@ -516,6 +554,38 @@ public sealed class RegressionTests
             Assert.IsTrue(offset + attributeSize <= encoded.Length, "attribute value was truncated.");
             offset += attributeSize;
         }
+    }
+
+    private static byte[] CreateRequestedPixelTypesRegressionImage()
+    {
+        ExrImage image = new(
+            2,
+            1,
+            new[]
+            {
+                ExrTestHelper.FloatChannel("H", ExrPixelType.Half, new[] { 1.5f, 2.0f }),
+                ExrTestHelper.UIntChannel("U", ExrPixelType.UInt, new uint[] { 7u, 42u }),
+                ExrTestHelper.FloatChannel("F", ExrPixelType.Float, new[] { 3.25f, 4.5f }),
+            });
+
+        ExrHeader header = new()
+        {
+            Compression = CompressionType.None,
+        };
+
+        Assert.AreEqual(ResultCode.Success, Exr.SaveEXRImageToMemory(image, header, out byte[] encoded));
+        return encoded;
+    }
+
+    private static void AssertRequestedPixelTypeLoadFails(byte[] encoded, string channelName, ExrPixelType requestedPixelType)
+    {
+        Assert.AreEqual(ResultCode.Success, Exr.ParseEXRHeaderFromMemory(encoded, out _, out ExrHeader header));
+        ExrTestHelper.SetRequestedPixelTypes(
+            header,
+            channel => string.Equals(channel.Name, channelName, StringComparison.Ordinal) ? requestedPixelType : channel.Type);
+
+        ResultCode result = Exr.LoadEXRImageFromMemory(encoded, header, out _);
+        Assert.AreEqual(ResultCode.UnsupportedFeature, result, $"{channelName}->{requestedPixelType}");
     }
 
     private static void AssertFuzzedHeaderRejected(string fileName)
