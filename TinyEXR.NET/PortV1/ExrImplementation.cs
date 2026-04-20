@@ -29,6 +29,13 @@ namespace TinyEXR.PortV1
             public int HeaderSectionEndOffset { get; set; }
         }
 
+        private sealed class PreparedImagePart
+        {
+            public ExrHeader Header { get; set; } = new ExrHeader();
+
+            public List<byte[]> Chunks { get; } = new List<byte[]>();
+        }
+
         private readonly struct LayerChannel
         {
             public LayerChannel(int index, string name)
@@ -475,8 +482,61 @@ namespace TinyEXR.PortV1
                 return ResultCode.InvalidArgument;
             }
 
-            ExrHeader effectiveHeader = CreateWriteHeader(image, header);
-            if (effectiveHeader.IsMultipart || effectiveHeader.IsDeep || effectiveHeader.Tiles != null)
+            ResultCode prepareResult = TryPrepareImagePart(image, header, multipartPart: false, out PreparedImagePart? preparedPart);
+            if (prepareResult != ResultCode.Success)
+            {
+                return prepareResult;
+            }
+
+            return TryAssembleSinglePart(preparedPart!, out encoded);
+        }
+
+        internal static ResultCode TryWriteMultipartImages(IReadOnlyList<ExrImage> images, IReadOnlyList<ExrHeader> headers, out byte[] encoded)
+        {
+            encoded = Array.Empty<byte>();
+            if (images == null || headers == null)
+            {
+                return ResultCode.InvalidArgument;
+            }
+
+            if (images.Count != headers.Count)
+            {
+                return ResultCode.InvalidArgument;
+            }
+
+            List<PreparedImagePart> parts = new List<PreparedImagePart>(images.Count);
+            HashSet<string> partNames = new HashSet<string>(StringComparer.Ordinal);
+            for (int i = 0; i < images.Count; i++)
+            {
+                ResultCode prepareResult = TryPrepareImagePart(images[i], headers[i], multipartPart: true, out PreparedImagePart? preparedPart);
+                if (prepareResult != ResultCode.Success)
+                {
+                    return prepareResult;
+                }
+
+                string? partName = preparedPart!.Header.Name;
+                if (string.IsNullOrWhiteSpace(partName) || !partNames.Add(partName))
+                {
+                    encoded = Array.Empty<byte>();
+                    return ResultCode.InvalidArgument;
+                }
+
+                parts.Add(preparedPart);
+            }
+
+            return TryAssembleMultipart(parts, out encoded);
+        }
+
+        private static ResultCode TryPrepareImagePart(ExrImage image, ExrHeader? header, bool multipartPart, out PreparedImagePart? preparedPart)
+        {
+            preparedPart = null;
+            ResultCode headerResult = TryCreateWriteHeader(image, header, multipartPart, out ExrHeader effectiveHeader);
+            if (headerResult != ResultCode.Success)
+            {
+                return headerResult;
+            }
+
+            if (effectiveHeader.IsDeep)
             {
                 return ResultCode.UnsupportedFeature;
             }
@@ -491,79 +551,287 @@ namespace TinyEXR.PortV1
                 return ResultCode.UnsupportedFeature;
             }
 
-            int width = image.Width;
-            int height = image.Height;
-            if (width <= 0 || height <= 0)
+#if !NET10_0_OR_GREATER
+            if (multipartPart || effectiveHeader.Tiles != null)
             {
-                return ResultCode.InvalidArgument;
+                return ResultCode.UnsupportedFeature;
+            }
+#endif
+
+            preparedPart = new PreparedImagePart
+            {
+                Header = effectiveHeader,
+            };
+
+            if (effectiveHeader.Tiles == null)
+            {
+                ResultCode scanlineResult = TryBuildScanlineChunks(image, effectiveHeader, preparedPart.Chunks);
+                if (scanlineResult != ResultCode.Success)
+                {
+                    preparedPart = null;
+                    return scanlineResult;
+                }
+            }
+            else
+            {
+                ResultCode tiledResult = TryBuildTiledChunks(image, effectiveHeader, preparedPart.Chunks);
+                if (tiledResult != ResultCode.Success)
+                {
+                    preparedPart = null;
+                    return tiledResult;
+                }
             }
 
-            foreach (ExrImageChannel channel in image.Channels)
+            if (multipartPart)
             {
-                if (channel.Channel.SamplingX != 1 || channel.Channel.SamplingY != 1)
-                {
-                    return ResultCode.UnsupportedFeature;
-                }
-
-                int expectedLength = checked(width * height * Exr.TypeSize(channel.DataType));
-                if (channel.Data.Length != expectedLength)
-                {
-                    return ResultCode.InvalidArgument;
-                }
+                preparedPart.Header.ChunkCount = preparedPart.Chunks.Count;
             }
 
-            int linesPerChunk = NumScanlines(effectiveHeader.Compression);
-            int blockCount = (height + linesPerChunk - 1) / linesPerChunk;
-            List<byte[]> chunks = new List<byte[]>(blockCount);
-            int offsetTableSize = blockCount * sizeof(long);
+            return ResultCode.Success;
+        }
+
+        private static ResultCode TryAssembleSinglePart(PreparedImagePart part, out byte[] encoded)
+        {
+            encoded = Array.Empty<byte>();
 
             using MemoryStream headerStream = new MemoryStream();
-            WriteVersion(headerStream);
-            WriteHeader(headerStream, effectiveHeader);
+            WriteVersion(headerStream, tiled: part.Header.Tiles != null, multipart: false, nonImage: false, longName: part.Header.HasLongNames);
+            WriteHeader(headerStream, part.Header);
 
-            long chunkOffset = headerStream.Length + offsetTableSize;
-            long[] offsets = new long[blockCount];
-            for (int blockIndex = 0; blockIndex < blockCount; blockIndex++)
+            long chunkOffset = headerStream.Length + checked(part.Chunks.Count * sizeof(long));
+            long[] offsets = new long[part.Chunks.Count];
+            for (int i = 0; i < part.Chunks.Count; i++)
             {
-                int startY = blockIndex * linesPerChunk;
-                int numLines = Math.Min(linesPerChunk, height - startY);
-                ResultCode chunkResult = TryEncodeScanlineChunk(image, effectiveHeader, startY, numLines, out byte[] chunk);
-                if (chunkResult != ResultCode.Success)
-                {
-                    return chunkResult;
-                }
-
-                offsets[blockIndex] = chunkOffset;
-                chunkOffset += chunk.Length;
-                chunks.Add(chunk);
+                offsets[i] = chunkOffset;
+                chunkOffset += part.Chunks[i].Length;
             }
 
             using MemoryStream output = new MemoryStream();
             output.Write(headerStream.ToArray(), 0, checked((int)headerStream.Length));
-            byte[] offsetBuffer = new byte[sizeof(long)];
-            foreach (long offset in offsets)
+            WriteOffsetTable(output, offsets);
+            WriteChunks(output, part.Chunks);
+            encoded = output.ToArray();
+            return ResultCode.Success;
+        }
+
+        private static ResultCode TryAssembleMultipart(IReadOnlyList<PreparedImagePart> parts, out byte[] encoded)
+        {
+            encoded = Array.Empty<byte>();
+            if (parts.Count == 0)
             {
-                BinaryPrimitives.WriteInt64LittleEndian(offsetBuffer, offset);
-                output.Write(offsetBuffer, 0, offsetBuffer.Length);
+                return ResultCode.InvalidArgument;
             }
 
-            foreach (byte[] chunk in chunks)
+            bool anyTiled = false;
+            bool anyLongNames = false;
+            foreach (PreparedImagePart part in parts)
             {
-                output.Write(chunk, 0, chunk.Length);
+                anyTiled |= part.Header.Tiles != null;
+                anyLongNames |= part.Header.HasLongNames;
+            }
+
+            using MemoryStream headerStream = new MemoryStream();
+            WriteVersion(headerStream, tiled: anyTiled, multipart: true, nonImage: false, longName: anyLongNames);
+            foreach (PreparedImagePart part in parts)
+            {
+                WriteHeader(headerStream, part.Header);
+            }
+
+            headerStream.WriteByte(0);
+
+            long totalOffsetTableSize = 0;
+            foreach (PreparedImagePart part in parts)
+            {
+                totalOffsetTableSize += checked(part.Chunks.Count * sizeof(long));
+            }
+
+            List<List<byte[]>> multipartChunks = new List<List<byte[]>>(parts.Count);
+            List<long[]> offsetTables = new List<long[]>(parts.Count);
+            long chunkOffset = headerStream.Length + totalOffsetTableSize;
+            for (int partIndex = 0; partIndex < parts.Count; partIndex++)
+            {
+                PreparedImagePart part = parts[partIndex];
+                List<byte[]> encodedChunks = new List<byte[]>(part.Chunks.Count);
+                long[] offsets = new long[part.Chunks.Count];
+                for (int i = 0; i < part.Chunks.Count; i++)
+                {
+                    byte[] multipartChunk = WrapMultipartChunk(partIndex, part.Chunks[i]);
+                    encodedChunks.Add(multipartChunk);
+                    offsets[i] = chunkOffset;
+                    chunkOffset += multipartChunk.Length;
+                }
+
+                multipartChunks.Add(encodedChunks);
+                offsetTables.Add(offsets);
+            }
+
+            using MemoryStream output = new MemoryStream();
+            output.Write(headerStream.ToArray(), 0, checked((int)headerStream.Length));
+            foreach (long[] offsetTable in offsetTables)
+            {
+                WriteOffsetTable(output, offsetTable);
+            }
+
+            foreach (List<byte[]> encodedChunks in multipartChunks)
+            {
+                WriteChunks(output, encodedChunks);
             }
 
             encoded = output.ToArray();
             return ResultCode.Success;
         }
 
-        private static ResultCode TryEncodeScanlineChunk(ExrImage image, ExrHeader header, int startY, int numLines, out byte[] chunk)
+        private static ResultCode TryBuildScanlineChunks(ExrImage image, ExrHeader header, IList<byte[]> chunks)
+        {
+            int linesPerChunk = NumScanlines(header.Compression);
+            int blockCount = (image.Height + linesPerChunk - 1) / linesPerChunk;
+            for (int blockIndex = 0; blockIndex < blockCount; blockIndex++)
+            {
+                int startY = blockIndex * linesPerChunk;
+                int numLines = Math.Min(linesPerChunk, image.Height - startY);
+                ResultCode chunkResult = TryEncodeScanlineChunk(image.Levels[0], header, startY, numLines, out byte[] chunk);
+                if (chunkResult != ResultCode.Success)
+                {
+                    return chunkResult;
+                }
+
+                chunks.Add(chunk);
+            }
+
+            return ResultCode.Success;
+        }
+
+        private static ResultCode TryBuildTiledChunks(ExrImage image, ExrHeader header, IList<byte[]> chunks)
+        {
+            if (header.Tiles == null)
+            {
+                return ResultCode.InvalidArgument;
+            }
+
+            CalculateTileInfo(header, image.Width, image.Height, out int[] numXTiles, out int[] numYTiles, out int numXLevels, out int numYLevels, out int totalBlocks);
+            if (totalBlocks <= 0)
+            {
+                return ResultCode.InvalidArgument;
+            }
+
+            int levelCount = header.Tiles.LevelMode == ExrTileLevelMode.RipMapLevels ? numXLevels * numYLevels : numXLevels;
+            if (image.Levels.Count != levelCount)
+            {
+                return ResultCode.InvalidArgument;
+            }
+
+            for (int levelIndex = 0; levelIndex < levelCount; levelIndex++)
+            {
+                ExrImageLevel level = image.Levels[levelIndex];
+                int levelX = header.Tiles.LevelMode == ExrTileLevelMode.RipMapLevels ? levelIndex % numXLevels : levelIndex;
+                int levelY = header.Tiles.LevelMode == ExrTileLevelMode.RipMapLevels ? levelIndex / numXLevels : levelIndex;
+                int tileRows = numYTiles[levelY];
+                int tileColumns = numXTiles[levelX];
+
+                for (int tileY = 0; tileY < tileRows; tileY++)
+                {
+                    for (int tileX = 0; tileX < tileColumns; tileX++)
+                    {
+                        ResultCode chunkResult = TryEncodeTileChunk(level, header, tileX, tileY, levelX, levelY, out byte[] chunk);
+                        if (chunkResult != ResultCode.Success)
+                        {
+                            return chunkResult;
+                        }
+
+                        chunks.Add(chunk);
+                    }
+                }
+            }
+
+            return ResultCode.Success;
+        }
+
+        private static ResultCode TryEncodeScanlineChunk(ExrImageLevel level, ExrHeader header, int startY, int numLines, out byte[] chunk)
         {
             chunk = Array.Empty<byte>();
+            ResultCode rawResult = TryEncodePixelBlock(level.Channels, header, level.Width, level.Height, 0, startY, level.Width, numLines, out byte[] raw);
+            if (rawResult != ResultCode.Success)
+            {
+                return rawResult;
+            }
 
-            List<ExrImageChannel> channels = image.Channels.ToList();
-            int[] channelOffsets = BuildChannelOffsets(channels.Select(static c => c.Channel.Type).ToArray(), out int pixelSize);
-            int width = image.Width;
-            byte[] raw = new byte[checked(width * numLines * pixelSize)];
+            ResultCode payloadResult = TryEncodePayload(header.Compression, raw, out byte[] payload);
+            if (payloadResult != ResultCode.Success)
+            {
+                return payloadResult;
+            }
+
+            chunk = new byte[sizeof(int) * 2 + payload.Length];
+            BinaryPrimitives.WriteInt32LittleEndian(chunk, startY + header.DataWindow.MinY);
+            BinaryPrimitives.WriteInt32LittleEndian(chunk.AsSpan(sizeof(int)), payload.Length);
+            payload.CopyTo(chunk, sizeof(int) * 2);
+            return ResultCode.Success;
+        }
+
+        private static ResultCode TryEncodeTileChunk(ExrImageLevel level, ExrHeader header, int tileX, int tileY, int levelX, int levelY, out byte[] chunk)
+        {
+            chunk = Array.Empty<byte>();
+            if (header.Tiles == null)
+            {
+                return ResultCode.InvalidArgument;
+            }
+
+            int tilePixelX = tileX * header.Tiles.TileSizeX;
+            int tilePixelY = tileY * header.Tiles.TileSizeY;
+            int tileWidth = Math.Min(header.Tiles.TileSizeX, level.Width - tilePixelX);
+            int tileHeight = Math.Min(header.Tiles.TileSizeY, level.Height - tilePixelY);
+            if (tileWidth <= 0 || tileHeight <= 0)
+            {
+                return ResultCode.InvalidArgument;
+            }
+
+            ResultCode rawResult = TryEncodePixelBlock(level.Channels, header, level.Width, level.Height, tilePixelX, tilePixelY, tileWidth, tileHeight, out byte[] raw);
+            if (rawResult != ResultCode.Success)
+            {
+                return rawResult;
+            }
+
+            ResultCode payloadResult = TryEncodePayload(header.Compression, raw, out byte[] payload);
+            if (payloadResult != ResultCode.Success)
+            {
+                return payloadResult;
+            }
+
+            chunk = new byte[sizeof(int) * 5 + payload.Length];
+            BinaryPrimitives.WriteInt32LittleEndian(chunk, tileX);
+            BinaryPrimitives.WriteInt32LittleEndian(chunk.AsSpan(4), tileY);
+            BinaryPrimitives.WriteInt32LittleEndian(chunk.AsSpan(8), levelX);
+            BinaryPrimitives.WriteInt32LittleEndian(chunk.AsSpan(12), levelY);
+            BinaryPrimitives.WriteInt32LittleEndian(chunk.AsSpan(16), payload.Length);
+            payload.CopyTo(chunk, 20);
+            return ResultCode.Success;
+        }
+
+        private static ResultCode TryEncodePixelBlock(
+            IList<ExrImageChannel> channels,
+            ExrHeader header,
+            int sourceWidth,
+            int sourceHeight,
+            int startX,
+            int startY,
+            int blockWidth,
+            int blockHeight,
+            out byte[] raw)
+        {
+            raw = Array.Empty<byte>();
+            if (channels.Count != header.Channels.Count)
+            {
+                return ResultCode.InvalidArgument;
+            }
+
+            if (startX < 0 || startY < 0 || blockWidth <= 0 || blockHeight <= 0 ||
+                startX + blockWidth > sourceWidth || startY + blockHeight > sourceHeight)
+            {
+                return ResultCode.InvalidArgument;
+            }
+
+            int[] channelOffsets = BuildChannelOffsets(header.Channels.Select(static channel => channel.Type).ToArray(), out int pixelSize);
+            raw = new byte[checked(blockWidth * blockHeight * pixelSize)];
 
             for (int channelIndex = 0; channelIndex < channels.Count; channelIndex++)
             {
@@ -571,34 +839,24 @@ namespace TinyEXR.PortV1
                 int targetSampleSize = Exr.TypeSize(channel.Channel.Type);
                 int sourceSampleSize = Exr.TypeSize(channel.DataType);
 
-                for (int y = 0; y < numLines; y++)
+                for (int y = 0; y < blockHeight; y++)
                 {
                     int sourceRow = startY + y;
-                    int rowBase = checked(y * width * pixelSize);
-                    int channelBase = rowBase + checked(channelOffsets[channelIndex] * width);
-                    for (int x = 0; x < width; x++)
+                    int rowBase = checked(y * blockWidth * pixelSize);
+                    int channelBase = rowBase + checked(channelOffsets[channelIndex] * blockWidth);
+                    for (int x = 0; x < blockWidth; x++)
                     {
-                        int sourceOffset = checked((sourceRow * width + x) * sourceSampleSize);
+                        int sourceOffset = checked(((sourceRow * sourceWidth) + startX + x) * sourceSampleSize);
                         int targetOffset = channelBase + x * targetSampleSize;
                         if (!TryConvertSample(channel.Data.AsSpan(sourceOffset, sourceSampleSize), channel.DataType, raw.AsSpan(targetOffset, targetSampleSize), channel.Channel.Type))
                         {
+                            raw = Array.Empty<byte>();
                             return ResultCode.UnsupportedFeature;
                         }
                     }
                 }
             }
 
-            byte[] payload;
-            ResultCode compressionResult = TryEncodePayload(header.Compression, raw, out payload);
-            if (compressionResult != ResultCode.Success)
-            {
-                return compressionResult;
-            }
-
-            chunk = new byte[sizeof(int) * 2 + payload.Length];
-            BinaryPrimitives.WriteInt32LittleEndian(chunk, startY + header.DataWindow.MinY);
-            BinaryPrimitives.WriteInt32LittleEndian(chunk.AsSpan(sizeof(int)), payload.Length);
-            payload.CopyTo(chunk, sizeof(int) * 2);
             return ResultCode.Success;
         }
 
@@ -617,22 +875,205 @@ namespace TinyEXR.PortV1
             }
         }
 
-        private static ExrHeader CreateWriteHeader(ExrImage image, ExrHeader? header)
+        private static ResultCode TryCreateWriteHeader(ExrImage image, ExrHeader? header, bool multipartPart, out ExrHeader effective)
         {
-            ExrHeader effective = header?.CloneShallow() ?? new ExrHeader();
-            effective.DataWindow = new ExrBox2i(0, 0, image.Width - 1, image.Height - 1);
-            if (effective.DisplayWindow.Width <= 0 || effective.DisplayWindow.Height <= 0)
+            effective = header?.CloneShallow() ?? new ExrHeader();
+
+            if (image.Width <= 0 || image.Height <= 0 || image.Levels.Count == 0)
+            {
+                return ResultCode.InvalidArgument;
+            }
+
+            ExrImageLevel baseLevel = image.Levels[0];
+            if (baseLevel.LevelX != 0 || baseLevel.LevelY != 0 || baseLevel.Width != image.Width || baseLevel.Height != image.Height)
+            {
+                return ResultCode.InvalidArgument;
+            }
+
+            if (effective.Tiles == null)
+            {
+                if (image.Levels.Count != 1)
+                {
+                    return ResultCode.InvalidArgument;
+                }
+            }
+            else
+            {
+                ResultCode tiledValidationResult = ValidateTiledImageLevels(image, effective.Tiles);
+                if (tiledValidationResult != ResultCode.Success)
+                {
+                    return tiledValidationResult;
+                }
+            }
+
+            if (ShouldDefaultToImageWindow(effective.DataWindow, image.Width, image.Height))
+            {
+                effective.DataWindow = new ExrBox2i(0, 0, image.Width - 1, image.Height - 1);
+            }
+            else if (effective.DataWindow.Width != image.Width || effective.DataWindow.Height != image.Height)
+            {
+                return ResultCode.InvalidArgument;
+            }
+
+            if (ShouldDefaultToImageWindow(effective.DisplayWindow, image.Width, image.Height))
             {
                 effective.DisplayWindow = effective.DataWindow;
             }
 
-            effective.Channels.Clear();
-            foreach (ExrImageChannel channel in image.Channels)
+            effective.IsMultipart = multipartPart;
+            if (multipartPart)
             {
+                effective.PartType = effective.Tiles == null ? "scanlineimage" : "tiledimage";
+            }
+
+            effective.Channels.Clear();
+            foreach (ExrImageChannel channel in baseLevel.Channels)
+            {
+                if (channel.Channel.SamplingX != 1 || channel.Channel.SamplingY != 1)
+                {
+                    return ResultCode.UnsupportedFeature;
+                }
+
                 effective.Channels.Add(new ExrChannel(channel.Channel.Name, channel.Channel.Type, channel.Channel.RequestedPixelType, channel.Channel.SamplingX, channel.Channel.SamplingY, channel.Channel.Linear));
             }
 
-            return effective;
+            ResultCode levelValidationResult = ValidateLevelChannels(image.Levels, effective.Channels);
+            if (levelValidationResult != ResultCode.Success)
+            {
+                return levelValidationResult;
+            }
+
+            return ResultCode.Success;
+        }
+
+        private static bool ShouldDefaultToImageWindow(ExrBox2i window, int imageWidth, int imageHeight)
+        {
+            if (window.Width <= 0 || window.Height <= 0)
+            {
+                return true;
+            }
+
+            return (imageWidth != 1 || imageHeight != 1) &&
+                window.MinX == 0 &&
+                window.MinY == 0 &&
+                window.MaxX == 0 &&
+                window.MaxY == 0;
+        }
+
+        private static ResultCode ValidateTiledImageLevels(ExrImage image, ExrTileDescription tiles)
+        {
+            ExrHeader header = new ExrHeader
+            {
+                Tiles = new ExrTileDescription
+                {
+                    TileSizeX = tiles.TileSizeX,
+                    TileSizeY = tiles.TileSizeY,
+                    LevelMode = tiles.LevelMode,
+                    RoundingMode = tiles.RoundingMode,
+                },
+            };
+
+            if (tiles.TileSizeX <= 0 || tiles.TileSizeY <= 0)
+            {
+                return ResultCode.InvalidArgument;
+            }
+
+            CalculateTileInfo(header, image.Width, image.Height, out int[] numXTiles, out int[] numYTiles, out int numXLevels, out int numYLevels, out _);
+            int expectedLevelCount = tiles.LevelMode == ExrTileLevelMode.RipMapLevels ? numXLevels * numYLevels : numXLevels;
+            if (image.Levels.Count != expectedLevelCount)
+            {
+                return ResultCode.InvalidArgument;
+            }
+
+            for (int levelIndex = 0; levelIndex < expectedLevelCount; levelIndex++)
+            {
+                ExrImageLevel level = image.Levels[levelIndex];
+                int expectedLevelX = tiles.LevelMode == ExrTileLevelMode.RipMapLevels ? levelIndex % numXLevels : levelIndex;
+                int expectedLevelY = tiles.LevelMode == ExrTileLevelMode.RipMapLevels ? levelIndex / numXLevels : levelIndex;
+                int expectedWidth = LevelSize(image.Width, expectedLevelX, tiles.RoundingMode);
+                int expectedHeight = LevelSize(image.Height, expectedLevelY, tiles.RoundingMode);
+                if (level.LevelX != expectedLevelX || level.LevelY != expectedLevelY || level.Width != expectedWidth || level.Height != expectedHeight)
+                {
+                    return ResultCode.InvalidArgument;
+                }
+
+                if (level.Tiles.Count > 0)
+                {
+                    int expectedTileCount = numXTiles[expectedLevelX] * numYTiles[expectedLevelY];
+                    if (level.Tiles.Count != expectedTileCount)
+                    {
+                        return ResultCode.InvalidArgument;
+                    }
+                }
+            }
+
+            return ResultCode.Success;
+        }
+
+        private static ResultCode ValidateLevelChannels(IList<ExrImageLevel> levels, IList<ExrChannel> headerChannels)
+        {
+            for (int levelIndex = 0; levelIndex < levels.Count; levelIndex++)
+            {
+                ExrImageLevel level = levels[levelIndex];
+                if (level.Channels.Count != headerChannels.Count)
+                {
+                    return ResultCode.InvalidArgument;
+                }
+
+                for (int channelIndex = 0; channelIndex < level.Channels.Count; channelIndex++)
+                {
+                    ExrImageChannel imageChannel = level.Channels[channelIndex];
+                    ExrChannel headerChannel = headerChannels[channelIndex];
+                    if (!string.Equals(imageChannel.Channel.Name, headerChannel.Name, StringComparison.Ordinal) ||
+                        imageChannel.Channel.Type != headerChannel.Type ||
+                        imageChannel.Channel.SamplingX != headerChannel.SamplingX ||
+                        imageChannel.Channel.SamplingY != headerChannel.SamplingY ||
+                        imageChannel.Channel.Linear != headerChannel.Linear)
+                    {
+                        return ResultCode.InvalidArgument;
+                    }
+
+                    int sampleSize = Exr.TypeSize(imageChannel.DataType);
+                    if (sampleSize <= 0)
+                    {
+                        return ResultCode.UnsupportedFeature;
+                    }
+
+                    int expectedLength = checked(level.Width * level.Height * sampleSize);
+                    if (imageChannel.Data.Length != expectedLength)
+                    {
+                        return ResultCode.InvalidArgument;
+                    }
+                }
+            }
+
+            return ResultCode.Success;
+        }
+
+        private static void WriteOffsetTable(Stream stream, IReadOnlyList<long> offsets)
+        {
+            byte[] buffer = new byte[sizeof(long)];
+            for (int i = 0; i < offsets.Count; i++)
+            {
+                BinaryPrimitives.WriteInt64LittleEndian(buffer, offsets[i]);
+                stream.Write(buffer, 0, buffer.Length);
+            }
+        }
+
+        private static void WriteChunks(Stream stream, IEnumerable<byte[]> chunks)
+        {
+            foreach (byte[] chunk in chunks)
+            {
+                stream.Write(chunk, 0, chunk.Length);
+            }
+        }
+
+        private static byte[] WrapMultipartChunk(int partIndex, byte[] chunk)
+        {
+            byte[] wrapped = new byte[sizeof(int) + chunk.Length];
+            BinaryPrimitives.WriteInt32LittleEndian(wrapped, partIndex);
+            Buffer.BlockCopy(chunk, 0, wrapped, sizeof(int), chunk.Length);
+            return wrapped;
         }
 
         private static ResultCode ValidateReadableImageHeader(ParsedHeader parsed)
@@ -1704,12 +2145,33 @@ namespace TinyEXR.PortV1
             return false;
         }
 
-        private static void WriteVersion(Stream stream)
+        private static void WriteVersion(Stream stream, bool tiled, bool multipart, bool nonImage, bool longName)
         {
             Span<byte> version = stackalloc byte[ExrVersionHeaderSize];
             BinaryPrimitives.WriteUInt32LittleEndian(version, Magic);
             version[4] = 2;
-            version[5] = 0;
+            byte flags = 0;
+            if (tiled)
+            {
+                flags |= 0x2;
+            }
+
+            if (longName)
+            {
+                flags |= 0x4;
+            }
+
+            if (nonImage)
+            {
+                flags |= 0x8;
+            }
+
+            if (multipart)
+            {
+                flags |= 0x10;
+            }
+
+            version[5] = flags;
             version[6] = 0;
             version[7] = 0;
             stream.Write(version);
@@ -1722,6 +2184,12 @@ namespace TinyEXR.PortV1
                 WriteAttribute(stream, "name", "string", System.Text.Encoding.UTF8.GetBytes(header.Name + "\0"));
             }
 
+            if (header.IsMultipart || header.IsDeep)
+            {
+                string partType = header.PartType ?? (header.Tiles == null ? "scanlineimage" : "tiledimage");
+                WriteAttribute(stream, "type", "string", System.Text.Encoding.UTF8.GetBytes(partType + "\0"));
+            }
+
             WriteAttribute(stream, "channels", "chlist", EncodeChannels(header.Channels));
             WriteAttribute(stream, "compression", "compression", new[] { (byte)header.Compression });
             WriteAttribute(stream, "dataWindow", "box2i", EncodeBox(header.DataWindow));
@@ -1730,6 +2198,15 @@ namespace TinyEXR.PortV1
             WriteAttribute(stream, "pixelAspectRatio", "float", EncodeSingle(header.PixelAspectRatio));
             WriteAttribute(stream, "screenWindowCenter", "v2f", EncodeVector2(header.ScreenWindowCenter));
             WriteAttribute(stream, "screenWindowWidth", "float", EncodeSingle(header.ScreenWindowWidth));
+            if (header.Tiles != null)
+            {
+                WriteAttribute(stream, "tiles", "tiledesc", EncodeTileDescription(header.Tiles));
+            }
+
+            if ((header.IsMultipart || header.IsDeep) && header.ChunkCount > 0)
+            {
+                WriteAttribute(stream, "chunkCount", "int", EncodeInt32(header.ChunkCount));
+            }
 
             foreach (ExrAttribute attribute in header.CustomAttributes)
             {
@@ -1799,6 +2276,22 @@ namespace TinyEXR.PortV1
             byte[] data = new byte[8];
             Exr.WriteSingleLittleEndian(data, value.X);
             Exr.WriteSingleLittleEndian(data.AsSpan(4), value.Y);
+            return data;
+        }
+
+        private static byte[] EncodeTileDescription(ExrTileDescription tiles)
+        {
+            byte[] data = new byte[9];
+            BinaryPrimitives.WriteInt32LittleEndian(data, tiles.TileSizeX);
+            BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(4), tiles.TileSizeY);
+            data[8] = (byte)(((int)tiles.RoundingMode << 4) | ((int)tiles.LevelMode & 0x3));
+            return data;
+        }
+
+        private static byte[] EncodeInt32(int value)
+        {
+            byte[] data = new byte[4];
+            BinaryPrimitives.WriteInt32LittleEndian(data, value);
             return data;
         }
 

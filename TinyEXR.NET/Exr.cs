@@ -179,7 +179,7 @@ namespace TinyEXR
                 return ResultCode.InvalidArgument;
             }
 
-            return ResultCode.UnsupportedFeature;
+            return ExrImplementation.TryWriteMultipartImages(images.Images.ToArray(), headers.Headers.ToArray(), out encoded);
         }
 
         public static ResultCode SaveEXRMultipartImageToFile(ExrMultipartImage images, ExrMultipartHeader headers, string filename)
