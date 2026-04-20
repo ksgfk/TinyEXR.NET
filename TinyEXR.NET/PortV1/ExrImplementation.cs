@@ -559,11 +559,6 @@ namespace TinyEXR.PortV1
                 return ResultCode.UnsupportedFeature;
             }
 
-            if (effectiveHeader.LineOrder != LineOrderType.IncreasingY)
-            {
-                return ResultCode.UnsupportedFeature;
-            }
-
 #if !NET10_0_OR_GREATER
             if (multipartPart || effectiveHeader.Tiles != null)
             {
@@ -931,6 +926,13 @@ namespace TinyEXR.PortV1
             if (ShouldDefaultToImageWindow(effective.DisplayWindow, image.Width, image.Height))
             {
                 effective.DisplayWindow = effective.DataWindow;
+            }
+
+            // tinyexr v1 save path always emits scanline chunks in increasing order.
+            // Align with that behavior instead of rejecting non-increasing input headers.
+            if (effective.Tiles == null)
+            {
+                effective.LineOrder = LineOrderType.IncreasingY;
             }
 
             effective.IsMultipart = multipartPart;

@@ -12,14 +12,7 @@ public sealed class RoundTripTests
             string path = TestPaths.OpenExr(relativePath);
             (ExrVersion _, ExrHeader header1, ExrImage image1) = ExrTestHelper.LoadSinglePart(path);
 
-            ResultCode saveResult = Exr.SaveEXRImageToMemory(image1, header1, out byte[] encoded);
-            if (header1.LineOrder != LineOrderType.IncreasingY)
-            {
-                Assert.AreEqual(ResultCode.UnsupportedFeature, saveResult, relativePath);
-                continue;
-            }
-
-            Assert.AreEqual(ResultCode.Success, saveResult, relativePath);
+            Assert.AreEqual(ResultCode.Success, Exr.SaveEXRImageToMemory(image1, header1, out byte[] encoded), relativePath);
             Assert.IsTrue(encoded.Length > 0, relativePath);
             Assert.AreEqual(ResultCode.Success, Exr.ParseEXRVersionFromMemory(encoded, out _), relativePath);
             Assert.AreEqual(ResultCode.Success, Exr.ParseEXRHeaderFromMemory(encoded, out _, out ExrHeader header2), relativePath);
