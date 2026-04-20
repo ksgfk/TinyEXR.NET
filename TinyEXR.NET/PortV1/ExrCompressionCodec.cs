@@ -243,6 +243,34 @@ namespace TinyEXR.PortV1
             }
         }
 
+        internal static ResultCode TryDecodeDeepPayload(
+            CompressionType compression,
+            ReadOnlySpan<byte> payload,
+            int expectedSize,
+            out byte[] raw)
+        {
+            raw = Array.Empty<byte>();
+
+            switch (compression)
+            {
+                case CompressionType.None:
+                    if (payload.Length != expectedSize)
+                    {
+                        return ResultCode.InvalidData;
+                    }
+
+                    raw = payload.ToArray();
+                    return ResultCode.Success;
+                case CompressionType.RLE:
+                    return TryDecompressRle(payload, expectedSize, out raw);
+                case CompressionType.ZIPS:
+                case CompressionType.ZIP:
+                    return TryDecompressZip(payload, expectedSize, out raw);
+                default:
+                    return ResultCode.UnsupportedFeature;
+            }
+        }
+
         private static bool TryBuildLayouts(IList<ExrChannel> channels, out ChannelLayout[] layouts, out int pixelStride)
         {
             layouts = new ChannelLayout[channels.Count];

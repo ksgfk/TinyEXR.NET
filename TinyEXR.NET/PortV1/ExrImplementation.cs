@@ -1544,13 +1544,13 @@ namespace TinyEXR.PortV1
                     return ResultCode.InvalidData;
                 }
 
-                ResultCode offsetResult = TryDecodePayload(CompressionType.ZIPS, data.Slice((int)chunkOffset + 28, (int)packedOffsetSize), width * sizeof(int), out byte[] packedOffsets);
+                ResultCode offsetResult = TryDecodePayload(header.Compression, data.Slice((int)chunkOffset + 28, (int)packedOffsetSize), width * sizeof(int), out byte[] packedOffsets);
                 if (offsetResult != ResultCode.Success)
                 {
                     return offsetResult;
                 }
 
-                ResultCode sampleResult = TryDecodePayload(CompressionType.ZIPS, data.Slice((int)chunkOffset + 28 + (int)packedOffsetSize, (int)packedSampleSize), (int)unpackedSampleSize, out byte[] sampleBytes);
+                ResultCode sampleResult = TryDecodePayload(header.Compression, data.Slice((int)chunkOffset + 28 + (int)packedOffsetSize, (int)packedSampleSize), (int)unpackedSampleSize, out byte[] sampleBytes);
                 if (sampleResult != ResultCode.Success)
                 {
                     return sampleResult;
@@ -1602,23 +1602,7 @@ namespace TinyEXR.PortV1
 
         private static ResultCode TryDecodePayload(CompressionType compression, ReadOnlySpan<byte> payload, int expectedSize, out byte[] raw)
         {
-            raw = Array.Empty<byte>();
-            switch (compression)
-            {
-                case CompressionType.None:
-                    if (payload.Length != expectedSize)
-                    {
-                        return ResultCode.InvalidData;
-                    }
-
-                    raw = payload.ToArray();
-                    return ResultCode.Success;
-                case CompressionType.ZIPS:
-                case CompressionType.ZIP:
-                    return TryDecompressZip(payload, expectedSize, out raw);
-                default:
-                    return ResultCode.UnsupportedFeature;
-            }
+            return ExrCompressionCodec.TryDecodeDeepPayload(compression, payload, expectedSize, out raw);
         }
 
         private static bool SupportsCompression(CompressionType compression)
