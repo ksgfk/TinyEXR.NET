@@ -1,8 +1,6 @@
 using System.Buffers.Binary;
 using System.Numerics;
-#if NET10_0_OR_GREATER
 using System.IO.Compression;
-#endif
 
 namespace TinyEXR.PortV1
 {
@@ -558,13 +556,6 @@ namespace TinyEXR.PortV1
             {
                 return ResultCode.UnsupportedFeature;
             }
-
-#if !NET10_0_OR_GREATER
-            if (multipartPart || effectiveHeader.Tiles != null)
-            {
-                return ResultCode.UnsupportedFeature;
-            }
-#endif
 
             preparedPart = new PreparedImagePart
             {
@@ -1643,11 +1634,7 @@ namespace TinyEXR.PortV1
                 case CompressionType.ZIPS:
                 case CompressionType.ZIP:
                 case CompressionType.PXR24:
-#if NET10_0_OR_GREATER
                     return true;
-#else
-                    return false;
-#endif
                 default:
                     return false;
             }
@@ -2558,7 +2545,6 @@ namespace TinyEXR.PortV1
             return result;
         }
 
-#if NET10_0_OR_GREATER
         private static ResultCode TryDecompressZip(ReadOnlySpan<byte> compressed, int expectedSize, out byte[] raw)
         {
             if (expectedSize == compressed.Length)
@@ -2654,19 +2640,6 @@ namespace TinyEXR.PortV1
                 return ResultCode.SerialzationFailed;
             }
         }
-#else
-        private static ResultCode TryDecompressZip(ReadOnlySpan<byte> compressed, int expectedSize, out byte[] raw)
-        {
-            raw = Array.Empty<byte>();
-            return ResultCode.UnsupportedFeature;
-        }
-
-        private static ResultCode TryCompressZip(byte[] raw, out byte[] payload)
-        {
-            payload = Array.Empty<byte>();
-            return ResultCode.UnsupportedFeature;
-        }
-#endif
     }
 
     internal static class HalfHelper

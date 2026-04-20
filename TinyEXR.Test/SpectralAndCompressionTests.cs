@@ -3,8 +3,8 @@ namespace TinyEXR.Test;
 [TestClass]
 public sealed class SpectralAndCompressionTests
 {
-    [TestMethod]
-    public void Spectral_channel_helpers_match_tester_cc()
+    [TestMethod(DisplayName = "Spectral: Channel naming")]
+    public void Case_Spectral_Channel_naming()
     {
         Assert.AreEqual("S0.550,000000nm", Exr.EXRSpectralChannelName(550.0f, 0));
         Assert.AreEqual("S1.400,500000nm", Exr.EXRSpectralChannelName(400.5f, 1));
@@ -29,8 +29,8 @@ public sealed class SpectralAndCompressionTests
         Assert.IsFalse(Exr.EXRIsSpectralChannel("B"));
     }
 
-    [TestMethod]
-    public void Spectral_header_attributes_round_trip_in_memory_model()
+    [TestMethod(DisplayName = "Spectral: Header attributes")]
+    public void Case_Spectral_Header_attributes()
     {
         ExrHeader header = new();
 
@@ -41,39 +41,54 @@ public sealed class SpectralAndCompressionTests
         Assert.AreEqual("W.m^-2.sr^-1.nm^-1", Exr.EXRGetSpectralUnits(header));
     }
 
-    [TestMethod]
-    public void Spectral_type_detection_works_for_emissive_reflective_and_polarised()
+    [TestMethod(DisplayName = "Spectral: Spectrum type detection")]
+    public void Case_Spectral_Spectrum_type_detection()
     {
-        ExrHeader emissiveHeader = new();
-        Assert.AreEqual(ResultCode.Success, Exr.EXRSetSpectralAttributes(emissiveHeader, SpectrumType.Emissive, "radiance"));
-        emissiveHeader.Channels.Add(new ExrChannel("S0.400,000000nm", ExrPixelType.Float));
-        emissiveHeader.Channels.Add(new ExrChannel("S0.500,000000nm", ExrPixelType.Float));
-        emissiveHeader.Channels.Add(new ExrChannel("S0.600,000000nm", ExrPixelType.Float));
-        Assert.AreEqual(SpectrumType.Emissive, Exr.EXRGetSpectrumType(emissiveHeader));
-        float[] wavelengths = Exr.EXRGetWavelengths(emissiveHeader);
+        ExrHeader header = new();
+
+        Assert.AreEqual(ResultCode.Success, Exr.EXRSetSpectralAttributes(header, SpectrumType.Emissive, "radiance"));
+        header.Channels.Add(new ExrChannel("S0.400,000000nm", ExrPixelType.Float));
+        header.Channels.Add(new ExrChannel("S0.500,000000nm", ExrPixelType.Float));
+        header.Channels.Add(new ExrChannel("S0.600,000000nm", ExrPixelType.Float));
+
+        Assert.AreEqual(SpectrumType.Emissive, Exr.EXRGetSpectrumType(header));
+
+        float[] wavelengths = Exr.EXRGetWavelengths(header);
         Assert.AreEqual(3, wavelengths.Length);
         Assert.AreEqual(400.0f, wavelengths[0], 0.01f);
         Assert.AreEqual(500.0f, wavelengths[1], 0.01f);
         Assert.AreEqual(600.0f, wavelengths[2], 0.01f);
-
-        ExrHeader reflectiveHeader = new();
-        Assert.AreEqual(ResultCode.Success, Exr.EXRSetSpectralAttributes(reflectiveHeader, SpectrumType.Reflective, "reflectance"));
-        reflectiveHeader.Channels.Add(new ExrChannel("T.450,000000nm", ExrPixelType.Float));
-        reflectiveHeader.Channels.Add(new ExrChannel("T.550,000000nm", ExrPixelType.Float));
-        Assert.AreEqual(SpectrumType.Reflective, Exr.EXRGetSpectrumType(reflectiveHeader));
-
-        ExrHeader polarisedHeader = new();
-        Assert.AreEqual(ResultCode.Success, Exr.EXRSetSpectralAttributes(polarisedHeader, SpectrumType.Polarised, "stokes"));
-        Assert.IsTrue(polarisedHeader.CustomAttributes.Any(static attribute => attribute.Name == "polarisationHandedness"));
-        polarisedHeader.Channels.Add(new ExrChannel("S0.500,000000nm", ExrPixelType.Float));
-        polarisedHeader.Channels.Add(new ExrChannel("S1.500,000000nm", ExrPixelType.Float));
-        polarisedHeader.Channels.Add(new ExrChannel("S2.500,000000nm", ExrPixelType.Float));
-        polarisedHeader.Channels.Add(new ExrChannel("S3.500,000000nm", ExrPixelType.Float));
-        Assert.AreEqual(SpectrumType.Polarised, Exr.EXRGetSpectrumType(polarisedHeader));
     }
 
-    [TestMethod]
-    public void PIZ_compression_round_trip_preserves_gradient_pixels()
+    [TestMethod(DisplayName = "Spectral: Reflective spectrum type")]
+    public void Case_Spectral_Reflective_spectrum_type()
+    {
+        ExrHeader header = new();
+
+        Assert.AreEqual(ResultCode.Success, Exr.EXRSetSpectralAttributes(header, SpectrumType.Reflective, "reflectance"));
+        header.Channels.Add(new ExrChannel("T.450,000000nm", ExrPixelType.Float));
+        header.Channels.Add(new ExrChannel("T.550,000000nm", ExrPixelType.Float));
+
+        Assert.AreEqual(SpectrumType.Reflective, Exr.EXRGetSpectrumType(header));
+    }
+
+    [TestMethod(DisplayName = "Spectral: Polarised spectrum type")]
+    public void Case_Spectral_Polarised_spectrum_type()
+    {
+        ExrHeader header = new();
+
+        Assert.AreEqual(ResultCode.Success, Exr.EXRSetSpectralAttributes(header, SpectrumType.Polarised, "stokes"));
+        Assert.IsTrue(header.CustomAttributes.Any(static attribute => attribute.Name == "polarisationHandedness"));
+        header.Channels.Add(new ExrChannel("S0.500,000000nm", ExrPixelType.Float));
+        header.Channels.Add(new ExrChannel("S1.500,000000nm", ExrPixelType.Float));
+        header.Channels.Add(new ExrChannel("S2.500,000000nm", ExrPixelType.Float));
+        header.Channels.Add(new ExrChannel("S3.500,000000nm", ExrPixelType.Float));
+
+        Assert.AreEqual(SpectrumType.Polarised, Exr.EXRGetSpectrumType(header));
+    }
+
+    [TestMethod(DisplayName = "PIZ: Compression round-trip")]
+    public void Case_PIZ_Compression_round_trip()
     {
         const int width = 64;
         const int height = 64;
@@ -98,7 +113,7 @@ public sealed class SpectralAndCompressionTests
             width,
             height,
             CompressionType.PIZ,
-            channel => ExrPixelType.Float,
+            static channel => ExrPixelType.Float,
             ExrTestHelper.FloatChannel("A", ExrPixelType.Half, chA),
             ExrTestHelper.FloatChannel("B", ExrPixelType.Half, chB),
             ExrTestHelper.FloatChannel("G", ExrPixelType.Half, chG),
@@ -110,8 +125,8 @@ public sealed class SpectralAndCompressionTests
         ExrTestHelper.AssertMaxError(chA, ExrTestHelper.ReadFloatChannel(image, "A"), 0.01f, "A");
     }
 
-    [TestMethod]
-    public void PIZ_compression_handles_all_zero_images()
+    [TestMethod(DisplayName = "PIZ: Compression all zeros (issue 194)")]
+    public void Case_PIZ_Compression_all_zeros_issue_194()
     {
         const int width = 16;
         const int height = 16;
@@ -121,7 +136,7 @@ public sealed class SpectralAndCompressionTests
             width,
             height,
             CompressionType.PIZ,
-            channel => ExrPixelType.Float,
+            static channel => ExrPixelType.Float,
             ExrTestHelper.FloatChannel("A", ExrPixelType.Half, zeros),
             ExrTestHelper.FloatChannel("B", ExrPixelType.Half, zeros),
             ExrTestHelper.FloatChannel("G", ExrPixelType.Half, zeros),
@@ -137,8 +152,8 @@ public sealed class SpectralAndCompressionTests
         }
     }
 
-    [TestMethod]
-    public void PIZ_large_image_round_trip_preserves_pixels()
+    [TestMethod(DisplayName = "PIZ: Large image compression")]
+    public void Case_PIZ_Large_image_compression()
     {
         const int width = 256;
         const int height = 256;
@@ -163,7 +178,7 @@ public sealed class SpectralAndCompressionTests
             width,
             height,
             CompressionType.PIZ,
-            channel => ExrPixelType.Float,
+            static channel => ExrPixelType.Float,
             ExrTestHelper.FloatChannel("A", ExrPixelType.Half, chA),
             ExrTestHelper.FloatChannel("B", ExrPixelType.Half, chB),
             ExrTestHelper.FloatChannel("G", ExrPixelType.Half, chG),
@@ -175,8 +190,8 @@ public sealed class SpectralAndCompressionTests
         ExrTestHelper.AssertMaxError(chA, ExrTestHelper.ReadFloatChannel(image, "A"), 0.01f, "A");
     }
 
-    [TestMethod]
-    public void PXR24_compression_round_trip_preserves_half_pixels()
+    [TestMethod(DisplayName = "PXR24: Compression round-trip")]
+    public void Case_PXR24_Compression_round_trip()
     {
         const int width = 32;
         const int height = 32;
@@ -200,7 +215,7 @@ public sealed class SpectralAndCompressionTests
             width,
             height,
             CompressionType.PXR24,
-            channel => ExrPixelType.Float,
+            static channel => ExrPixelType.Float,
             ExrTestHelper.FloatChannel("A", ExrPixelType.Half, chA),
             ExrTestHelper.FloatChannel("B", ExrPixelType.Half, chB),
             ExrTestHelper.FloatChannel("G", ExrPixelType.Half, chG),
@@ -212,8 +227,8 @@ public sealed class SpectralAndCompressionTests
         ExrTestHelper.AssertMaxError(chA, ExrTestHelper.ReadFloatChannel(image, "A"), 0.01f, "A");
     }
 
-    [TestMethod]
-    public void B44_compression_round_trip_stays_within_lossy_tolerance()
+    [TestMethod(DisplayName = "B44: Compression round-trip")]
+    public void Case_B44_Compression_round_trip()
     {
         const int width = 32;
         const int height = 32;
@@ -227,7 +242,7 @@ public sealed class SpectralAndCompressionTests
             width,
             height,
             CompressionType.B44,
-            channel => ExrPixelType.Float,
+            static channel => ExrPixelType.Float,
             ExrTestHelper.FloatChannel("A", ExrPixelType.Half, chA),
             ExrTestHelper.FloatChannel("B", ExrPixelType.Half, chB),
             ExrTestHelper.FloatChannel("G", ExrPixelType.Half, chG),
@@ -236,8 +251,8 @@ public sealed class SpectralAndCompressionTests
         ExrTestHelper.AssertMaxError(chA, ExrTestHelper.ReadFloatChannel(image, "A"), 0.5f, "A");
     }
 
-    [TestMethod]
-    public void B44_mixed_channel_types_round_trip()
+    [TestMethod(DisplayName = "Regression: B44 mixed channel types (issue 239)")]
+    public void Case_Regression_B44_mixed_channel_types_issue_239()
     {
         const int width = 32;
         const int height = 32;
@@ -250,7 +265,7 @@ public sealed class SpectralAndCompressionTests
             width,
             height,
             CompressionType.B44,
-            channel => ExrPixelType.Float,
+            static channel => ExrPixelType.Float,
             ExrTestHelper.FloatChannel("A", ExrPixelType.Float, chA),
             ExrTestHelper.FloatChannel("G", ExrPixelType.Half, chG),
             ExrTestHelper.FloatChannel("R", ExrPixelType.Half, chR));
@@ -260,8 +275,8 @@ public sealed class SpectralAndCompressionTests
         ExrTestHelper.AssertMaxError(chR, ExrTestHelper.ReadFloatChannel(image, "R"), 0.01f, "R");
     }
 
-    [TestMethod]
-    public void B44_all_float_channels_round_trip_exactly()
+    [TestMethod(DisplayName = "Regression: B44 all-FLOAT channels (issue 239 variant)")]
+    public void Case_Regression_B44_all_FLOAT_channels_issue_239_variant()
     {
         const int width = 32;
         const int height = 32;
@@ -285,7 +300,7 @@ public sealed class SpectralAndCompressionTests
             width,
             height,
             CompressionType.B44,
-            channel => ExrPixelType.Float,
+            static channel => ExrPixelType.Float,
             ExrTestHelper.FloatChannel("B", ExrPixelType.Float, chB),
             ExrTestHelper.FloatChannel("G", ExrPixelType.Float, chG),
             ExrTestHelper.FloatChannel("R", ExrPixelType.Float, chR));
@@ -295,8 +310,8 @@ public sealed class SpectralAndCompressionTests
         CollectionAssert.AreEqual(chR, ExrTestHelper.ReadFloatChannel(image, "R"));
     }
 
-    [TestMethod]
-    public void B44_uint_and_half_channels_round_trip()
+    [TestMethod(DisplayName = "Regression: B44 UINT+HALF mixed channels (issue 239 variant)")]
+    public void Case_Regression_B44_UINT_HALF_mixed_channels_issue_239_variant()
     {
         const int width = 16;
         const int height = 16;
@@ -316,8 +331,8 @@ public sealed class SpectralAndCompressionTests
         ExrTestHelper.AssertMaxError(chB, ExrTestHelper.ReadFloatChannel(image, "B"), 0.01f, "B");
     }
 
-    [TestMethod]
-    public void B44A_mixed_channel_types_round_trip()
+    [TestMethod(DisplayName = "Regression: B44A mixed channel types (issue 239 variant)")]
+    public void Case_Regression_B44A_mixed_channel_types_issue_239_variant()
     {
         const int width = 32;
         const int height = 32;
@@ -330,7 +345,7 @@ public sealed class SpectralAndCompressionTests
             width,
             height,
             CompressionType.B44A,
-            channel => ExrPixelType.Float,
+            static channel => ExrPixelType.Float,
             ExrTestHelper.FloatChannel("A", ExrPixelType.Float, chA),
             ExrTestHelper.FloatChannel("G", ExrPixelType.Half, chG),
             ExrTestHelper.FloatChannel("R", ExrPixelType.Half, chR));
@@ -340,8 +355,8 @@ public sealed class SpectralAndCompressionTests
         ExrTestHelper.AssertMaxError(chR, ExrTestHelper.ReadFloatChannel(image, "R"), 0.01f, "R");
     }
 
-    [TestMethod]
-    public void B44_non_power_of_two_dimensions_round_trip()
+    [TestMethod(DisplayName = "Regression: B44 non-power-of-2 dimensions (issue 239)")]
+    public void Case_Regression_B44_non_power_of_2_dimensions_issue_239()
     {
         const int width = 13;
         const int height = 7;
@@ -359,7 +374,7 @@ public sealed class SpectralAndCompressionTests
             width,
             height,
             CompressionType.B44,
-            channel => ExrPixelType.Float,
+            static channel => ExrPixelType.Float,
             ExrTestHelper.FloatChannel("A", ExrPixelType.Float, chA),
             ExrTestHelper.FloatChannel("G", ExrPixelType.Half, chG),
             ExrTestHelper.FloatChannel("R", ExrPixelType.Half, chR));
@@ -369,8 +384,8 @@ public sealed class SpectralAndCompressionTests
         ExrTestHelper.AssertMaxError(chR, ExrTestHelper.ReadFloatChannel(image, "R"), 0.01f, "R");
     }
 
-    [TestMethod]
-    public void B44A_flat_block_round_trip_succeeds()
+    [TestMethod(DisplayName = "B44A: Flat block compression")]
+    public void Case_B44A_Flat_block_compression()
     {
         const int width = 16;
         const int height = 16;
@@ -384,7 +399,7 @@ public sealed class SpectralAndCompressionTests
             width,
             height,
             CompressionType.B44A,
-            channel => ExrPixelType.Float,
+            static channel => ExrPixelType.Float,
             ExrTestHelper.FloatChannel("A", ExrPixelType.Half, chA),
             ExrTestHelper.FloatChannel("B", ExrPixelType.Half, chB),
             ExrTestHelper.FloatChannel("G", ExrPixelType.Half, chG),

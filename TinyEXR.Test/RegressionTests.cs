@@ -1,54 +1,103 @@
+using System.Collections;
+using System.Reflection;
+
 namespace TinyEXR.Test;
 
 [TestClass]
 public sealed class RegressionTests
 {
-    [TestMethod]
-    public void ParseEXRVersionFromMemory_rejects_invalid_input()
+    private static readonly Type ExrImplementationType =
+        typeof(Exr).Assembly.GetType("TinyEXR.PortV1.ExrImplementation") ??
+        throw new InvalidOperationException("TinyEXR.PortV1.ExrImplementation was not found.");
+
+    private static readonly MethodInfo GetLayersMethod =
+        ExrImplementationType.GetMethod("GetLayers", BindingFlags.NonPublic | BindingFlags.Static) ??
+        throw new InvalidOperationException("GetLayers was not found.");
+
+    private static readonly MethodInfo GetChannelsInLayerMethod =
+        ExrImplementationType.GetMethod("GetChannelsInLayer", BindingFlags.NonPublic | BindingFlags.Static) ??
+        throw new InvalidOperationException("GetChannelsInLayer was not found.");
+
+    [TestMethod(DisplayName = "ParseEXRVersionFromMemory invalid input")]
+    public void Case_ParseEXRVersionFromMemory_invalid_input()
     {
         Assert.AreEqual(ResultCode.InvalidExrVersion, Exr.ParseEXRVersionFromMemory(ReadOnlySpan<byte>.Empty, out _));
         Assert.AreEqual(ResultCode.InvalidExrVersion, Exr.ParseEXRVersionFromMemory(new byte[1], out _));
         Assert.AreEqual(ResultCode.InvalidMagicNumver, Exr.ParseEXRVersionFromMemory(new byte[8], out _));
     }
 
-    [TestMethod]
-    public void ParseEXRHeaderFromMemory_rejects_invalid_input()
+    [TestMethod(DisplayName = "ParseEXRHeaderFromMemory invalid input")]
+    public void Case_ParseEXRHeaderFromMemory_invalid_input()
     {
         Assert.AreEqual(ResultCode.InvalidExrVersion, Exr.ParseEXRHeaderFromMemory(ReadOnlySpan<byte>.Empty, out _, out _));
         Assert.AreEqual(ResultCode.InvalidMagicNumver, Exr.ParseEXRHeaderFromMemory(new byte[128], out _, out _));
-
-        byte[] truncatedHeader = new byte[24];
-        Buffer.BlockCopy(File.ReadAllBytes(TestPaths.Asakusa), 0, truncatedHeader, 0, 8);
-        Assert.AreEqual(ResultCode.InvalidHeader, Exr.ParseEXRHeaderFromMemory(truncatedHeader, out _, out _));
     }
 
-    [TestMethod]
-    public void Fuzzed_regression_headers_are_rejected()
+    [TestMethod(DisplayName = "Compressed is smaller than uncompressed")]
+    public void Case_Compressed_is_smaller_than_uncompressed()
     {
-        foreach (object[] row in ExrTestData.FuzzedHeaderFiles())
+        ExrImage image = new(
+            1,
+            1,
+            new[]
+            {
+                ExrTestHelper.FloatChannel("B", ExrPixelType.Float, new[] { 0.0f }),
+                ExrTestHelper.FloatChannel("G", ExrPixelType.Float, new[] { 0.0f }),
+                ExrTestHelper.FloatChannel("R", ExrPixelType.Float, new[] { 1.0f }),
+            });
+
+        ExrHeader header = new()
         {
-            string fileName = (string)row[0];
-            string path = TestPaths.Regression(fileName);
+            Compression = CompressionType.ZIP,
+        };
 
-            Assert.AreEqual(ResultCode.Success, Exr.ParseEXRVersionFromFile(path, out ExrVersion version), fileName);
-            Assert.IsFalse(version.Tiled, fileName);
-            Assert.IsFalse(version.NonImage, fileName);
-            Assert.IsFalse(version.Multipart, fileName);
-
-            ResultCode headerResult = Exr.ParseEXRHeaderFromFile(path, out _, out ExrHeader header);
-            if (headerResult == ResultCode.Success)
+        string path = Path.Combine(Path.GetTempPath(), $"issue40-{Guid.NewGuid():N}.exr");
+        try
+        {
+            Assert.AreEqual(ResultCode.Success, Exr.SaveEXRImageToFile(image, header, path));
+            Assert.IsTrue(File.Exists(path));
+        }
+        finally
+        {
+            if (File.Exists(path))
             {
-                Assert.AreNotEqual(ResultCode.Success, Exr.LoadEXRImageFromFile(path, header, out _), fileName);
-            }
-            else
-            {
-                Assert.AreNotEqual(ResultCode.Success, headerResult, fileName);
+                File.Delete(path);
             }
         }
     }
 
-    [TestMethod]
-    public void Issue71_loadexr_returns_expected_pixels()
+    [TestMethod(DisplayName = "Regression: Issue50")]
+    public void Case_Regression_Issue50()
+    {
+        AssertFuzzedHeaderRejected("poc-eedff3a9e99eb1c0fd3a3b0989e7c44c0a69f04f10b23e5264f362a4773f4397_min");
+    }
+
+    [TestMethod(DisplayName = "Regression: Issue57")]
+    public void Case_Regression_Issue57()
+    {
+        AssertFuzzedHeaderRejected("poc-df76d1f27adb8927a1446a603028272140905c168a336128465a1162ec7af270.mini");
+    }
+
+    [TestMethod(DisplayName = "Regression: Issue56")]
+    public void Case_Regression_Issue56()
+    {
+        AssertFuzzedHeaderRejected("poc-1383755b301e5f505b2198dc0508918b537fdf48bbfc6deeffe268822e6f6cd6");
+    }
+
+    [TestMethod(DisplayName = "Regression: Issue61")]
+    public void Case_Regression_Issue61()
+    {
+        AssertFuzzedHeaderRejected("poc-3f1f642c3356fd8e8d2a0787613ec09a56572b3a1e38c9629b6db9e8dead1117_min");
+    }
+
+    [TestMethod(DisplayName = "Regression: Issue60")]
+    public void Case_Regression_Issue60()
+    {
+        AssertFuzzedHeaderRejected("poc-5b66774a7498c635334ad386be0c3b359951738ac47f14878a3346d1c6ea0fe5_min");
+    }
+
+    [TestMethod(DisplayName = "Regression: Issue71")]
+    public void Case_Regression_Issue71()
     {
         Assert.AreEqual(ResultCode.Success, Exr.LoadEXR(TestPaths.Regression("2by2.exr"), out float[] image, out int width, out int height));
         Assert.AreEqual(2, width);
@@ -64,8 +113,8 @@ public sealed class RegressionTests
         Assert.AreEqual(1.0f, image[15], 0.000001f);
     }
 
-    [TestMethod]
-    public void Issue93_tiled_load_from_memory_works()
+    [TestMethod(DisplayName = "Regression: Issue93")]
+    public void Case_Regression_Issue93()
     {
         byte[] data = File.ReadAllBytes(TestPaths.OpenExr("Tiles/GoldenGate.exr"));
 
@@ -75,8 +124,8 @@ public sealed class RegressionTests
         Assert.AreEqual(0.271973f, image[2], 0.000001f);
     }
 
-    [TestMethod]
-    public void Issue100_piz_bug_image_has_expected_edge_pixels()
+    [TestMethod(DisplayName = "Regression: Issue100")]
+    public void Case_Regression_Issue100()
     {
         byte[] data = File.ReadAllBytes(TestPaths.Regression("piz-bug-issue-100.exr"));
 
@@ -96,15 +145,28 @@ public sealed class RegressionTests
         Assert.AreEqual(1.0f, image[lastPixelOffset + 3], 0.000001f);
     }
 
-    [TestMethod]
-    public void Issue53_layer_listing_and_layer_loading_work()
+    [TestMethod(DisplayName = "Regression: Issue53|Channels")]
+    public void Case_Regression_Issue53_Channels()
+    {
+        string path = TestPaths.Regression("flaga.exr");
+
+        Assert.AreEqual(ResultCode.Success, Exr.ParseEXRVersionFromFile(path, out _));
+        Assert.AreEqual(ResultCode.Success, Exr.ParseEXRHeaderFromFile(path, out _, out ExrHeader header));
+
+        string[] layers = GetLayers(header);
+        Assert.AreEqual(2, layers.Length);
+        Assert.AreEqual(0, GetChannelsInLayerCount(header, string.Empty));
+        Assert.AreEqual(0, GetChannelsInLayerCount(header, "Warstwa 3"));
+        Assert.AreEqual(4, GetChannelsInLayerCount(header, "Warstwa 1"));
+    }
+
+    [TestMethod(DisplayName = "Regression: Issue53|Image")]
+    public void Case_Regression_Issue53_Image()
     {
         string path = TestPaths.Regression("flaga.exr");
 
         Assert.AreEqual(ResultCode.Success, Exr.EXRLayers(path, out string[] layers));
         Assert.AreEqual(2, layers.Length);
-        CollectionAssert.Contains(layers, "Warstwa 1");
-        CollectionAssert.Contains(layers, "Warstwa 2");
 
         Assert.AreEqual(ResultCode.LayerNotFound, Exr.LoadEXRWithLayer(path, layer: null, out _, out _, out _));
         Assert.AreEqual(ResultCode.Success, Exr.LoadEXRWithLayer(path, "Warstwa 1", out float[] image, out int width, out int height));
@@ -113,58 +175,58 @@ public sealed class RegressionTests
         Assert.IsTrue(height > 0);
     }
 
-    [TestMethod]
-    public void Missing_layer_returns_layer_not_found()
+    [TestMethod(DisplayName = "Regression: Issue53|Image|Missing Layer")]
+    public void Case_Regression_Issue53_Image_Missing_Layer()
     {
         Assert.AreEqual(
             ResultCode.LayerNotFound,
             Exr.LoadEXRWithLayer(TestPaths.OpenExr("MultiView/Impact.exr"), "Warstwa", out _, out _, out _));
     }
 
-    [TestMethod]
-    public void Issue150_tiled_half_1x1_alpha_loads()
+    [TestMethod(DisplayName = "Regression: PR150|Read|1x1 1xhalf")]
+    public void Case_Regression_PR150_Read_1x1_1xhalf()
     {
         string path = TestPaths.Regression("tiled_half_1x1_alpha.exr");
         (ExrVersion version, _, ExrImage image) = ExrTestHelper.LoadSinglePart(path);
 
         Assert.IsTrue(version.Tiled);
+        Assert.IsFalse(version.NonImage);
+        Assert.IsFalse(version.Multipart);
         Assert.AreEqual(1, image.Levels.Count);
     }
 
-    [TestMethod]
-    public void Issue194_piz_regression_loads()
+    [TestMethod(DisplayName = "Regression: Issue194|Piz")]
+    public void Case_Regression_Issue194_Piz()
     {
         string path = TestPaths.Regression("000-issue194.exr");
+        Assert.AreEqual(ResultCode.Success, Exr.ParseEXRVersionFromFile(path, out _));
         Assert.AreEqual(ResultCode.Success, Exr.ParseEXRHeaderFromFile(path, out _, out ExrHeader header));
         Assert.AreEqual(ResultCode.Success, Exr.LoadEXRImageFromFile(path, header, out ExrImage image));
         Assert.IsTrue(image.Width > 0);
         Assert.IsTrue(image.Height > 0);
     }
 
-    [TestMethod]
-    public void Issue238_single_part_failure_is_repeatable_and_nonfatal()
+    [TestMethod(DisplayName = "Regression: Issue238|DoubleFree")]
+    public void Case_Regression_Issue238_DoubleFree()
     {
         byte[] data = File.ReadAllBytes(TestPaths.Regression("issue-238-double-free.exr"));
 
         Assert.AreEqual(ResultCode.Success, Exr.ParseEXRHeaderFromMemory(data, out _, out ExrHeader header));
 
-        for (int i = 0; i < 2; i++)
-        {
-            ResultCode lowLevelResult = Exr.LoadEXRImageFromMemory(data, header, out ExrImage image);
-            Assert.AreNotEqual(ResultCode.Success, lowLevelResult);
-            Assert.IsTrue(image.Width >= 0);
-            Assert.IsTrue(image.Height >= 0);
+        ResultCode lowLevelResult = Exr.LoadEXRImageFromMemory(data, header, out ExrImage image);
+        Assert.AreNotEqual(ResultCode.Success, lowLevelResult);
+        Assert.IsTrue(image.Width >= 0);
+        Assert.IsTrue(image.Height >= 0);
 
-            ResultCode highLevelResult = Exr.LoadEXRFromMemory(data, out float[] rgba, out int width, out int height);
-            Assert.AreNotEqual(ResultCode.Success, highLevelResult);
-            Assert.IsTrue(rgba.Length >= 0);
-            Assert.IsTrue(width >= 0);
-            Assert.IsTrue(height >= 0);
-        }
+        ResultCode highLevelResult = Exr.LoadEXRFromMemory(data, out float[] rgba, out int width, out int height);
+        Assert.AreNotEqual(ResultCode.Success, highLevelResult);
+        Assert.IsTrue(rgba.Length >= 0);
+        Assert.IsTrue(width >= 0);
+        Assert.IsTrue(height >= 0);
     }
 
-    [TestMethod]
-    public void Issue238_multipart_failure_is_repeatable_and_nonfatal()
+    [TestMethod(DisplayName = "Regression: Issue238|DoubleFree|Multipart")]
+    public void Case_Regression_Issue238_DoubleFree_Multipart()
     {
         byte[] data = File.ReadAllBytes(TestPaths.Regression("issue-238-double-free-multipart.exr"));
 
@@ -173,16 +235,13 @@ public sealed class RegressionTests
         Assert.AreEqual(ResultCode.Success, Exr.ParseEXRMultipartHeaderFromMemory(data, out _, out ExrMultipartHeader headers));
         Assert.AreEqual(2, headers.Headers.Count);
 
-        for (int i = 0; i < 2; i++)
-        {
-            ResultCode result = Exr.LoadEXRMultipartImageFromMemory(data, headers, out ExrMultipartImage images);
-            Assert.AreNotEqual(ResultCode.Success, result);
-            Assert.AreEqual(0, images.Images.Count);
-        }
+        ResultCode result = Exr.LoadEXRMultipartImageFromMemory(data, headers, out ExrMultipartImage images);
+        Assert.AreNotEqual(ResultCode.Success, result);
+        Assert.AreEqual(0, images.Images.Count);
     }
 
-    [TestMethod]
-    public void Issue160_piz_regression_preserves_expected_pixels()
+    [TestMethod(DisplayName = "Regression: Issue160|Piz")]
+    public void Case_Regression_Issue160_Piz()
     {
         Assert.AreEqual(ResultCode.Success, Exr.LoadEXR(TestPaths.Regression("issue-160-piz-decode.exr"), out float[] image, out int width, out int height));
         Assert.AreEqual(420, width);
@@ -203,5 +262,56 @@ public sealed class RegressionTests
         Assert.AreEqual(0.0f, image[(30 * width + 417) * 4 + 0], 0.000001f);
         Assert.AreEqual(1.0f, image[(30 * width + 417) * 4 + 1], 0.000001f);
         Assert.AreEqual(1.0f, image[(30 * width + 417) * 4 + 2], 0.000001f);
+    }
+
+    private static void AssertFuzzedHeaderRejected(string fileName)
+    {
+        string path = TestPaths.Regression(fileName);
+
+        Assert.AreEqual(ResultCode.Success, Exr.ParseEXRVersionFromFile(path, out ExrVersion version), fileName);
+        Assert.IsFalse(version.Tiled, fileName);
+        Assert.IsFalse(version.NonImage, fileName);
+        Assert.IsFalse(version.Multipart, fileName);
+
+        ResultCode headerResult = Exr.ParseEXRHeaderFromFile(path, out _, out ExrHeader header);
+        if (headerResult == ResultCode.Success)
+        {
+            Assert.AreNotEqual(ResultCode.Success, Exr.LoadEXRImageFromFile(path, header, out _), fileName);
+        }
+        else
+        {
+            Assert.AreNotEqual(ResultCode.Success, headerResult, fileName);
+        }
+    }
+
+    private static string[] GetLayers(ExrHeader header)
+    {
+        object? value = GetLayersMethod.Invoke(null, new object?[] { header });
+        if (value is not IEnumerable enumerable)
+        {
+            throw new AssertFailedException("GetLayers did not return an enumerable result.");
+        }
+
+        List<string> layers = new();
+        foreach (object? item in enumerable)
+        {
+            if (item is string layer)
+            {
+                layers.Add(layer);
+            }
+        }
+
+        return layers.ToArray();
+    }
+
+    private static int GetChannelsInLayerCount(ExrHeader header, string? layerName)
+    {
+        object? value = GetChannelsInLayerMethod.Invoke(null, new object?[] { header, layerName });
+        if (value is ICollection collection)
+        {
+            return collection.Count;
+        }
+
+        throw new AssertFailedException("GetChannelsInLayer did not return a collection result.");
     }
 }

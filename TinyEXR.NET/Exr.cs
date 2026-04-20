@@ -1,6 +1,5 @@
 using System.Buffers.Binary;
 using System.Globalization;
-using System.Linq;
 using TinyEXR.PortV1;
 
 namespace TinyEXR

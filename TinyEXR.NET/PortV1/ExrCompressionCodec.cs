@@ -1,10 +1,5 @@
-using System;
 using System.Buffers.Binary;
-using System.Collections.Generic;
-using System.IO;
-#if NET10_0_OR_GREATER
 using System.IO.Compression;
-#endif
 
 namespace TinyEXR.PortV1
 {
@@ -382,7 +377,6 @@ namespace TinyEXR.PortV1
             return raw;
         }
 
-#if NET10_0_OR_GREATER
         private static ResultCode TryCompressZip(ReadOnlySpan<byte> raw, out byte[] payload)
         {
             byte[] tmp = ApplyExrPredictorAndReorder(raw);
@@ -484,31 +478,6 @@ namespace TinyEXR.PortV1
                 return ResultCode.InvalidData;
             }
         }
-#else
-        private static ResultCode TryCompressZip(ReadOnlySpan<byte> raw, out byte[] payload)
-        {
-            payload = Array.Empty<byte>();
-            return ResultCode.UnsupportedFeature;
-        }
-
-        private static ResultCode TryDecompressZip(ReadOnlySpan<byte> payload, int expectedSize, out byte[] raw)
-        {
-            raw = Array.Empty<byte>();
-            return ResultCode.UnsupportedFeature;
-        }
-
-        private static ResultCode TryCompressZlib(ReadOnlySpan<byte> raw, out byte[] payload)
-        {
-            payload = Array.Empty<byte>();
-            return ResultCode.UnsupportedFeature;
-        }
-
-        private static ResultCode TryDecompressZlib(ReadOnlySpan<byte> payload, int expectedSize, out byte[] raw)
-        {
-            raw = Array.Empty<byte>();
-            return ResultCode.UnsupportedFeature;
-        }
-#endif
 
         private static byte[] CompressRle(ReadOnlySpan<byte> raw)
         {

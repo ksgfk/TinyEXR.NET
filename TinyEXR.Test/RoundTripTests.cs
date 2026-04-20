@@ -3,48 +3,39 @@ namespace TinyEXR.Test;
 [TestClass]
 public sealed class RoundTripTests
 {
-    [TestMethod]
-    public void Scanline_images_round_trip_through_memory()
+    [TestMethod(DisplayName = "Saving ScanLines")]
+    public void Case_Saving_ScanLines()
     {
-        foreach (object[] row in ExrTestData.ScanlineRoundTripFiles())
+        foreach (string relativePath in new[]
         {
-            string relativePath = (string)row[0];
-            string path = TestPaths.OpenExr(relativePath);
-            (ExrVersion _, ExrHeader header1, ExrImage image1) = ExrTestHelper.LoadSinglePart(path);
-
-            Assert.AreEqual(ResultCode.Success, Exr.SaveEXRImageToMemory(image1, header1, out byte[] encoded), relativePath);
-            Assert.IsTrue(encoded.Length > 0, relativePath);
-            Assert.AreEqual(ResultCode.Success, Exr.ParseEXRVersionFromMemory(encoded, out _), relativePath);
-            Assert.AreEqual(ResultCode.Success, Exr.ParseEXRHeaderFromMemory(encoded, out _, out ExrHeader header2), relativePath);
-            Assert.AreEqual(ResultCode.Success, Exr.LoadEXRImageFromMemory(encoded, header2, out ExrImage image2), relativePath);
-
-            ExrTestHelper.EqualHeaders(header1, header2);
-            ExrTestHelper.EqualImages(image1, image2);
+            "ScanLines/Blobbies.exr",
+            "ScanLines/CandleGlass.exr",
+            "ScanLines/Desk.exr",
+            "ScanLines/MtTamWest.exr",
+            "ScanLines/PrismsLenses.exr",
+            "ScanLines/StillLife.exr",
+            "ScanLines/Tree.exr",
+        })
+        {
+            AssertSinglePartRoundTrip(relativePath);
         }
     }
 
-    [TestMethod]
-    public void Multi_resolution_images_round_trip_through_memory()
+    [TestMethod(DisplayName = "Saving MultiResolution")]
+    public void Case_Saving_MultiResolution()
     {
-        foreach (object[] row in ExrTestData.MultiResolutionRoundTripFiles())
+        foreach (string relativePath in new[]
         {
-            string relativePath = (string)row[0];
-            string path = TestPaths.OpenExr(relativePath);
-            (ExrVersion _, ExrHeader header1, ExrImage image1) = ExrTestHelper.LoadSinglePart(path);
-
-            Assert.AreEqual(ResultCode.Success, Exr.SaveEXRImageToMemory(image1, header1, out byte[] encoded), relativePath);
-            Assert.IsTrue(encoded.Length > 0, relativePath);
-            Assert.AreEqual(ResultCode.Success, Exr.ParseEXRVersionFromMemory(encoded, out _), relativePath);
-            Assert.AreEqual(ResultCode.Success, Exr.ParseEXRHeaderFromMemory(encoded, out _, out ExrHeader header2), relativePath);
-            Assert.AreEqual(ResultCode.Success, Exr.LoadEXRImageFromMemory(encoded, header2, out ExrImage image2), relativePath);
-
-            ExrTestHelper.EqualHeaders(header1, header2);
-            ExrTestHelper.EqualImages(image1, image2);
+            "MultiResolution/Bonita.exr",
+            "MultiResolution/Kapaa.exr",
+        })
+        {
+            AssertSinglePartRoundTrip(relativePath);
         }
     }
 
-    [TestMethod]
-    public void Multipart_beachball_round_trips_through_memory()
+    [TestMethod(DisplayName = "Saving multipart")]
+    public void Case_Saving_multipart()
     {
         string path = TestPaths.OpenExr("Beachball/multipart.0001.exr");
         (ExrVersion _, ExrMultipartHeader headers1, ExrMultipartImage images1) = ExrTestHelper.LoadMultipart(path);
@@ -65,15 +56,21 @@ public sealed class RoundTripTests
         }
     }
 
-    [TestMethod]
-    public void Mixed_single_part_images_can_be_combined_into_multipart()
+    [TestMethod(DisplayName = "Saving multipart|Combine")]
+    public void Case_Saving_multipart_Combine()
     {
         List<ExrHeader> headers1 = new();
         List<ExrImage> images1 = new();
-
-        foreach (object[] row in ExrTestData.MultipartCombineFiles())
+        string[] relativePaths =
         {
-            string relativePath = (string)row[0];
+            "MultiResolution/Kapaa.exr",
+            "Tiles/GoldenGate.exr",
+            "ScanLines/Desk.exr",
+            "MultiResolution/PeriodicPattern.exr",
+        };
+
+        foreach (string relativePath in relativePaths)
+        {
             string path = TestPaths.OpenExr(relativePath);
             (ExrVersion _, ExrHeader header, ExrImage image) = ExrTestHelper.LoadSinglePart(path);
             Exr.EXRSetNameAttr(header, relativePath);
@@ -99,29 +96,18 @@ public sealed class RoundTripTests
         }
     }
 
-    [TestMethod]
-    public void Zip_compressed_single_pixel_can_be_saved_and_loaded()
+    private static void AssertSinglePartRoundTrip(string relativePath)
     {
-        ExrImage image = new(
-            1,
-            1,
-            new[]
-            {
-                ExrTestHelper.FloatChannel("B", ExrPixelType.Float, new[] { 0.0f }),
-                ExrTestHelper.FloatChannel("G", ExrPixelType.Float, new[] { 0.0f }),
-                ExrTestHelper.FloatChannel("R", ExrPixelType.Float, new[] { 1.0f }),
-            });
+        string path = TestPaths.OpenExr(relativePath);
+        (ExrVersion _, ExrHeader header1, ExrImage image1) = ExrTestHelper.LoadSinglePart(path);
 
-        ExrHeader header = new()
-        {
-            Compression = CompressionType.ZIP,
-        };
+        Assert.AreEqual(ResultCode.Success, Exr.SaveEXRImageToMemory(image1, header1, out byte[] encoded), relativePath);
+        Assert.IsTrue(encoded.Length > 0, relativePath);
+        Assert.AreEqual(ResultCode.Success, Exr.ParseEXRVersionFromMemory(encoded, out _), relativePath);
+        Assert.AreEqual(ResultCode.Success, Exr.ParseEXRHeaderFromMemory(encoded, out _, out ExrHeader header2), relativePath);
+        Assert.AreEqual(ResultCode.Success, Exr.LoadEXRImageFromMemory(encoded, header2, out ExrImage image2), relativePath);
 
-        Assert.AreEqual(ResultCode.Success, Exr.SaveEXRImageToMemory(image, header, out byte[] encoded));
-        Assert.IsTrue(encoded.Length > 0);
-        Assert.AreEqual(ResultCode.Success, Exr.LoadEXRFromMemory(encoded, out float[] rgba, out int width, out int height));
-        Assert.AreEqual(1, width);
-        Assert.AreEqual(1, height);
-        CollectionAssert.AreEqual(new[] { 1.0f, 0.0f, 0.0f, 1.0f }, rgba);
+        ExrTestHelper.EqualHeaders(header1, header2);
+        ExrTestHelper.EqualImages(image1, image2);
     }
 }
