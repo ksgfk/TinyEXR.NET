@@ -134,6 +134,8 @@ namespace TinyEXR.PortV1
         public static ResultCode TryEncodePayload(
             CompressionType compression,
             IList<ExrChannel> channels,
+            int startX,
+            int startY,
             int width,
             int height,
             byte[] raw,
@@ -146,12 +148,12 @@ namespace TinyEXR.PortV1
                 return ResultCode.UnsupportedFeature;
             }
 
-            if (HasSubsampledChannels(layouts))
+            if (!TryCalculateDecodedSize(layouts, startX, startY, width, height, out int expectedRawSize))
             {
-                return ResultCode.UnsupportedFeature;
+                return ResultCode.InvalidArgument;
             }
 
-            if (raw.Length != checked(width * height * pixelStride))
+            if (raw.Length != expectedRawSize)
             {
                 return ResultCode.InvalidArgument;
             }
@@ -167,11 +169,21 @@ namespace TinyEXR.PortV1
                 case CompressionType.ZIPS:
                     return TryCompressZip(raw, out payload);
                 case CompressionType.PIZ:
-                    return TryCompressPiz(layouts, width, height, raw, out payload);
+                    return TryCompressPiz(layouts, startX, startY, width, height, raw, out payload);
                 case CompressionType.PXR24:
+                    if (HasSubsampledChannels(layouts))
+                    {
+                        return ResultCode.UnsupportedFeature;
+                    }
+
                     return TryCompressPxr24(layouts, pixelStride, width, height, raw, out payload);
                 case CompressionType.B44:
                 case CompressionType.B44A:
+                    if (HasSubsampledChannels(layouts))
+                    {
+                        return ResultCode.UnsupportedFeature;
+                    }
+
                     return TryCompressB44(layouts, pixelStride, width, height, raw, compression == CompressionType.B44A, out payload);
                 default:
                     return ResultCode.UnsupportedFeature;
@@ -608,37 +620,46 @@ namespace TinyEXR.PortV1
             return ResultCode.Success;
         }
 
-        private static ResultCode TryCompressPiz(ChannelLayout[] layouts, int width, int height, byte[] raw, out byte[] payload)
+        private static ResultCode TryCompressPiz(ChannelLayout[] layouts, int startX, int startY, int width, int height, byte[] raw, out byte[] payload)
         {
             ushort[] tmpBuffer = new ushort[raw.Length / sizeof(ushort)];
             PizChannelData[] channelData = new PizChannelData[layouts.Length];
             int cursor = 0;
             for (int i = 0; i < layouts.Length; i++)
             {
-                channelData[i] = new PizChannelData(cursor, width, height, layouts[i].WordSize);
-                cursor += width * height * layouts[i].WordSize;
-            }
-
-            int pixelStride = 0;
-            for (int i = 0; i < layouts.Length; i++)
-            {
-                pixelStride += layouts[i].SampleSize;
+                int sampledWidth = CountSamplePositions(startX, width, layouts[i].SamplingX);
+                int sampledHeight = CountSamplePositions(startY, height, layouts[i].SamplingY);
+                channelData[i] = new PizChannelData(cursor, sampledWidth, sampledHeight, layouts[i].WordSize);
+                cursor += sampledWidth * sampledHeight * layouts[i].WordSize;
             }
 
             int[] channelPositions = new int[layouts.Length];
+            int rawOffset = 0;
             for (int y = 0; y < height; y++)
             {
-                int rowBase = y * width * pixelStride;
+                int absoluteY = startY + y;
                 for (int channelIndex = 0; channelIndex < layouts.Length; channelIndex++)
                 {
-                    int rowOffset = rowBase + layouts[channelIndex].OffsetBytes * width;
-                    int rowWords = width * layouts[channelIndex].WordSize;
+                    if (!IsSampledCoordinate(absoluteY, layouts[channelIndex].SamplingY))
+                    {
+                        continue;
+                    }
+
+                    int rowWords = channelData[channelIndex].Nx * layouts[channelIndex].WordSize;
                     for (int i = 0; i < rowWords; i++)
                     {
                         tmpBuffer[channelData[channelIndex].Start + channelPositions[channelIndex]++] =
-                            BinaryPrimitives.ReadUInt16LittleEndian(raw.AsSpan(rowOffset + i * sizeof(ushort), sizeof(ushort)));
+                            BinaryPrimitives.ReadUInt16LittleEndian(raw.AsSpan(rawOffset + i * sizeof(ushort), sizeof(ushort)));
                     }
+
+                    rawOffset += rowWords * sizeof(ushort);
                 }
+            }
+
+            if (rawOffset != raw.Length)
+            {
+                payload = Array.Empty<byte>();
+                return ResultCode.InvalidArgument;
             }
 
             byte[] bitmap = new byte[BitmapSize];
