@@ -29,7 +29,7 @@ namespace TinyEXR
 
         public bool IsMultipart { get; internal set; }
 
-        public bool HasLongNames { get; internal set; }
+        public bool HasLongNames { get; set; }
 
         internal int ChunkCount { get; set; }
 

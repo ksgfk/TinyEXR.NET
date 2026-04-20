@@ -51,6 +51,78 @@ public sealed class RegressionTests
         }
     }
 
+    [TestMethod(DisplayName = "[TinyEXR.NET Test] Regression: LongNameVersionBit|SinglePart")]
+    public void Case_Regression_LongNameVersionBit_SinglePart()
+    {
+        string longChannelName = new string('C', 42);
+        string longAttributeName = new string('A', 42);
+        ExrImage image = new(
+            1,
+            1,
+            new[]
+            {
+                ExrTestHelper.FloatChannel(longChannelName, ExrPixelType.Float, new[] { 1.0f }),
+            });
+
+        ExrHeader header = new()
+        {
+            Compression = CompressionType.None,
+            HasLongNames = true,
+        };
+        header.CustomAttributes.Add(ExrAttribute.FromString(longAttributeName, "enabled"));
+
+        Assert.AreEqual(ResultCode.Success, Exr.SaveEXRImageToMemory(image, header, out byte[] encoded));
+        Assert.AreEqual(ResultCode.Success, Exr.ParseEXRVersionFromMemory(encoded, out ExrVersion version));
+        Assert.IsTrue(version.LongName);
+        Assert.AreEqual(ResultCode.Success, Exr.ParseEXRHeaderFromMemory(encoded, out _, out ExrHeader parsedHeader));
+        Assert.IsTrue(parsedHeader.HasLongNames);
+        Assert.AreEqual(longChannelName, parsedHeader.Channels[0].Name);
+        Assert.AreEqual(longAttributeName, parsedHeader.CustomAttributes[0].Name);
+    }
+
+    [TestMethod(DisplayName = "[TinyEXR.NET Test] Regression: LongNameVersionBit|Multipart")]
+    public void Case_Regression_LongNameVersionBit_Multipart()
+    {
+        ExrImage shortImage = new(
+            1,
+            1,
+            new[]
+            {
+                ExrTestHelper.FloatChannel("Y", ExrPixelType.Float, new[] { 0.25f }),
+            });
+        ExrHeader shortHeader = new()
+        {
+            Name = "short-part",
+            Compression = CompressionType.None,
+        };
+
+        string longChannelName = new string('M', 42);
+        ExrImage longImage = new(
+            1,
+            1,
+            new[]
+            {
+                ExrTestHelper.FloatChannel(longChannelName, ExrPixelType.Float, new[] { 0.75f }),
+            });
+        ExrHeader longHeader = new()
+        {
+            Name = "long-part",
+            Compression = CompressionType.None,
+            HasLongNames = true,
+        };
+
+        ExrMultipartImage images = new(new[] { shortImage, longImage });
+        ExrMultipartHeader headers = new(new[] { shortHeader, longHeader });
+
+        Assert.AreEqual(ResultCode.Success, Exr.SaveEXRMultipartImageToMemory(images, headers, out byte[] encoded));
+        Assert.AreEqual(ResultCode.Success, Exr.ParseEXRVersionFromMemory(encoded, out ExrVersion version));
+        Assert.IsTrue(version.Multipart);
+        Assert.IsTrue(version.LongName);
+        Assert.AreEqual(ResultCode.Success, Exr.ParseEXRMultipartHeaderFromMemory(encoded, out _, out ExrMultipartHeader parsedHeaders));
+        Assert.AreEqual(2, parsedHeaders.Headers.Count);
+        Assert.AreEqual(longChannelName, parsedHeaders.Headers[1].Channels[0].Name);
+    }
+
     [TestMethod(DisplayName = "Compressed is smaller than uncompressed")]
     public void Case_Compressed_is_smaller_than_uncompressed()
     {
