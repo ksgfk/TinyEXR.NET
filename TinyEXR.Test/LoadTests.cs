@@ -48,15 +48,35 @@ public sealed class LoadTests
     }
 
     [TestMethod]
-    public void Unsupported_feature_images_are_reported_explicitly()
+    public void Subsampled_chroma_images_load_with_sampled_channel_buffers()
     {
-        foreach (object[] row in ExrTestData.UnsupportedFeatureImageFiles())
+        foreach (object[] row in ExrTestData.SubsampledChromaImageFiles())
         {
             string relativePath = (string)row[0];
             string path = TestPaths.OpenExr(relativePath);
+            (_, ExrHeader header, ExrImage image) = ExrTestHelper.LoadSinglePart(path);
 
-            Assert.AreEqual(ResultCode.Success, Exr.ParseEXRHeaderFromFile(path, out _, out ExrHeader header), relativePath);
-            Assert.AreEqual(ResultCode.UnsupportedFeature, Exr.LoadEXRImageFromFile(path, header, out _), relativePath);
+            ExrImageChannel y = image.GetChannel("Y");
+            ExrImageChannel ry = image.GetChannel("RY");
+            ExrImageChannel by = image.GetChannel("BY");
+
+            Assert.AreEqual(1, y.Channel.SamplingX, relativePath);
+            Assert.AreEqual(1, y.Channel.SamplingY, relativePath);
+            Assert.AreEqual(2, ry.Channel.SamplingX, relativePath);
+            Assert.AreEqual(2, ry.Channel.SamplingY, relativePath);
+            Assert.AreEqual(2, by.Channel.SamplingX, relativePath);
+            Assert.AreEqual(2, by.Channel.SamplingY, relativePath);
+
+            int fullSampleCount = image.Width * image.Height;
+            int chromaSampleCount = ((image.Width + 1) / 2) * ((image.Height + 1) / 2);
+            Assert.AreEqual(fullSampleCount * sizeof(ushort), y.Data.Length, relativePath);
+            Assert.AreEqual(chromaSampleCount * sizeof(ushort), ry.Data.Length, relativePath);
+            Assert.AreEqual(chromaSampleCount * sizeof(ushort), by.Data.Length, relativePath);
+            Assert.IsTrue(Array.Exists(y.Data, static value => value != 0), relativePath);
+            Assert.IsTrue(Array.Exists(ry.Data, static value => value != 0), relativePath);
+            Assert.IsTrue(Array.Exists(by.Data, static value => value != 0), relativePath);
+            Assert.AreEqual(header.DataWindow.Width, image.Width, relativePath);
+            Assert.AreEqual(header.DataWindow.Height, image.Height, relativePath);
         }
     }
 

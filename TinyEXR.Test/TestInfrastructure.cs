@@ -18,7 +18,9 @@ public static class ExrTestData
     private static readonly string[] ChromaticityImages =
     {
         "Chromaticities/Rec709.exr",
+        "Chromaticities/Rec709_YC.exr",
         "Chromaticities/XYZ.exr",
+        "Chromaticities/XYZ_YC.exr",
     };
 
     private static readonly string[] TestImages =
@@ -29,10 +31,8 @@ public static class ExrTestData
         "TestImages/WideColorGamut.exr",
     };
 
-    private static readonly string[] UnsupportedFeatureImages =
+    private static readonly string[] LuminanceChromaImages =
     {
-        "Chromaticities/Rec709_YC.exr",
-        "Chromaticities/XYZ_YC.exr",
         "LuminanceChroma/MtTamNorth.exr",
         "LuminanceChroma/StarField.exr",
     };
@@ -65,6 +65,7 @@ public static class ExrTestData
         foreach (string relativePath in ScanlineImages
             .Concat(ChromaticityImages)
             .Concat(TestImages)
+            .Concat(LuminanceChromaImages)
             .Concat(Enumerable.Range(1, 16).Select(static i => $"DisplayWindow/t{i:00}.exr"))
             .Concat(Enumerable.Range(1, 8).Select(static i => $"Beachball/singlepart.{i:0000}.exr")))
         {
@@ -104,9 +105,11 @@ public static class ExrTestData
         }
     }
 
-    public static IEnumerable<object[]> UnsupportedFeatureImageFiles()
+    public static IEnumerable<object[]> SubsampledChromaImageFiles()
     {
-        foreach (string relativePath in UnsupportedFeatureImages)
+        foreach (string relativePath in ChromaticityImages
+            .Where(static path => path.EndsWith("_YC.exr", StringComparison.Ordinal))
+            .Concat(LuminanceChromaImages))
         {
             yield return new object[] { relativePath };
         }

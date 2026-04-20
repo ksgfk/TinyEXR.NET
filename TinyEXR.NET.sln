@@ -3,9 +3,9 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.2.32616.157
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "TinyEXR.NET", "TinyEXR.NET.csproj", "{8F266B52-70C3-4C92-AC87-A0F0303AA12B}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "TinyEXR.NET", "TinyEXR.NET\TinyEXR.NET.csproj", "{8F266B52-70C3-4C92-AC87-A0F0303AA12B}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "TinyEXR.Test", "..\TinyEXR.Test\TinyEXR.Test.csproj", "{C5D96E08-0A0D-4EC0-9B9D-8C4D1FBAE66E}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "TinyEXR.Test", "TinyEXR.Test\TinyEXR.Test.csproj", "{C5D96E08-0A0D-4EC0-9B9D-8C4D1FBAE66E}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

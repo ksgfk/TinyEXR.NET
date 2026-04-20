@@ -416,6 +416,11 @@ namespace TinyEXR.PortV1
             if (layerChannels.Count == 1)
             {
                 ExrImageChannel channel = image.Channels[layerChannels[0].Index];
+                if (channel.Channel.SamplingX != 1 || channel.Channel.SamplingY != 1)
+                {
+                    return ResultCode.UnsupportedFeature;
+                }
+
                 for (int i = 0; i < width * height; i++)
                 {
                     float value = ReadSampleAsFloat(channel.Data, channel.DataType, i);
@@ -462,6 +467,14 @@ namespace TinyEXR.PortV1
             ExrImageChannel gChannel = image.Channels[g];
             ExrImageChannel bChannel = image.Channels[b];
             ExrImageChannel? aChannel = a >= 0 ? image.Channels[a] : null;
+            if (rChannel.Channel.SamplingX != 1 || rChannel.Channel.SamplingY != 1 ||
+                gChannel.Channel.SamplingX != 1 || gChannel.Channel.SamplingY != 1 ||
+                bChannel.Channel.SamplingX != 1 || bChannel.Channel.SamplingY != 1 ||
+                (aChannel != null && (aChannel.Channel.SamplingX != 1 || aChannel.Channel.SamplingY != 1)))
+            {
+                return ResultCode.UnsupportedFeature;
+            }
+
             for (int i = 0; i < width * height; i++)
             {
                 int rgbaOffset = i * 4;
@@ -1039,7 +1052,7 @@ namespace TinyEXR.PortV1
                         return ResultCode.UnsupportedFeature;
                     }
 
-                    int expectedLength = checked(level.Width * level.Height * sampleSize);
+                    int expectedLength = GetChannelByteLength(level.Width, level.Height, headerChannel, imageChannel.DataType);
                     if (imageChannel.Data.Length != expectedLength)
                     {
                         return ResultCode.InvalidArgument;
@@ -1090,7 +1103,7 @@ namespace TinyEXR.PortV1
 
             foreach (ExrChannel channel in parsed.Header.Channels)
             {
-                if (channel.SamplingX != 1 || channel.SamplingY != 1)
+                if (channel.SamplingX <= 0 || channel.SamplingY <= 0)
                 {
                     return ResultCode.UnsupportedFeature;
                 }
@@ -1204,7 +1217,6 @@ namespace TinyEXR.PortV1
                 return ResultCode.InvalidData;
             }
 
-            int[] channelOffsets = BuildChannelOffsets(header.Channels.Select(static c => c.Type).ToArray(), out int pixelSize);
             for (int blockIndex = 0; blockIndex < blockCount; blockIndex++)
             {
                 long chunkOffset = offsets[blockIndex];
@@ -1227,48 +1239,80 @@ namespace TinyEXR.PortV1
                 }
 
                 int chunkLineCount = Math.Min(linesPerChunk, height - relativeLine);
+                if (!TryCalculateDecodedBlockSize(header.Channels, 0, relativeLine, width, chunkLineCount, out int expectedRawSize))
+                {
+                    return ResultCode.InvalidData;
+                }
+
                 byte[] raw;
                 ResultCode decodeResult = ExrCompressionCodec.TryDecodePayload(
                     header.Compression,
                     header.Channels,
+                    0,
+                    relativeLine,
                     width,
                     chunkLineCount,
                     data.Slice((int)chunkOffset + sizeof(int) * 2, packedSize),
-                    checked(width * chunkLineCount * pixelSize),
+                    expectedRawSize,
                     out raw);
                 if (decodeResult != ResultCode.Success)
                 {
                     return decodeResult;
                 }
 
+                int rawOffset = 0;
                 for (int line = 0; line < chunkLineCount; line++)
                 {
+                    int sourceY = relativeLine + line;
                     int targetY = header.LineOrder == LineOrderType.IncreasingY
-                        ? relativeLine + line
-                        : height - 1 - (relativeLine + line);
+                        ? sourceY
+                        : height - 1 - sourceY;
                     if (targetY < 0 || targetY >= height)
                     {
                         return ResultCode.InvalidData;
                     }
 
-                    int lineBase = line * width * pixelSize;
                     for (int channelIndex = 0; channelIndex < channels.Count; channelIndex++)
                     {
-                        int sourceOffset = lineBase + channelOffsets[channelIndex] * width;
-                        int destinationSampleIndex = targetY * width;
+                        ExrChannel headerChannel = header.Channels[channelIndex];
+                        if (!IsSampledCoordinate(sourceY, headerChannel.SamplingY))
+                        {
+                            continue;
+                        }
+
+                        if (!TryGetSampleIndex(0, targetY, headerChannel.SamplingY, out int destinationSampleY))
+                        {
+                            return ResultCode.InvalidData;
+                        }
+
+                        int rowSampleCount = GetChannelSampleWidth(width, headerChannel);
+                        int rowBytes = checked(rowSampleCount * Exr.TypeSize(headerChannel.Type));
+                        if (rawOffset + rowBytes > raw.Length)
+                        {
+                            return ResultCode.InvalidData;
+                        }
+
+                        int destinationSampleIndex = checked(destinationSampleY * rowSampleCount);
                         ResultCode copyResult = TryCopySamples(
                             raw,
-                            sourceOffset,
-                            header.Channels[channelIndex].Type,
+                            rawOffset,
+                            headerChannel.Type,
                             channels[channelIndex].Data,
                             destinationSampleIndex,
                             channels[channelIndex].DataType,
-                            width);
+                            rowSampleCount);
                         if (copyResult != ResultCode.Success)
                         {
                             return copyResult;
                         }
+
+                        rawOffset += rowBytes;
                     }
+                }
+
+                if (rawOffset != raw.Length)
+                {
+                    return ResultCode.InvalidData;
                 }
             }
 
@@ -1295,7 +1339,6 @@ namespace TinyEXR.PortV1
                 return ResultCode.InvalidData;
             }
 
-            int[] channelOffsets = BuildChannelOffsets(header.Channels.Select(static c => c.Type).ToArray(), out int pixelSize);
             int blockIndex = 0;
             int levelCount = header.Tiles.LevelMode == ExrTileLevelMode.RipMapLevels ? numXLevels * numYLevels : numXLevels;
             ExrImageLevel[] levels = new ExrImageLevel[levelCount];
@@ -1350,14 +1393,21 @@ namespace TinyEXR.PortV1
                         int tilePixelY = headerTileY * header.Tiles.TileSizeY;
                         int tileWidth = Math.Min(header.Tiles.TileSizeX, levelWidth - tilePixelX);
                         int tileHeight = Math.Min(header.Tiles.TileSizeY, levelHeight - tilePixelY);
+                        if (!TryCalculateDecodedBlockSize(header.Channels, tilePixelX, tilePixelY, tileWidth, tileHeight, out int expectedRawSize))
+                        {
+                            return ResultCode.InvalidData;
+                        }
+
                         byte[] raw;
                         ResultCode decodeResult = ExrCompressionCodec.TryDecodePayload(
                             header.Compression,
                             header.Channels,
+                            tilePixelX,
+                            tilePixelY,
                             tileWidth,
                             tileHeight,
                             data.Slice((int)chunkOffset + 20, packedSize),
-                            checked(tileWidth * tileHeight * pixelSize),
+                            expectedRawSize,
                             out raw);
                         if (decodeResult != ResultCode.Success)
                         {
@@ -1369,8 +1419,9 @@ namespace TinyEXR.PortV1
                             return ResultCode.InvalidData;
                         }
 
-                        ExrImageChannel[] tileChannels = CreateOutputChannels(tileWidth, tileHeight, header.Channels).ToArray();
+                        ExrImageChannel[] tileChannels = CreateOutputChannels(tileWidth, tileHeight, header.Channels, tilePixelX, tilePixelY).ToArray();
 
+                        int rawOffset = 0;
                         for (int localY = 0; localY < tileHeight; localY++)
                         {
                             int destinationY = tilePixelY + localY;
@@ -1379,41 +1430,63 @@ namespace TinyEXR.PortV1
                                 continue;
                             }
 
-                            int lineBase = localY * tileWidth * pixelSize;
                             for (int channelIndex = 0; channelIndex < currentLevelChannels.Count; channelIndex++)
                             {
-                                int sourceOffset = lineBase + channelOffsets[channelIndex] * tileWidth;
-                                if (tilePixelX < 0 || tilePixelX + tileWidth > levelWidth)
+                                ExrChannel headerChannel = header.Channels[channelIndex];
+                                if (!IsSampledCoordinate(destinationY, headerChannel.SamplingY))
                                 {
                                     continue;
                                 }
 
+                                if (!TryGetSampleIndex(0, destinationY, headerChannel.SamplingY, out int levelSampleY) ||
+                                    !TryGetSampleIndex(tilePixelY, destinationY, headerChannel.SamplingY, out int tileSampleY))
+                                {
+                                    return ResultCode.InvalidData;
+                                }
+
+                                int rowSampleCount = GetChannelSampleWidth(tileWidth, headerChannel, tilePixelX);
+                                int rowBytes = checked(rowSampleCount * Exr.TypeSize(headerChannel.Type));
+                                if (rawOffset + rowBytes > raw.Length)
+                                {
+                                    return ResultCode.InvalidData;
+                                }
+
+                                int levelSampleWidth = GetChannelSampleWidth(levelWidth, headerChannel);
+                                int levelSampleX = CountSamplePositions(0, tilePixelX, headerChannel.SamplingX);
                                 ResultCode levelCopyResult = TryCopySamples(
                                     raw,
-                                    sourceOffset,
-                                    header.Channels[channelIndex].Type,
+                                    rawOffset,
+                                    headerChannel.Type,
                                     currentLevelChannels[channelIndex].Data,
-                                    destinationY * levelWidth + tilePixelX,
+                                    checked(levelSampleY * levelSampleWidth + levelSampleX),
                                     currentLevelChannels[channelIndex].DataType,
-                                    tileWidth);
+                                    rowSampleCount);
                                 if (levelCopyResult != ResultCode.Success)
                                 {
                                     return levelCopyResult;
                                 }
 
+                                int tileSampleWidth = GetChannelSampleWidth(tileWidth, headerChannel, tilePixelX);
                                 ResultCode tileCopyResult = TryCopySamples(
                                     raw,
-                                    sourceOffset,
-                                    header.Channels[channelIndex].Type,
+                                    rawOffset,
+                                    headerChannel.Type,
                                     tileChannels[channelIndex].Data,
-                                    localY * tileWidth,
+                                    checked(tileSampleY * tileSampleWidth),
                                     tileChannels[channelIndex].DataType,
-                                    tileWidth);
+                                    rowSampleCount);
                                 if (tileCopyResult != ResultCode.Success)
                                 {
                                     return tileCopyResult;
                                 }
+
+                                rawOffset += rowBytes;
                             }
+                        }
+
+                        if (rawOffset != raw.Length)
+                        {
+                            return ResultCode.InvalidData;
                         }
 
                         currentLevelTiles.Add(new ExrTile(tilePixelX, tilePixelY, levelX, levelY, tileWidth, tileHeight, tileChannels));
@@ -1964,16 +2037,89 @@ namespace TinyEXR.PortV1
             }
         }
 
-        private static List<ExrImageChannel> CreateOutputChannels(int width, int height, IEnumerable<ExrChannel> sourceChannels)
+        private static List<ExrImageChannel> CreateOutputChannels(int width, int height, IEnumerable<ExrChannel> sourceChannels, int startX = 0, int startY = 0)
         {
             List<ExrImageChannel> channels = new List<ExrImageChannel>();
             foreach (ExrChannel channel in sourceChannels)
             {
                 ExrPixelType outputType = channel.RequestedPixelType;
-                channels.Add(new ExrImageChannel(channel, outputType, new byte[checked(width * height * Exr.TypeSize(outputType))]));
+                channels.Add(new ExrImageChannel(channel, outputType, new byte[GetChannelByteLength(width, height, channel, outputType, startX, startY)]));
             }
 
             return channels;
+        }
+
+        private static int CountSamplePositions(int start, int size, int sampling)
+        {
+            if (size <= 0)
+            {
+                return 0;
+            }
+
+            int remainder = start % sampling;
+            if (remainder < 0)
+            {
+                remainder += sampling;
+            }
+
+            int firstOffset = remainder == 0 ? 0 : sampling - remainder;
+            if (firstOffset >= size)
+            {
+                return 0;
+            }
+
+            return ((size - 1 - firstOffset) / sampling) + 1;
+        }
+
+        private static bool IsSampledCoordinate(int coordinate, int sampling)
+        {
+            return coordinate % sampling == 0;
+        }
+
+        private static bool TryGetSampleIndex(int start, int coordinate, int sampling, out int sampleIndex)
+        {
+            sampleIndex = -1;
+            if (coordinate < start || !IsSampledCoordinate(coordinate, sampling))
+            {
+                return false;
+            }
+
+            sampleIndex = CountSamplePositions(start, coordinate - start + 1, sampling) - 1;
+            return sampleIndex >= 0;
+        }
+
+        private static int GetChannelSampleWidth(int width, ExrChannel channel, int startX = 0)
+        {
+            return CountSamplePositions(startX, width, channel.SamplingX);
+        }
+
+        private static int GetChannelSampleHeight(int height, ExrChannel channel, int startY = 0)
+        {
+            return CountSamplePositions(startY, height, channel.SamplingY);
+        }
+
+        private static int GetChannelByteLength(int width, int height, ExrChannel channel, ExrPixelType dataType, int startX = 0, int startY = 0)
+        {
+            return checked(checked(GetChannelSampleWidth(width, channel, startX) * GetChannelSampleHeight(height, channel, startY)) * Exr.TypeSize(dataType));
+        }
+
+        private static bool TryCalculateDecodedBlockSize(IList<ExrChannel> channels, int startX, int startY, int width, int height, out int byteCount)
+        {
+            byteCount = 0;
+            try
+            {
+                for (int i = 0; i < channels.Count; i++)
+                {
+                    byteCount = checked(byteCount + GetChannelByteLength(width, height, channels[i], channels[i].Type, startX, startY));
+                }
+
+                return true;
+            }
+            catch (OverflowException)
+            {
+                byteCount = 0;
+                return false;
+            }
         }
 
         private static int[] BuildChannelOffsets(ExrPixelType[] pixelTypes, out int pixelSize)
