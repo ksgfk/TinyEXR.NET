@@ -20,6 +20,16 @@ public sealed class RegressionTests
         ExrImplementationType.GetMethod("GetChannelsInLayer", BindingFlags.NonPublic | BindingFlags.Static) ??
         throw new InvalidOperationException("GetChannelsInLayer was not found.");
 
+    public static IEnumerable<object[]> DamagedSelectedCases()
+    {
+        yield return new object[] { new DamagedSelectedSample("autofuzz_146551958", "header-only", ExpectedVersionTiled: false, ExpectedHeaderTiled: false, ExpectedDeep: false, UseDeepLoad: false) };
+        yield return new object[] { new DamagedSelectedSample("memory_DOS_1", "header-only", ExpectedVersionTiled: false, ExpectedHeaderTiled: false, ExpectedDeep: false, UseDeepLoad: false) };
+        yield return new object[] { new DamagedSelectedSample("asan_heap-oob_7faf9aba03ac_414_75af58c21b9b9e994747f9d6a5fc46d4_exr", "scanline", ExpectedVersionTiled: false, ExpectedHeaderTiled: false, ExpectedDeep: false, UseDeepLoad: false) };
+        yield return new object[] { new DamagedSelectedSample("asan_heap-oob_7f6798416389_229_18bd946a4fde157b9974d16a51a4851d_exr", "tiled", ExpectedVersionTiled: true, ExpectedHeaderTiled: true, ExpectedDeep: false, UseDeepLoad: false) };
+        yield return new object[] { new DamagedSelectedSample("signal_sigsegv_7ffff7b21e8a_389_bf048bf41ca71b4e00d2b0edd0a39e27_exr", "deep-scanline", ExpectedVersionTiled: false, ExpectedHeaderTiled: false, ExpectedDeep: true, UseDeepLoad: true) };
+        yield return new object[] { new DamagedSelectedSample("imf_test_deep_tile_file_fuzz_broken_exr", "deep-tile", ExpectedVersionTiled: false, ExpectedHeaderTiled: true, ExpectedDeep: true, UseDeepLoad: true) };
+    }
+
     [TestMethod(DisplayName = "ParseEXRVersionFromMemory invalid input")]
     public void Case_ParseEXRVersionFromMemory_invalid_input()
     {
@@ -506,19 +516,68 @@ public sealed class RegressionTests
         AssertRequestedPixelTypeLoadFails(encoded, "F", ExrPixelType.UInt);
     }
 
+    [TestMethod(DisplayName = "[TinyEXR.NET Test] Regression: MalformedCompression|InvalidUnknown")]
+    public void Case_Regression_MalformedCompression_InvalidUnknown()
+    {
+        byte[] mutated = LoadMalformedPizBase();
+        ExrBinaryMutationHelper.SetHeaderByteAttributeValue(mutated, headerIndex: 0, "compression", "compression", 0x7f);
+
+        Assert.AreEqual(ResultCode.UnsupportedFormat, Exr.ParseEXRHeaderFromMemory(mutated, out _, out _));
+        Assert.AreNotEqual(ResultCode.Success, Exr.LoadEXRFromMemory(mutated, out _, out _, out _));
+    }
+
+    [TestMethod(DisplayName = "[TinyEXR.NET Test] Regression: MalformedCompression|ShortDecodePIZ")]
+    public void Case_Regression_MalformedCompression_ShortDecodePIZ()
+    {
+        byte[] original = LoadMalformedPizBase();
+        byte[] mutated = ExrBinaryMutationHelper.TruncateFirstScanlineChunkPayload(original, bytesRemovedFromPayload: 1);
+
+        Assert.AreEqual(ResultCode.Success, Exr.ParseEXRHeaderFromMemory(mutated, out _, out ExrHeader header));
+        Assert.AreEqual(CompressionType.PIZ, header.Compression);
+        Assert.AreNotEqual(ResultCode.Success, Exr.LoadEXRImageFromMemory(mutated, header, out _));
+        Assert.AreNotEqual(ResultCode.Success, Exr.LoadEXRFromMemory(mutated, out _, out _, out _));
+    }
+
+    [TestMethod(DisplayName = "[TinyEXR.NET Test] Regression: MalformedCompression|EarlyEofPIZ")]
+    public void Case_Regression_MalformedCompression_EarlyEofPIZ()
+    {
+        byte[] original = LoadMalformedPizBase();
+        byte[] mutated = ExrBinaryMutationHelper.TruncateFirstScanlineChunkPayload(original, bytesRemovedFromPayload: 32);
+
+        Assert.AreEqual(ResultCode.Success, Exr.ParseEXRHeaderFromMemory(mutated, out _, out ExrHeader header));
+        Assert.AreEqual(CompressionType.PIZ, header.Compression);
+        Assert.AreNotEqual(ResultCode.Success, Exr.LoadEXRImageFromMemory(mutated, header, out _));
+        Assert.AreNotEqual(ResultCode.Success, Exr.LoadEXRFromMemory(mutated, out _, out _, out _));
+    }
+
+    [TestMethod(DisplayName = "[TinyEXR.NET Test] Damaged corpus|Selected regression samples")]
+    [DynamicData(nameof(DamagedSelectedCases))]
+    public void Case_Damaged_corpus_selected_regression_samples(DamagedSelectedSample sample)
+    {
+        string path = TestPaths.OpenExr($"Damaged/{sample.FileName}");
+
+        Assert.AreEqual(ResultCode.Success, Exr.ParseEXRVersionFromFile(path, out ExrVersion version), sample.FileName);
+        Assert.IsFalse(version.Multipart, sample.FileName);
+        Assert.AreEqual(sample.ExpectedVersionTiled, version.Tiled, sample.FileName);
+        Assert.AreEqual(sample.ExpectedDeep, version.NonImage, sample.FileName);
+
+        Assert.AreEqual(ResultCode.Success, Exr.ParseEXRHeaderFromFile(path, out _, out ExrHeader header), sample.FileName);
+        Assert.AreEqual(sample.ExpectedHeaderTiled, header.Tiles is not null, sample.FileName);
+        Assert.AreEqual(sample.ExpectedDeep, header.IsDeep, sample.FileName);
+
+        if (sample.UseDeepLoad)
+        {
+            Assert.AreNotEqual(ResultCode.Success, Exr.LoadDeepEXR(path, out ExrHeader deepHeader, out ExrDeepImage deepImage), sample.FileName);
+            Assert.IsTrue(deepHeader.IsDeep || deepImage.Width == 0, sample.FileName);
+            return;
+        }
+
+        Assert.AreNotEqual(ResultCode.Success, Exr.LoadEXRImageFromFile(path, header, out _), sample.FileName);
+    }
+
     private static void SetLineOrderAttribute(byte[] encoded, LineOrderType lineOrder)
     {
-        byte[] marker = Encoding.ASCII.GetBytes("lineOrder\0lineOrder\0");
-        int markerIndex = encoded.AsSpan().IndexOf(marker);
-        Assert.IsTrue(markerIndex >= 0, "lineOrder attribute marker was not found.");
-
-        int valueSizeOffset = markerIndex + marker.Length;
-        Assert.IsTrue(valueSizeOffset + sizeof(int) < encoded.Length, "lineOrder attribute size was truncated.");
-        Assert.AreEqual(1, BitConverter.ToInt32(encoded, valueSizeOffset), "lineOrder attribute size must be 1 byte.");
-
-        int valueOffset = valueSizeOffset + sizeof(int);
-        Assert.IsTrue(valueOffset < encoded.Length, "lineOrder attribute value was truncated.");
-        encoded[valueOffset] = (byte)lineOrder;
+        ExrBinaryMutationHelper.SetHeaderByteAttributeValue(encoded, headerIndex: 0, "lineOrder", "lineOrder", (byte)lineOrder);
     }
 
     private static void ZeroFirstSinglePartOffset(byte[] encoded)
@@ -575,6 +634,14 @@ public sealed class RegressionTests
 
         Assert.AreEqual(ResultCode.Success, Exr.SaveEXRImageToMemory(image, header, out byte[] encoded));
         return encoded;
+    }
+
+    private static byte[] LoadMalformedPizBase()
+    {
+        byte[] original = File.ReadAllBytes(TestPaths.Regression("piz-bug-issue-100.exr"));
+        Assert.AreEqual(ResultCode.Success, Exr.ParseEXRHeaderFromMemory(original, out _, out ExrHeader header));
+        Assert.AreEqual(CompressionType.PIZ, header.Compression);
+        return original;
     }
 
     private static void AssertRequestedPixelTypeLoadFails(byte[] encoded, string channelName, ExrPixelType requestedPixelType)
@@ -637,5 +704,19 @@ public sealed class RegressionTests
         }
 
         throw new AssertFailedException("GetChannelsInLayer did not return a collection result.");
+    }
+
+    public readonly record struct DamagedSelectedSample(
+        string FileName,
+        string Category,
+        bool ExpectedVersionTiled,
+        bool ExpectedHeaderTiled,
+        bool ExpectedDeep,
+        bool UseDeepLoad)
+    {
+        public override string ToString()
+        {
+            return $"{Category}:{FileName}";
+        }
     }
 }

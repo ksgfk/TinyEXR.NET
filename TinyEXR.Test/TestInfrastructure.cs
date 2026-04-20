@@ -1,4 +1,6 @@
+using System.Buffers.Binary;
 using System.Runtime.InteropServices;
+using System.Text;
 
 namespace TinyEXR.Test;
 
@@ -357,5 +359,127 @@ internal static class ExrTestHelper
         Assert.IsTrue(
             maxError <= tolerance,
             $"Channel '{channelName}' exceeded tolerance {tolerance} with max error {maxError} at sample {maxErrorIndex}.");
+    }
+}
+
+internal static class ExrBinaryMutationHelper
+{
+    public static void SetHeaderByteAttributeValue(byte[] encoded, int headerIndex, string attributeName, string attributeType, byte value)
+    {
+        int valueOffset = FindHeaderAttributeValueOffset(encoded, headerIndex, attributeName, attributeType, out int valueSize);
+        Assert.AreEqual(1, valueSize, $"{attributeName} attribute must be 1 byte.");
+        encoded[valueOffset] = value;
+    }
+
+    public static void ReplaceHeaderCStringAttributeValue(byte[] encoded, int headerIndex, string attributeName, string attributeType, string value)
+    {
+        int valueOffset = FindHeaderAttributeValueOffset(encoded, headerIndex, attributeName, attributeType, out int valueSize);
+        byte[] replacement = Encoding.UTF8.GetBytes(value + "\0");
+        Assert.AreEqual(valueSize, replacement.Length, $"{attributeName} replacement must preserve the encoded length.");
+        Buffer.BlockCopy(replacement, 0, encoded, valueOffset, replacement.Length);
+    }
+
+    public static byte[] TruncateFirstScanlineChunkPayload(byte[] encoded, int bytesRemovedFromPayload)
+    {
+        long chunkOffset = ReadFirstSinglePartChunkOffset(encoded);
+        int packedSizeOffset = checked((int)chunkOffset + sizeof(int));
+        Assert.IsTrue(packedSizeOffset + sizeof(int) <= encoded.Length, "scanline chunk payload size field was truncated.");
+
+        int packedSize = BinaryPrimitives.ReadInt32LittleEndian(encoded.AsSpan(packedSizeOffset, sizeof(int)));
+        int payloadOffset = packedSizeOffset + sizeof(int);
+        Assert.IsTrue(packedSize > 0, "scanline chunk payload size must be positive.");
+        Assert.IsTrue(payloadOffset + packedSize == encoded.Length, "expected the first scanline chunk payload to extend to EOF.");
+        Assert.IsTrue(
+            bytesRemovedFromPayload > 0 && bytesRemovedFromPayload <= packedSize,
+            $"bytesRemovedFromPayload must be in [1, {packedSize}].");
+
+        byte[] mutated = new byte[encoded.Length - bytesRemovedFromPayload];
+        Buffer.BlockCopy(encoded, 0, mutated, 0, mutated.Length);
+        return mutated;
+    }
+
+    public static int FindHeaderAttributeValueOffset(byte[] encoded, int headerIndex, string attributeName, string attributeType, out int valueSize)
+    {
+        int currentHeaderIndex = 0;
+        int offset = 8;
+        while (offset < encoded.Length)
+        {
+            int nameEnd = Array.IndexOf(encoded, (byte)0, offset);
+            Assert.IsTrue(nameEnd >= 0, "attribute name terminator was not found.");
+            if (nameEnd == offset)
+            {
+                if (currentHeaderIndex == headerIndex)
+                {
+                    break;
+                }
+
+                currentHeaderIndex++;
+                offset++;
+                continue;
+            }
+
+            string name = Encoding.UTF8.GetString(encoded, offset, nameEnd - offset);
+            offset = nameEnd + 1;
+
+            int typeEnd = Array.IndexOf(encoded, (byte)0, offset);
+            Assert.IsTrue(typeEnd >= 0, "attribute type terminator was not found.");
+            string type = Encoding.UTF8.GetString(encoded, offset, typeEnd - offset);
+            offset = typeEnd + 1;
+
+            Assert.IsTrue(offset + sizeof(int) <= encoded.Length, "attribute size field was truncated.");
+            valueSize = BinaryPrimitives.ReadInt32LittleEndian(encoded.AsSpan(offset, sizeof(int)));
+            Assert.IsTrue(valueSize >= 0, "attribute size must be non-negative.");
+            offset += sizeof(int);
+
+            Assert.IsTrue(offset + valueSize <= encoded.Length, "attribute value was truncated.");
+            if (currentHeaderIndex == headerIndex &&
+                string.Equals(name, attributeName, StringComparison.Ordinal) &&
+                string.Equals(type, attributeType, StringComparison.Ordinal))
+            {
+                return offset;
+            }
+
+            offset += valueSize;
+        }
+
+        throw new AssertFailedException($"Attribute '{attributeName}' of type '{attributeType}' was not found in header {headerIndex}.");
+    }
+
+    private static long ReadFirstSinglePartChunkOffset(byte[] encoded)
+    {
+        int offsetTableOffset = FindSinglePartOffsetTableOffset(encoded);
+        Assert.IsTrue(offsetTableOffset + sizeof(long) <= encoded.Length, "offset table entry was truncated.");
+
+        long chunkOffset = BinaryPrimitives.ReadInt64LittleEndian(encoded.AsSpan(offsetTableOffset, sizeof(long)));
+        Assert.AreEqual(offsetTableOffset + sizeof(long), chunkOffset, "expected a single scanline chunk immediately after the offset table.");
+        return chunkOffset;
+    }
+
+    private static int FindSinglePartOffsetTableOffset(byte[] encoded)
+    {
+        int offset = 8;
+        while (true)
+        {
+            int nameEnd = Array.IndexOf(encoded, (byte)0, offset);
+            Assert.IsTrue(nameEnd >= 0, "attribute name terminator was not found.");
+            if (nameEnd == offset)
+            {
+                return offset + 1;
+            }
+
+            offset = nameEnd + 1;
+
+            int typeEnd = Array.IndexOf(encoded, (byte)0, offset);
+            Assert.IsTrue(typeEnd >= 0, "attribute type terminator was not found.");
+            offset = typeEnd + 1;
+
+            Assert.IsTrue(offset + sizeof(int) <= encoded.Length, "attribute size field was truncated.");
+            int attributeSize = BinaryPrimitives.ReadInt32LittleEndian(encoded.AsSpan(offset, sizeof(int)));
+            Assert.IsTrue(attributeSize >= 0, "attribute size must be non-negative.");
+            offset += sizeof(int);
+
+            Assert.IsTrue(offset + attributeSize <= encoded.Length, "attribute value was truncated.");
+            offset += attributeSize;
+        }
     }
 }
