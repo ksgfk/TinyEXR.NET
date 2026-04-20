@@ -119,13 +119,13 @@ namespace TinyEXR.Test
         }
 
         [TestMethod]
-        public void UnsupportedCompressedSamplesAreReported()
+        public void CompressionCoverageSamplesReportExpectedReadResults()
         {
             AssertUnsupportedRead(TestData.Regression("poc-255456016cca60ddb5c5ed6898182e13739bf687b17d1411e97bb60ad95e7a84_min"));
-            AssertUnsupportedRead(TestData.Sample(Path.Combine("ScanLines", "Desk.exr")));
-            AssertUnsupportedRead(TestData.Sample(Path.Combine("TestImages", "GammaChart.exr")));
             AssertUnsupportedRead(TestData.Sample(Path.Combine("LuminanceChroma", "CrissyField.exr")));
-            AssertUnsupportedRead(TestData.Sample(Path.Combine("MultiView", "Adjuster.exr")));
+            AssertReadSucceeds(TestData.Sample(Path.Combine("ScanLines", "Desk.exr")));
+            AssertReadSucceeds(TestData.Sample(Path.Combine("TestImages", "GammaChart.exr")));
+            AssertReadSucceeds(TestData.Sample(Path.Combine("MultiView", "Adjuster.exr")));
         }
 
         private static void AssertRgbaReadSucceeds(string path, int expectedWidth, int expectedHeight)
@@ -162,6 +162,14 @@ namespace TinyEXR.Test
         {
             ResultCode result = Exr.TryReadImage(path, out _, out _);
             Assert.AreEqual(ResultCode.UnsupportedFeature, result, $"Expected unsupported compression for '{path}'.");
+        }
+
+        private static void AssertReadSucceeds(string path)
+        {
+            ResultCode result = Exr.TryReadImage(path, out ExrHeader header, out ExrImage image);
+            Assert.AreEqual(ResultCode.Success, result, $"Expected supported decode for '{path}'.");
+            Assert.IsTrue(header.Channels.Count > 0, $"Expected non-empty channels for '{path}'.");
+            Assert.IsTrue(image.Width > 0 && image.Height > 0, $"Expected non-empty image bounds for '{path}'.");
         }
     }
 }

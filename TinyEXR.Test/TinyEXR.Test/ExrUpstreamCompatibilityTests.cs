@@ -58,6 +58,22 @@ namespace TinyEXR.Test
         }
 
         [TestMethod]
+        [DynamicData(nameof(NewlySupportedCompressionCases))]
+        public void CompressionSamplesFormerlyBlockedByCodecGapsNowDecode(
+            string samplePath,
+            bool regression)
+        {
+            string path = ResolvePath(samplePath, regression);
+
+            ResultCode result = Exr.TryReadImage(path, out ExrHeader header, out ExrImage image);
+            Assert.AreEqual(ResultCode.Success, result, path);
+            Assert.IsTrue(header.Channels.Count > 0, path);
+            Assert.IsTrue(image.Width > 0, path);
+            Assert.IsTrue(image.Height > 0, path);
+            Assert.IsTrue(image.Channels.Count > 0, path);
+        }
+
+        [TestMethod]
         [DynamicData(nameof(UnsupportedDecodeCases))]
         public void UnsupportedOrMultipartSamplesReturnStableReadResults(
             string samplePath,
@@ -206,33 +222,37 @@ namespace TinyEXR.Test
             yield return new object[] { System.IO.Path.Combine("Beachball", "singlepart.0001.exr"), false, 911, 876, 20, false, new[] { "A", "left.R", "whitebarmask.right.mask" } };
         }
 
+        public static IEnumerable<object[]> NewlySupportedCompressionCases()
+        {
+            yield return new object[] { System.IO.Path.Combine("ScanLines", "CandleGlass.exr"), false };
+            yield return new object[] { System.IO.Path.Combine("ScanLines", "Desk.exr"), false };
+            yield return new object[] { System.IO.Path.Combine("ScanLines", "MtTamWest.exr"), false };
+            yield return new object[] { System.IO.Path.Combine("ScanLines", "PrismsLenses.exr"), false };
+            yield return new object[] { System.IO.Path.Combine("ScanLines", "StillLife.exr"), false };
+            yield return new object[] { System.IO.Path.Combine("ScanLines", "Tree.exr"), false };
+            yield return new object[] { System.IO.Path.Combine("Chromaticities", "Rec709.exr"), false };
+            yield return new object[] { System.IO.Path.Combine("Chromaticities", "XYZ.exr"), false };
+            yield return new object[] { System.IO.Path.Combine("TestImages", "AllHalfValues.exr"), false };
+            yield return new object[] { System.IO.Path.Combine("TestImages", "GammaChart.exr"), false };
+            yield return new object[] { System.IO.Path.Combine("LuminanceChroma", "Garden.exr"), false };
+            yield return new object[] { System.IO.Path.Combine("DisplayWindow", "t01.exr"), false };
+            yield return new object[] { System.IO.Path.Combine("DisplayWindow", "t08.exr"), false };
+            yield return new object[] { System.IO.Path.Combine("DisplayWindow", "t16.exr"), false };
+            yield return new object[] { System.IO.Path.Combine("Tiles", "GoldenGate.exr"), false };
+            yield return new object[] { System.IO.Path.Combine("Tiles", "Spirals.exr"), false };
+            yield return new object[] { System.IO.Path.Combine("MultiView", "Adjuster.exr"), false };
+            yield return new object[] { "000-issue194.exr", true };
+            yield return new object[] { "issue-160-piz-decode.exr", true };
+            yield return new object[] { "piz-bug-issue-100.exr", true };
+        }
+
         public static IEnumerable<object[]> UnsupportedDecodeCases()
         {
-            yield return new object[] { System.IO.Path.Combine("ScanLines", "CandleGlass.exr"), false, ResultCode.UnsupportedFeature };
-            yield return new object[] { System.IO.Path.Combine("ScanLines", "Desk.exr"), false, ResultCode.UnsupportedFeature };
-            yield return new object[] { System.IO.Path.Combine("ScanLines", "MtTamWest.exr"), false, ResultCode.UnsupportedFeature };
-            yield return new object[] { System.IO.Path.Combine("ScanLines", "PrismsLenses.exr"), false, ResultCode.UnsupportedFeature };
-            yield return new object[] { System.IO.Path.Combine("ScanLines", "StillLife.exr"), false, ResultCode.UnsupportedFeature };
-            yield return new object[] { System.IO.Path.Combine("ScanLines", "Tree.exr"), false, ResultCode.UnsupportedFeature };
-            yield return new object[] { System.IO.Path.Combine("Chromaticities", "Rec709.exr"), false, ResultCode.UnsupportedFeature };
             yield return new object[] { System.IO.Path.Combine("Chromaticities", "Rec709_YC.exr"), false, ResultCode.UnsupportedFeature };
-            yield return new object[] { System.IO.Path.Combine("Chromaticities", "XYZ.exr"), false, ResultCode.UnsupportedFeature };
             yield return new object[] { System.IO.Path.Combine("Chromaticities", "XYZ_YC.exr"), false, ResultCode.UnsupportedFeature };
-            yield return new object[] { System.IO.Path.Combine("TestImages", "AllHalfValues.exr"), false, ResultCode.UnsupportedFeature };
-            yield return new object[] { System.IO.Path.Combine("TestImages", "GammaChart.exr"), false, ResultCode.UnsupportedFeature };
             yield return new object[] { System.IO.Path.Combine("LuminanceChroma", "MtTamNorth.exr"), false, ResultCode.UnsupportedFeature };
             yield return new object[] { System.IO.Path.Combine("LuminanceChroma", "StarField.exr"), false, ResultCode.UnsupportedFeature };
-            yield return new object[] { System.IO.Path.Combine("LuminanceChroma", "Garden.exr"), false, ResultCode.UnsupportedFeature };
             yield return new object[] { System.IO.Path.Combine("LuminanceChroma", "CrissyField.exr"), false, ResultCode.UnsupportedFeature };
-            yield return new object[] { System.IO.Path.Combine("DisplayWindow", "t01.exr"), false, ResultCode.UnsupportedFeature };
-            yield return new object[] { System.IO.Path.Combine("DisplayWindow", "t08.exr"), false, ResultCode.UnsupportedFeature };
-            yield return new object[] { System.IO.Path.Combine("DisplayWindow", "t16.exr"), false, ResultCode.UnsupportedFeature };
-            yield return new object[] { System.IO.Path.Combine("Tiles", "GoldenGate.exr"), false, ResultCode.UnsupportedFeature };
-            yield return new object[] { System.IO.Path.Combine("Tiles", "Spirals.exr"), false, ResultCode.UnsupportedFeature };
-            yield return new object[] { System.IO.Path.Combine("MultiView", "Adjuster.exr"), false, ResultCode.UnsupportedFeature };
-            yield return new object[] { "000-issue194.exr", true, ResultCode.UnsupportedFeature };
-            yield return new object[] { "issue-160-piz-decode.exr", true, ResultCode.UnsupportedFeature };
-            yield return new object[] { "piz-bug-issue-100.exr", true, ResultCode.UnsupportedFeature };
             yield return new object[] { "poc-255456016cca60ddb5c5ed6898182e13739bf687b17d1411e97bb60ad95e7a84_min", true, ResultCode.UnsupportedFeature };
             yield return new object[] { "poc-360c3b0555cb979ca108f2d178cf8a80959cfeabaa4ec1d310d062fa653a8c6b_min", true, ResultCode.UnsupportedFeature };
             yield return new object[] { "poc-3f1f642c3356fd8e8d2a0787613ec09a56572b3a1e38c9629b6db9e8dead1117_min", true, ResultCode.UnsupportedFeature };

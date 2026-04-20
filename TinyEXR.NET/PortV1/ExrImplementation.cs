@@ -755,7 +755,7 @@ namespace TinyEXR.PortV1
                 return rawResult;
             }
 
-            ResultCode payloadResult = TryEncodePayload(header.Compression, raw, out byte[] payload);
+            ResultCode payloadResult = ExrCompressionCodec.TryEncodePayload(header.Compression, header.Channels, level.Width, numLines, raw, out byte[] payload);
             if (payloadResult != ResultCode.Success)
             {
                 return payloadResult;
@@ -791,7 +791,7 @@ namespace TinyEXR.PortV1
                 return rawResult;
             }
 
-            ResultCode payloadResult = TryEncodePayload(header.Compression, raw, out byte[] payload);
+            ResultCode payloadResult = ExrCompressionCodec.TryEncodePayload(header.Compression, header.Channels, tileWidth, tileHeight, raw, out byte[] payload);
             if (payloadResult != ResultCode.Success)
             {
                 return payloadResult;
@@ -1228,7 +1228,14 @@ namespace TinyEXR.PortV1
 
                 int chunkLineCount = Math.Min(linesPerChunk, height - relativeLine);
                 byte[] raw;
-                ResultCode decodeResult = TryDecodePayload(header.Compression, data.Slice((int)chunkOffset + sizeof(int) * 2, packedSize), checked(width * chunkLineCount * pixelSize), out raw);
+                ResultCode decodeResult = ExrCompressionCodec.TryDecodePayload(
+                    header.Compression,
+                    header.Channels,
+                    width,
+                    chunkLineCount,
+                    data.Slice((int)chunkOffset + sizeof(int) * 2, packedSize),
+                    checked(width * chunkLineCount * pixelSize),
+                    out raw);
                 if (decodeResult != ResultCode.Success)
                 {
                     return decodeResult;
@@ -1344,7 +1351,14 @@ namespace TinyEXR.PortV1
                         int tileWidth = Math.Min(header.Tiles.TileSizeX, levelWidth - tilePixelX);
                         int tileHeight = Math.Min(header.Tiles.TileSizeY, levelHeight - tilePixelY);
                         byte[] raw;
-                        ResultCode decodeResult = TryDecodePayload(header.Compression, data.Slice((int)chunkOffset + 20, packedSize), checked(tileWidth * tileHeight * pixelSize), out raw);
+                        ResultCode decodeResult = ExrCompressionCodec.TryDecodePayload(
+                            header.Compression,
+                            header.Channels,
+                            tileWidth,
+                            tileHeight,
+                            data.Slice((int)chunkOffset + 20, packedSize),
+                            checked(tileWidth * tileHeight * pixelSize),
+                            out raw);
                         if (decodeResult != ResultCode.Success)
                         {
                             return decodeResult;
@@ -1546,9 +1560,14 @@ namespace TinyEXR.PortV1
             switch (compression)
             {
                 case CompressionType.None:
+                case CompressionType.RLE:
+                case CompressionType.PIZ:
+                case CompressionType.B44:
+                case CompressionType.B44A:
                     return true;
                 case CompressionType.ZIPS:
                 case CompressionType.ZIP:
+                case CompressionType.PXR24:
 #if NET10_0_OR_GREATER
                     return true;
 #else
@@ -1931,7 +1950,18 @@ namespace TinyEXR.PortV1
 
         private static int NumScanlines(CompressionType compression)
         {
-            return compression == CompressionType.ZIP ? 16 : 1;
+            switch (compression)
+            {
+                case CompressionType.ZIP:
+                case CompressionType.PXR24:
+                    return 16;
+                case CompressionType.PIZ:
+                case CompressionType.B44:
+                case CompressionType.B44A:
+                    return 32;
+                default:
+                    return 1;
+            }
         }
 
         private static List<ExrImageChannel> CreateOutputChannels(int width, int height, IEnumerable<ExrChannel> sourceChannels)

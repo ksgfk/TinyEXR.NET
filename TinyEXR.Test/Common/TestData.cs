@@ -11,6 +11,8 @@ namespace TinyEXR.Test
 
         public static string RegressionRoot { get; } = Path.Combine(RepositoryRoot, "TinyEXR.Native", "tinyexr", "test", "unit", "regression");
 
+        public static string NativeRoot { get; } = Path.Combine(RepositoryRoot, "TinyEXR.Native", "tinyexr");
+
         public static string Sample(string relativePath)
         {
             string fullPath = Path.GetFullPath(Path.Combine(OpenExrImagesRoot, relativePath));
@@ -28,6 +30,17 @@ namespace TinyEXR.Test
             if (!File.Exists(fullPath))
             {
                 throw new FileNotFoundException($"tinyexr regression file not found: {fullPath}", fullPath);
+            }
+
+            return fullPath;
+        }
+
+        public static string NativeSample(string relativePath)
+        {
+            string fullPath = Path.GetFullPath(Path.Combine(NativeRoot, relativePath));
+            if (!File.Exists(fullPath))
+            {
+                throw new FileNotFoundException($"tinyexr native sample file not found: {fullPath}", fullPath);
             }
 
             return fullPath;
