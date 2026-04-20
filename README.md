@@ -102,6 +102,40 @@ dotnet test --solution TinyEXR.Test/TinyEXR.Test.sln --configuration Release --r
 
 Note: the repository still keeps the upstream `tinyexr` submodule for reference and regression samples used by the tests, but the shipped package itself is pure managed.
 
+## Benchmark Snapshot
+
+The benchmark harnesses live under [`Benchmark`](Benchmark/README.md). Both runners use the same sample manifest and only touch disk during setup; timed iterations operate on in-memory buffers only.
+
+This snapshot was rerun on `2026-04-21` on the same Windows machine with:
+
+- C++ baseline: Google Benchmark + Release build of vendored `tinyexr`
+- C#: BenchmarkDotNet `ShortRun` + `MemoryDiagnoser` on `.NET 10.0.6`
+
+Commands:
+
+```powershell
+.\Benchmark\baseline\build\Release\tinyexr_baseline_benchmark.exe --benchmark_filter="LoadEXRFromMemory/.+|SaveEXRToMemory/.+|LoadEXRImageFromMemory/.+|SaveEXRImageToMemory/.+|ParseEXRMultipartHeaderFromMemory/.+|LoadEXRMultipartImageFromMemory/.+|SaveEXRMultipartImageToMemory/.+" --benchmark_out=Benchmark\baseline\results.csv --benchmark_out_format=csv
+dotnet run -c Release --project Benchmark\TinyEXR.Benchmark\TinyEXR.Benchmark.csproj -- --filter "*" --job short --exporters csv
+```
+
+Comparison of overlapping memory benchmarks:
+
+| API | Sample | tinyexr C++ | TinyEXR.NET C# | C#/C++ |
+| --- | --- | ---: | ---: | ---: |
+| `LoadEXRFromMemory` | `desk_scanline` | `39.52 ms` | `62.43 ms` | `1.58x` |
+| `SaveEXRToMemory` | `desk_scanline` | `164.06 ms` | `110.26 ms` | `0.67x` |
+| `LoadEXRImageFromMemory` | `desk_scanline` | `29.76 ms` | `47.80 ms` | `1.61x` |
+| `LoadEXRImageFromMemory` | `kapaa_multires` | `55.40 ms` | `50.17 ms` | `0.91x` |
+| `SaveEXRImageToMemory` | `desk_scanline` | `34.93 ms` | `45.92 ms` | `1.31x` |
+| `SaveEXRImageToMemory` | `kapaa_multires` | `213.54 ms` | `171.78 ms` | `0.80x` |
+| `LoadEXRMultipartImageFromMemory` | `beachball_multipart_0001` | `125.00 ms` | `90.27 ms` | `0.72x` |
+| `SaveEXRMultipartImageToMemory` | `beachball_multipart_0001` | `208.33 ms` | `214.09 ms` | `1.03x` |
+| `LoadDeepImageFromMemory` | `balls_deep_scanline` | / | `14.79 ms` | / |
+
+`C#/C++` is the ratio of managed mean time to baseline mean time, so values below `1.00x` are faster for `TinyEXR.NET` on this machine.
+
+The current upstream `tinyexr` public API still does not expose a public deep memory decode entry point, so there is no like-for-like C++ baseline number for `LoadDeepImageFromMemory`.
+
 ## License
 
 `TinyEXR.NET` is released under the MIT license.

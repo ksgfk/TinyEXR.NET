@@ -57,6 +57,9 @@
       <_Parameter1>TinyEXR.Test</_Parameter1>
     </AssemblyAttribute>
     <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>TinyEXR.Benchmark</_Parameter1>
+    </AssemblyAttribute>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
       <_Parameter1>TinyEXR.NetStandardFallback.Test</_Parameter1>
     </AssemblyAttribute>
   </ItemGroup>

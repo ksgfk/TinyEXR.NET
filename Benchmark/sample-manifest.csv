@@ -1,0 +1,5 @@
+sample_id,kind,relative_path
+desk_scanline,single_part,ScanLines/Desk.exr
+kapaa_multires,single_part,MultiResolution/Kapaa.exr
+beachball_multipart_0001,multipart,Beachball/multipart.0001.exr
+balls_deep_scanline,deep,v2/LowResLeftView/Balls.exr

@@ -10,6 +10,7 @@ bin
 
 .cache
 artifacts
+BenchmarkDotNet.Artifacts
 
 *.dll
 *.so
