@@ -41,6 +41,43 @@ public sealed class SpectralAndCompressionTests
         Assert.AreEqual("W.m^-2.sr^-1.nm^-1", Exr.EXRGetSpectralUnits(header));
     }
 
+    [TestMethod(DisplayName = "[TinyEXR.NET Test] Spectral: IsSpectralEXR only requires spectralLayoutVersion")]
+    public void Case_Spectral_IsSpectralEXR_only_requires_spectralLayoutVersion()
+    {
+        ExrImage image = new(
+            1,
+            1,
+            new[]
+            {
+                ExrTestHelper.FloatChannel("B", ExrPixelType.Float, new[] { 0.25f }),
+                ExrTestHelper.FloatChannel("G", ExrPixelType.Float, new[] { 0.5f }),
+                ExrTestHelper.FloatChannel("R", ExrPixelType.Float, new[] { 1.0f }),
+            });
+
+        ExrHeader header = new();
+        header.CustomAttributes.Add(ExrAttribute.FromString("spectralLayoutVersion", "1.0"));
+
+        Assert.AreEqual(ResultCode.Success, Exr.SaveEXRImageToMemory(image, header, out byte[] encoded));
+        Assert.IsTrue(Exr.IsSpectralEXRFromMemory(encoded));
+        Assert.AreEqual(ResultCode.Success, Exr.ParseEXRHeaderFromMemory(encoded, out _, out ExrHeader decodedHeader));
+        Assert.IsTrue(decodedHeader.CustomAttributes.Any(static attribute => attribute.Name == "spectralLayoutVersion"));
+        Assert.IsNull(Exr.EXRGetSpectrumType(decodedHeader));
+
+        string path = Path.Combine(Path.GetTempPath(), $"spectral-layout-version-rgb-{Guid.NewGuid():N}.exr");
+        try
+        {
+            Assert.AreEqual(ResultCode.Success, Exr.SaveEXRImageToFile(image, header, path));
+            Assert.IsTrue(Exr.IsSpectralEXR(path));
+        }
+        finally
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+    }
+
     [TestMethod(DisplayName = "Spectral: Spectrum type detection")]
     public void Case_Spectral_Spectrum_type_detection()
     {

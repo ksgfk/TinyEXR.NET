@@ -407,13 +407,13 @@ namespace TinyEXR
         public static bool IsSpectralEXR(string filename)
         {
             return TryReadHeader(filename, out ExrHeader header) == ResultCode.Success &&
-                EXRGetSpectrumType(header).HasValue;
+                FindCustomAttribute(header, SpectralLayoutVersionAttribute) != null;
         }
 
         public static bool IsSpectralEXRFromMemory(ReadOnlySpan<byte> data)
         {
             return TryReadHeader(data, out ExrHeader header) == ResultCode.Success &&
-                EXRGetSpectrumType(header).HasValue;
+                FindCustomAttribute(header, SpectralLayoutVersionAttribute) != null;
         }
 
         public static SpectrumType? EXRGetSpectrumType(ExrHeader header)
