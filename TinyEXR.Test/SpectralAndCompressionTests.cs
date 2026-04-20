@@ -411,6 +411,18 @@ public sealed class SpectralAndCompressionTests
         ExrTestHelper.AssertMaxError(chR, ExrTestHelper.ReadFloatChannel(image, "R"), 0.01f, "R");
     }
 
+    [TestMethod(DisplayName = "[TinyEXR.NET Test] B44 subsampled channels round-trip")]
+    public void Case_B44_Subsampled_channels_round_trip()
+    {
+        AssertSubsampledB44RoundTrip(CompressionType.B44);
+    }
+
+    [TestMethod(DisplayName = "[TinyEXR.NET Test] B44A subsampled channels round-trip")]
+    public void Case_B44A_Subsampled_channels_round_trip()
+    {
+        AssertSubsampledB44RoundTrip(CompressionType.B44A);
+    }
+
     private static ExrImage RoundTrip(
         int width,
         int height,
@@ -431,5 +443,59 @@ public sealed class SpectralAndCompressionTests
         ExrTestHelper.SetRequestedPixelTypes(decodedHeader, requestedTypeSelector);
         Assert.AreEqual(ResultCode.Success, Exr.LoadEXRImageFromMemory(encoded, decodedHeader, out ExrImage decodedImage));
         return decodedImage;
+    }
+
+    private static void AssertSubsampledB44RoundTrip(CompressionType compression)
+    {
+        const int width = 13;
+        const int height = 11;
+        const int samplingX = 2;
+        const int samplingY = 2;
+
+        float[] chA = new float[width * height];
+        float[] chR = new float[width * height];
+        for (int y = 0; y < height; y++)
+        {
+            for (int x = 0; x < width; x++)
+            {
+                int index = y * width + x;
+                chA[index] = x * 0.0625f + y * 0.015625f;
+                chR[index] = 1.0f - x * 0.03125f + y * 0.0078125f;
+            }
+        }
+
+        int sampledWidth = (width + samplingX - 1) / samplingX;
+        int sampledHeight = (height + samplingY - 1) / samplingY;
+        float[] chB = Enumerable.Repeat(0.25f, sampledWidth * sampledHeight).ToArray();
+        float[] chG = new float[sampledWidth * sampledHeight];
+        for (int sampleY = 0; sampleY < sampledHeight; sampleY++)
+        {
+            for (int sampleX = 0; sampleX < sampledWidth; sampleX++)
+            {
+                int index = sampleY * sampledWidth + sampleX;
+                chG[index] = 0.125f + sampleX * 0.03125f + sampleY * 0.0625f;
+            }
+        }
+
+        ExrImage image = RoundTrip(
+            width,
+            height,
+            compression,
+            static _ => ExrPixelType.Float,
+            ExrTestHelper.FloatChannel("A", ExrPixelType.Float, chA),
+            new ExrImageChannel(
+                new ExrChannel("B", ExrPixelType.Half, samplingX, samplingY, 1),
+                ExrPixelType.Float,
+                ExrTestHelper.ToBytes(chB)),
+            new ExrImageChannel(
+                new ExrChannel("G", ExrPixelType.Half, samplingX, samplingY, 1),
+                ExrPixelType.Float,
+                ExrTestHelper.ToBytes(chG)),
+            ExrTestHelper.FloatChannel("R", ExrPixelType.Float, chR));
+
+        CollectionAssert.AreEqual(chA, ExrTestHelper.ReadFloatChannel(image, "A"));
+        ExrTestHelper.AssertMaxError(chB, ExrTestHelper.ReadFloatChannel(image, "B"), 0.02f, "B");
+        ExrTestHelper.AssertMaxError(chG, ExrTestHelper.ReadFloatChannel(image, "G"), 0.02f, "G");
+        CollectionAssert.AreEqual(chR, ExrTestHelper.ReadFloatChannel(image, "R"));
     }
 }

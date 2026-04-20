@@ -54,6 +54,27 @@ namespace TinyEXR.PortV1
             public bool HasSubsampling => SamplingX != 1 || SamplingY != 1;
         }
 
+        private readonly struct ChannelPlane
+        {
+            public ChannelPlane(ChannelLayout layout, int width, int height, byte[] data)
+            {
+                Layout = layout;
+                Width = width;
+                Height = height;
+                Data = data;
+            }
+
+            public ChannelLayout Layout { get; }
+
+            public int Width { get; }
+
+            public int Height { get; }
+
+            public byte[] Data { get; }
+
+            public int RowBytes => checked(Width * Layout.SampleSize);
+        }
+
         private sealed class HufDecEntry
         {
             public byte Length;
@@ -179,12 +200,7 @@ namespace TinyEXR.PortV1
                     return TryCompressPxr24(layouts, pixelStride, width, height, raw, out payload);
                 case CompressionType.B44:
                 case CompressionType.B44A:
-                    if (HasSubsampledChannels(layouts))
-                    {
-                        return ResultCode.UnsupportedFeature;
-                    }
-
-                    return TryCompressB44(layouts, pixelStride, width, height, raw, compression == CompressionType.B44A, out payload);
+                    return TryCompressB44(layouts, startX, startY, width, height, raw, compression == CompressionType.B44A, out payload);
                 default:
                     return ResultCode.UnsupportedFeature;
             }
@@ -244,12 +260,7 @@ namespace TinyEXR.PortV1
                     return TryDecompressPxr24(layouts, pixelStride, width, height, payload, expectedSize, out raw);
                 case CompressionType.B44:
                 case CompressionType.B44A:
-                    if (HasSubsampledChannels(layouts))
-                    {
-                        return ResultCode.UnsupportedFeature;
-                    }
-
-                    return TryDecompressB44(layouts, pixelStride, width, height, payload, expectedSize, out raw);
+                    return TryDecompressB44(layouts, startX, startY, width, height, payload, expectedSize, out raw);
                 default:
                     return ResultCode.UnsupportedFeature;
             }
@@ -365,6 +376,125 @@ namespace TinyEXR.PortV1
                 decodedSize = 0;
                 return false;
             }
+        }
+
+        private static bool TryCreateChannelPlanes(ChannelLayout[] layouts, int startX, int startY, int width, int height, out ChannelPlane[] planes)
+        {
+            planes = new ChannelPlane[layouts.Length];
+
+            try
+            {
+                for (int i = 0; i < layouts.Length; i++)
+                {
+                    int sampledWidth = CountSamplePositions(startX, width, layouts[i].SamplingX);
+                    int sampledHeight = CountSamplePositions(startY, height, layouts[i].SamplingY);
+                    int byteCount = checked(checked(sampledWidth * sampledHeight) * layouts[i].SampleSize);
+                    planes[i] = new ChannelPlane(layouts[i], sampledWidth, sampledHeight, new byte[byteCount]);
+                }
+
+                return true;
+            }
+            catch (OverflowException)
+            {
+                planes = Array.Empty<ChannelPlane>();
+                return false;
+            }
+        }
+
+        private static bool TrySplitRawByChannel(ChannelLayout[] layouts, int startX, int startY, int width, int height, byte[] raw, out ChannelPlane[] planes)
+        {
+            if (!TryCreateChannelPlanes(layouts, startX, startY, width, height, out planes))
+            {
+                return false;
+            }
+
+            int[] planeOffsets = new int[planes.Length];
+            int rawOffset = 0;
+            for (int y = 0; y < height; y++)
+            {
+                int absoluteY = startY + y;
+                for (int i = 0; i < planes.Length; i++)
+                {
+                    if (!IsSampledCoordinate(absoluteY, planes[i].Layout.SamplingY))
+                    {
+                        continue;
+                    }
+
+                    int rowBytes = planes[i].RowBytes;
+                    if (rawOffset + rowBytes > raw.Length || planeOffsets[i] + rowBytes > planes[i].Data.Length)
+                    {
+                        planes = Array.Empty<ChannelPlane>();
+                        return false;
+                    }
+
+                    raw.AsSpan(rawOffset, rowBytes).CopyTo(planes[i].Data.AsSpan(planeOffsets[i], rowBytes));
+                    rawOffset += rowBytes;
+                    planeOffsets[i] += rowBytes;
+                }
+            }
+
+            if (rawOffset != raw.Length)
+            {
+                planes = Array.Empty<ChannelPlane>();
+                return false;
+            }
+
+            for (int i = 0; i < planes.Length; i++)
+            {
+                if (planeOffsets[i] != planes[i].Data.Length)
+                {
+                    planes = Array.Empty<ChannelPlane>();
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        private static bool TryAssembleRawFromChannelPlanes(ChannelPlane[] planes, int startY, int height, int expectedSize, out byte[] raw)
+        {
+            raw = new byte[expectedSize];
+            int[] planeOffsets = new int[planes.Length];
+            int rawOffset = 0;
+            for (int y = 0; y < height; y++)
+            {
+                int absoluteY = startY + y;
+                for (int i = 0; i < planes.Length; i++)
+                {
+                    if (!IsSampledCoordinate(absoluteY, planes[i].Layout.SamplingY))
+                    {
+                        continue;
+                    }
+
+                    int rowBytes = planes[i].RowBytes;
+                    if (planeOffsets[i] + rowBytes > planes[i].Data.Length || rawOffset + rowBytes > raw.Length)
+                    {
+                        raw = Array.Empty<byte>();
+                        return false;
+                    }
+
+                    planes[i].Data.AsSpan(planeOffsets[i], rowBytes).CopyTo(raw.AsSpan(rawOffset, rowBytes));
+                    planeOffsets[i] += rowBytes;
+                    rawOffset += rowBytes;
+                }
+            }
+
+            if (rawOffset != raw.Length)
+            {
+                raw = Array.Empty<byte>();
+                return false;
+            }
+
+            for (int i = 0; i < planes.Length; i++)
+            {
+                if (planeOffsets[i] != planes[i].Data.Length)
+                {
+                    raw = Array.Empty<byte>();
+                    return false;
+                }
+            }
+
+            return true;
         }
 
         private static byte[] ApplyExrPredictorAndReorder(ReadOnlySpan<byte> raw)
@@ -991,39 +1121,41 @@ namespace TinyEXR.PortV1
             return ResultCode.Success;
         }
 
-        private static ResultCode TryCompressB44(ChannelLayout[] layouts, int pixelStride, int width, int height, byte[] raw, bool isB44A, out byte[] payload)
+        private static ResultCode TryCompressB44(ChannelLayout[] layouts, int startX, int startY, int width, int height, byte[] raw, bool isB44A, out byte[] payload)
         {
             EnsureB44Tables();
 
-            using MemoryStream output = new MemoryStream();
-            for (int channelIndex = 0; channelIndex < layouts.Length; channelIndex++)
+            if (!TrySplitRawByChannel(layouts, startX, startY, width, height, raw, out ChannelPlane[] planes))
             {
-                ChannelLayout layout = layouts[channelIndex];
+                payload = Array.Empty<byte>();
+                return ResultCode.InvalidArgument;
+            }
+
+            using MemoryStream output = new MemoryStream();
+            for (int channelIndex = 0; channelIndex < planes.Length; channelIndex++)
+            {
+                ChannelPlane plane = planes[channelIndex];
+                ChannelLayout layout = plane.Layout;
                 if (layout.Type != ExrPixelType.Half)
                 {
-                    for (int y = 0; y < height; y++)
-                    {
-                        int sourceOffset = y * width * pixelStride + layout.OffsetBytes * width;
-                        output.Write(raw, sourceOffset, width * layout.SampleSize);
-                    }
-
+                    output.Write(plane.Data, 0, plane.Data.Length);
                     continue;
                 }
 
                 byte[] blockBytes = new byte[14];
                 ushort[] block = new ushort[16];
-                for (int by = 0; by < (height + 3) / 4; by++)
+                for (int by = 0; by < (plane.Height + 3) / 4; by++)
                 {
-                    for (int bx = 0; bx < (width + 3) / 4; bx++)
+                    for (int bx = 0; bx < (plane.Width + 3) / 4; bx++)
                     {
                         for (int dy = 0; dy < 4; dy++)
                         {
-                            int sourceY = Math.Min(by * 4 + dy, height - 1);
-                            int rowBase = sourceY * width * pixelStride + layout.OffsetBytes * width;
+                            int sourceY = Math.Min(by * 4 + dy, plane.Height - 1);
+                            int rowBase = sourceY * plane.RowBytes;
                             for (int dx = 0; dx < 4; dx++)
                             {
-                                int sourceX = Math.Min(bx * 4 + dx, width - 1);
-                                ushort value = BinaryPrimitives.ReadUInt16LittleEndian(raw.AsSpan(rowBase + sourceX * 2, 2));
+                                int sourceX = Math.Min(bx * 4 + dx, plane.Width - 1);
+                                ushort value = BinaryPrimitives.ReadUInt16LittleEndian(plane.Data.AsSpan(rowBase + sourceX * 2, 2));
                                 block[dy * 4 + dx] = layout.Linear != 0 ? B44ConvertFromLinear(value) : value;
                             }
                         }
@@ -1038,38 +1170,38 @@ namespace TinyEXR.PortV1
             return ResultCode.Success;
         }
 
-        private static ResultCode TryDecompressB44(ChannelLayout[] layouts, int pixelStride, int width, int height, ReadOnlySpan<byte> payload, int expectedSize, out byte[] raw)
+        private static ResultCode TryDecompressB44(ChannelLayout[] layouts, int startX, int startY, int width, int height, ReadOnlySpan<byte> payload, int expectedSize, out byte[] raw)
         {
             EnsureB44Tables();
-            raw = new byte[expectedSize];
+
+            if (!TryCreateChannelPlanes(layouts, startX, startY, width, height, out ChannelPlane[] planes))
+            {
+                raw = Array.Empty<byte>();
+                return ResultCode.InvalidData;
+            }
 
             int sourceOffset = 0;
             ushort[] block = new ushort[16];
-            for (int channelIndex = 0; channelIndex < layouts.Length; channelIndex++)
+            for (int channelIndex = 0; channelIndex < planes.Length; channelIndex++)
             {
-                ChannelLayout layout = layouts[channelIndex];
+                ChannelPlane plane = planes[channelIndex];
+                ChannelLayout layout = plane.Layout;
                 if (layout.Type != ExrPixelType.Half)
                 {
-                    for (int y = 0; y < height; y++)
+                    if (sourceOffset + plane.Data.Length > payload.Length)
                     {
-                        int destination = y * width * pixelStride + layout.OffsetBytes * width;
-                        int rowBytes = width * layout.SampleSize;
-                        if (sourceOffset + rowBytes > payload.Length)
-                        {
-                            raw = Array.Empty<byte>();
-                            return ResultCode.InvalidData;
-                        }
-
-                        payload.Slice(sourceOffset, rowBytes).CopyTo(raw.AsSpan(destination, rowBytes));
-                        sourceOffset += rowBytes;
+                        raw = Array.Empty<byte>();
+                        return ResultCode.InvalidData;
                     }
 
+                    payload.Slice(sourceOffset, plane.Data.Length).CopyTo(plane.Data);
+                    sourceOffset += plane.Data.Length;
                     continue;
                 }
 
-                for (int by = 0; by < (height + 3) / 4; by++)
+                for (int by = 0; by < (plane.Height + 3) / 4; by++)
                 {
-                    for (int bx = 0; bx < (width + 3) / 4; bx++)
+                    for (int bx = 0; bx < (plane.Width + 3) / 4; bx++)
                     {
                         if (sourceOffset + 3 > payload.Length)
                         {
@@ -1105,21 +1237,21 @@ namespace TinyEXR.PortV1
                         for (int dy = 0; dy < 4; dy++)
                         {
                             int destinationY = by * 4 + dy;
-                            if (destinationY >= height)
+                            if (destinationY >= plane.Height)
                             {
                                 continue;
                             }
 
-                            int rowBase = destinationY * width * pixelStride + layout.OffsetBytes * width;
+                            int rowBase = destinationY * plane.RowBytes;
                             for (int dx = 0; dx < 4; dx++)
                             {
                                 int destinationX = bx * 4 + dx;
-                                if (destinationX >= width)
+                                if (destinationX >= plane.Width)
                                 {
                                     continue;
                                 }
 
-                                BinaryPrimitives.WriteUInt16LittleEndian(raw.AsSpan(rowBase + destinationX * 2, 2), block[dy * 4 + dx]);
+                                BinaryPrimitives.WriteUInt16LittleEndian(plane.Data.AsSpan(rowBase + destinationX * 2, 2), block[dy * 4 + dx]);
                             }
                         }
                     }
@@ -1127,6 +1259,12 @@ namespace TinyEXR.PortV1
             }
 
             if (sourceOffset != payload.Length)
+            {
+                raw = Array.Empty<byte>();
+                return ResultCode.InvalidData;
+            }
+
+            if (!TryAssembleRawFromChannelPlanes(planes, startY, height, expectedSize, out raw))
             {
                 raw = Array.Empty<byte>();
                 return ResultCode.InvalidData;
