@@ -30,14 +30,20 @@ namespace TinyEXR
 
         public void Read(string path)
         {
-            ResultCode result = Exr.TryReadImage(path, out ExrHeader header, out ExrImage image);
+            ResultCode headerResult = Exr.ParseEXRHeaderFromFile(path, out _, out ExrHeader header);
+            ThrowOnFailure(headerResult, path);
+
+            ResultCode result = Exr.LoadEXRImageFromFile(path, header, out ExrImage image);
             ThrowOnFailure(result, path);
             ProcessImage(header, image);
         }
 
         public void Read(ReadOnlySpan<byte> data)
         {
-            ResultCode result = Exr.TryReadImage(data, out ExrHeader header, out ExrImage image);
+            ResultCode headerResult = Exr.ParseEXRHeaderFromMemory(data, out _, out ExrHeader header);
+            ThrowOnFailure(headerResult, null);
+
+            ResultCode result = Exr.LoadEXRImageFromMemory(data, header, out ExrImage image);
             ThrowOnFailure(result, null);
             ProcessImage(header, image);
         }
@@ -75,6 +81,7 @@ namespace TinyEXR
                 _channels[i] = new ExrChannel(
                     channel.Channel.Name,
                     channel.Channel.Type,
+                    channel.Channel.RequestedPixelType,
                     channel.Channel.SamplingX,
                     channel.Channel.SamplingY,
                     channel.Channel.Linear);

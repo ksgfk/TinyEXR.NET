@@ -52,4 +52,13 @@
     <PackageReference Include="Microsoft.SourceLink.GitHub" Version="8.0.0" PrivateAssets="All" />
   </ItemGroup>
 
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>TinyEXR.Test</_Parameter1>
+    </AssemblyAttribute>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>TinyEXR.NetStandardFallback.Test</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+
 </Project>

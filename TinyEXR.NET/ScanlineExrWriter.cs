@@ -51,7 +51,7 @@ namespace TinyEXR
             ExrImage image = BuildImage();
             ExrHeader header = BuildHeader();
 
-            ResultCode result = Exr.TryWriteImage(image, header, out byte[] encoded);
+            ResultCode result = Exr.SaveEXRImageToMemory(image, header, out byte[] encoded);
             if (result == ResultCode.Success)
             {
                 return encoded;
@@ -63,14 +63,12 @@ namespace TinyEXR
 
         public void Save(string path)
         {
-            byte[] encoded = Save();
-            try
+            ExrImage image = BuildImage();
+            ExrHeader header = BuildHeader();
+            ResultCode result = Exr.SaveEXRImageToFile(image, header, path);
+            if (result != ResultCode.Success)
             {
-                File.WriteAllBytes(path, encoded);
-            }
-            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is NotSupportedException || ex is ArgumentException)
-            {
-                throw new InvalidOperationException($"cannot save image to file, file: {path}", ex);
+                ThrowOnFailure(result, path);
             }
         }
 

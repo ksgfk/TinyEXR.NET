@@ -31,6 +31,10 @@ namespace TinyEXR
 
         public bool HasLongNames { get; internal set; }
 
+        internal int ChunkCount { get; set; }
+
+        internal int HeaderLength { get; set; }
+
         public IList<ExrChannel> Channels { get; } = new List<ExrChannel>();
 
         public IList<ExrAttribute> CustomAttributes { get; } = new List<ExrAttribute>();
@@ -51,6 +55,8 @@ namespace TinyEXR
                 IsDeep = IsDeep,
                 IsMultipart = IsMultipart,
                 HasLongNames = HasLongNames,
+                ChunkCount = ChunkCount,
+                HeaderLength = HeaderLength,
                 Tiles = Tiles == null ? null : new ExrTileDescription
                 {
                     TileSizeX = Tiles.TileSizeX,
@@ -62,7 +68,7 @@ namespace TinyEXR
 
             foreach (ExrChannel channel in Channels)
             {
-                clone.Channels.Add(new ExrChannel(channel.Name, channel.Type, channel.SamplingX, channel.SamplingY, channel.Linear));
+                clone.Channels.Add(new ExrChannel(channel.Name, channel.Type, channel.RequestedPixelType, channel.SamplingX, channel.SamplingY, channel.Linear));
             }
 
             foreach (ExrAttribute attribute in CustomAttributes)

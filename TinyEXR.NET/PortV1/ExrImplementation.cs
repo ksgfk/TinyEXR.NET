@@ -20,6 +20,15 @@ namespace TinyEXR.PortV1
             public int HeaderEndOffset { get; set; }
         }
 
+        private sealed class ParsedMultipartHeaders
+        {
+            public ExrVersion Version { get; set; } = new ExrVersion();
+
+            public List<ParsedHeader> Headers { get; } = new List<ParsedHeader>();
+
+            public int HeaderSectionEndOffset { get; set; }
+        }
+
         private readonly struct LayerChannel
         {
             public LayerChannel(int index, string name)
@@ -92,6 +101,34 @@ namespace TinyEXR.PortV1
             }
         }
 
+        internal static ResultCode TryReadMultipartHeaders(ReadOnlySpan<byte> data, out ExrVersion version, out ExrHeader[] headers)
+        {
+            headers = Array.Empty<ExrHeader>();
+            try
+            {
+                ResultCode result = TryParseMultipartHeaders(data, out ParsedMultipartHeaders? parsed);
+                if (result != ResultCode.Success)
+                {
+                    version = new ExrVersion();
+                    return result;
+                }
+
+                version = parsed!.Version;
+                headers = parsed.Headers.Select(static part => part.Header).ToArray();
+                return ResultCode.Success;
+            }
+            catch (OverflowException)
+            {
+                version = new ExrVersion();
+                return ResultCode.InvalidHeader;
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                version = new ExrVersion();
+                return ResultCode.InvalidData;
+            }
+        }
+
         internal static ResultCode TryReadImage(ReadOnlySpan<byte> data, out ExrHeader header, out ExrImage image)
         {
             header = new ExrHeader();
@@ -117,34 +154,21 @@ namespace TinyEXR.PortV1
 
             header = parsed!.Header;
 
-            if (parsed.Version.Multipart)
-            {
-                return ResultCode.UnsupportedFeature;
-            }
-
-            if (header.IsDeep)
-            {
-                return ResultCode.UnsupportedFeature;
-            }
-
-            if (!SupportsCompression(header.Compression))
-            {
-                return ResultCode.UnsupportedFeature;
-            }
-
-            foreach (ExrChannel channel in header.Channels)
-            {
-                if (channel.SamplingX != 1 || channel.SamplingY != 1)
-                {
-                    return ResultCode.UnsupportedFeature;
-                }
-            }
-
             try
             {
-                return header.Tiles == null
-                    ? TryDecodeScanlineImage(data, parsed, out image)
-                    : TryDecodeTiledImage(data, parsed, out image);
+                ResultCode readValidation = ValidateReadableImageHeader(parsed);
+                if (readValidation != ResultCode.Success)
+                {
+                    return readValidation;
+                }
+
+                ResultCode offsetResult = TryReadSinglePartChunkOffsets(data, parsed, out long[] offsets);
+                if (offsetResult != ResultCode.Success)
+                {
+                    return offsetResult;
+                }
+
+                return TryDecodeImage(data, parsed, offsets, out image);
             }
             catch (OverflowException)
             {
@@ -156,6 +180,139 @@ namespace TinyEXR.PortV1
                 image = new ExrImage(0, 0, Array.Empty<ExrImageChannel>());
                 return ResultCode.InvalidData;
             }
+        }
+
+        internal static ResultCode TryReadImage(ReadOnlySpan<byte> data, ExrHeader requestedHeader, out ExrImage image)
+        {
+            image = new ExrImage(0, 0, Array.Empty<ExrImageChannel>());
+            if (requestedHeader == null)
+            {
+                return ResultCode.InvalidArgument;
+            }
+
+            ParsedHeader? parsed;
+            try
+            {
+                ResultCode result = TryParseHeader(data, out parsed);
+                if (result != ResultCode.Success)
+                {
+                    return result;
+                }
+            }
+            catch (OverflowException)
+            {
+                return ResultCode.InvalidHeader;
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                return ResultCode.InvalidData;
+            }
+
+            ParsedHeader effectiveParsed = new ParsedHeader
+            {
+                Version = parsed!.Version,
+                Header = parsed.Header.CloneShallow(),
+                HeaderEndOffset = parsed.HeaderEndOffset,
+            };
+
+            if (!TryApplyRequestedPixelTypes(effectiveParsed.Header, requestedHeader))
+            {
+                return ResultCode.InvalidArgument;
+            }
+
+            try
+            {
+                ResultCode readValidation = ValidateReadableImageHeader(effectiveParsed);
+                if (readValidation != ResultCode.Success)
+                {
+                    return readValidation;
+                }
+
+                ResultCode offsetResult = TryReadSinglePartChunkOffsets(data, effectiveParsed, out long[] offsets);
+                if (offsetResult != ResultCode.Success)
+                {
+                    return offsetResult;
+                }
+
+                return TryDecodeImage(data, effectiveParsed, offsets, out image);
+            }
+            catch (OverflowException)
+            {
+                image = new ExrImage(0, 0, Array.Empty<ExrImageChannel>());
+                return ResultCode.InvalidData;
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                image = new ExrImage(0, 0, Array.Empty<ExrImageChannel>());
+                return ResultCode.InvalidData;
+            }
+        }
+
+        internal static ResultCode TryReadMultipartImages(ReadOnlySpan<byte> data, IReadOnlyList<ExrHeader> requestedHeaders, out ExrImage[] images)
+        {
+            images = Array.Empty<ExrImage>();
+            if (requestedHeaders == null)
+            {
+                return ResultCode.InvalidArgument;
+            }
+
+            ParsedMultipartHeaders? parsed;
+            try
+            {
+                ResultCode result = TryParseMultipartHeaders(data, out parsed);
+                if (result != ResultCode.Success)
+                {
+                    return result;
+                }
+            }
+            catch (OverflowException)
+            {
+                return ResultCode.InvalidHeader;
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                return ResultCode.InvalidData;
+            }
+
+            if (requestedHeaders.Count != parsed!.Headers.Count)
+            {
+                return ResultCode.InvalidArgument;
+            }
+
+            for (int i = 0; i < parsed.Headers.Count; i++)
+            {
+                if (!TryApplyRequestedPixelTypes(parsed.Headers[i].Header, requestedHeaders[i]))
+                {
+                    return ResultCode.InvalidArgument;
+                }
+
+                ResultCode validation = ValidateReadableImageHeader(parsed.Headers[i]);
+                if (validation != ResultCode.Success)
+                {
+                    return validation;
+                }
+            }
+
+            ResultCode offsetReadResult = TryReadMultipartChunkOffsets(data, parsed, out long[][] offsetsByPart);
+            if (offsetReadResult != ResultCode.Success)
+            {
+                return offsetReadResult;
+            }
+
+            images = new ExrImage[parsed.Headers.Count];
+            for (int i = 0; i < parsed.Headers.Count; i++)
+            {
+                ResultCode decodeResult = TryDecodeImage(data, parsed.Headers[i], offsetsByPart[i], out ExrImage image);
+                if (decodeResult != ResultCode.Success)
+                {
+                    images = Array.Empty<ExrImage>();
+                    return decodeResult;
+                }
+
+                images[i] = image;
+            }
+
+            return ResultCode.Success;
         }
 
         internal static ResultCode TryReadDeepImage(ReadOnlySpan<byte> data, out ExrHeader header, out ExrDeepImage image)
@@ -254,7 +411,7 @@ namespace TinyEXR.PortV1
                 ExrImageChannel channel = image.Channels[layerChannels[0].Index];
                 for (int i = 0; i < width * height; i++)
                 {
-                    float value = ReadSampleAsFloat(channel.Data, channel.Channel.Type, i);
+                    float value = ReadSampleAsFloat(channel.Data, channel.DataType, i);
                     int rgbaOffset = i * 4;
                     rgba[rgbaOffset + 0] = value;
                     rgba[rgbaOffset + 1] = value;
@@ -301,10 +458,10 @@ namespace TinyEXR.PortV1
             for (int i = 0; i < width * height; i++)
             {
                 int rgbaOffset = i * 4;
-                rgba[rgbaOffset + 0] = ReadSampleAsFloat(rChannel.Data, rChannel.Channel.Type, i);
-                rgba[rgbaOffset + 1] = ReadSampleAsFloat(gChannel.Data, gChannel.Channel.Type, i);
-                rgba[rgbaOffset + 2] = ReadSampleAsFloat(bChannel.Data, bChannel.Channel.Type, i);
-                rgba[rgbaOffset + 3] = aChannel == null ? 1.0f : ReadSampleAsFloat(aChannel.Data, aChannel.Channel.Type, i);
+                rgba[rgbaOffset + 0] = ReadSampleAsFloat(rChannel.Data, rChannel.DataType, i);
+                rgba[rgbaOffset + 1] = ReadSampleAsFloat(gChannel.Data, gChannel.DataType, i);
+                rgba[rgbaOffset + 2] = ReadSampleAsFloat(bChannel.Data, bChannel.DataType, i);
+                rgba[rgbaOffset + 3] = aChannel == null ? 1.0f : ReadSampleAsFloat(aChannel.Data, aChannel.DataType, i);
             }
 
             return ResultCode.Success;
@@ -472,13 +629,126 @@ namespace TinyEXR.PortV1
             effective.Channels.Clear();
             foreach (ExrImageChannel channel in image.Channels)
             {
-                effective.Channels.Add(new ExrChannel(channel.Channel.Name, channel.Channel.Type, channel.Channel.SamplingX, channel.Channel.SamplingY, channel.Channel.Linear));
+                effective.Channels.Add(new ExrChannel(channel.Channel.Name, channel.Channel.Type, channel.Channel.RequestedPixelType, channel.Channel.SamplingX, channel.Channel.SamplingY, channel.Channel.Linear));
             }
 
             return effective;
         }
 
-        private static ResultCode TryDecodeScanlineImage(ReadOnlySpan<byte> data, ParsedHeader parsed, out ExrImage image)
+        private static ResultCode ValidateReadableImageHeader(ParsedHeader parsed)
+        {
+            if (parsed.Header.IsDeep)
+            {
+                return ResultCode.UnsupportedFeature;
+            }
+
+            if (!SupportsCompression(parsed.Header.Compression))
+            {
+                return ResultCode.UnsupportedFeature;
+            }
+
+            foreach (ExrChannel channel in parsed.Header.Channels)
+            {
+                if (channel.SamplingX != 1 || channel.SamplingY != 1)
+                {
+                    return ResultCode.UnsupportedFeature;
+                }
+            }
+
+            return ResultCode.Success;
+        }
+
+        private static ResultCode TryReadSinglePartChunkOffsets(ReadOnlySpan<byte> data, ParsedHeader parsed, out long[] offsets)
+        {
+            ExrHeader header = parsed.Header;
+            int chunkCount;
+            if (header.Tiles == null)
+            {
+                int height = header.DataWindow.Height;
+                int linesPerChunk = NumScanlines(header.Compression);
+                chunkCount = (height + linesPerChunk - 1) / linesPerChunk;
+            }
+            else
+            {
+                CalculateTileInfo(header, header.DataWindow.Width, header.DataWindow.Height, out _, out _, out _, out _, out chunkCount);
+            }
+
+            int offsetTableOffset = parsed.HeaderEndOffset;
+            int offsetTableSize = checked(chunkCount * sizeof(long));
+            if (offsetTableOffset < 0 || offsetTableOffset + offsetTableSize > data.Length)
+            {
+                offsets = Array.Empty<long>();
+                return ResultCode.InvalidData;
+            }
+
+            offsets = new long[chunkCount];
+            for (int i = 0; i < chunkCount; i++)
+            {
+                offsets[i] = BinaryPrimitives.ReadInt64LittleEndian(data.Slice(offsetTableOffset + i * sizeof(long), sizeof(long)));
+            }
+
+            return ResultCode.Success;
+        }
+
+        private static ResultCode TryReadMultipartChunkOffsets(ReadOnlySpan<byte> data, ParsedMultipartHeaders parsed, out long[][] offsetsByPart)
+        {
+            offsetsByPart = Array.Empty<long[]>();
+            int marker = parsed.HeaderSectionEndOffset;
+            long[][] partOffsets = new long[parsed.Headers.Count][];
+
+            for (int partIndex = 0; partIndex < parsed.Headers.Count; partIndex++)
+            {
+                ExrHeader header = parsed.Headers[partIndex].Header;
+                int chunkCount;
+                if (header.Tiles == null || header.Tiles.LevelMode == ExrTileLevelMode.OneLevel)
+                {
+                    chunkCount = header.ChunkCount;
+                }
+                else
+                {
+                    CalculateTileInfo(header, header.DataWindow.Width, header.DataWindow.Height, out _, out _, out _, out _, out chunkCount);
+                }
+
+                int offsetTableSize = checked(chunkCount * sizeof(long));
+                if (marker < 0 || marker + offsetTableSize > data.Length)
+                {
+                    return ResultCode.InvalidData;
+                }
+
+                long[] offsets = new long[chunkCount];
+                for (int i = 0; i < chunkCount; i++)
+                {
+                    long rawOffset = BinaryPrimitives.ReadInt64LittleEndian(data.Slice(marker + i * sizeof(long), sizeof(long)));
+                    if (rawOffset < 0 || rawOffset + sizeof(int) >= data.Length)
+                    {
+                        return ResultCode.InvalidData;
+                    }
+
+                    int partNumber = BinaryPrimitives.ReadInt32LittleEndian(data.Slice((int)rawOffset, sizeof(int)));
+                    if (partNumber != partIndex)
+                    {
+                        return ResultCode.InvalidData;
+                    }
+
+                    offsets[i] = rawOffset + sizeof(int);
+                }
+
+                partOffsets[partIndex] = offsets;
+                marker += offsetTableSize;
+            }
+
+            offsetsByPart = partOffsets;
+            return ResultCode.Success;
+        }
+
+        private static ResultCode TryDecodeImage(ReadOnlySpan<byte> data, ParsedHeader parsed, ReadOnlySpan<long> offsets, out ExrImage image)
+        {
+            return parsed.Header.Tiles == null
+                ? TryDecodeScanlineImage(data, parsed, offsets, out image)
+                : TryDecodeTiledImage(data, parsed, offsets, out image);
+        }
+
+        private static ResultCode TryDecodeScanlineImage(ReadOnlySpan<byte> data, ParsedHeader parsed, ReadOnlySpan<long> offsets, out ExrImage image)
         {
             ExrHeader header = parsed.Header;
             int width = header.DataWindow.Width;
@@ -488,9 +758,7 @@ namespace TinyEXR.PortV1
 
             int linesPerChunk = NumScanlines(header.Compression);
             int blockCount = (height + linesPerChunk - 1) / linesPerChunk;
-            int offsetTableOffset = parsed.HeaderEndOffset;
-            int offsetTableSize = blockCount * sizeof(long);
-            if (offsetTableOffset + offsetTableSize > data.Length)
+            if (offsets.Length != blockCount)
             {
                 return ResultCode.InvalidData;
             }
@@ -498,8 +766,7 @@ namespace TinyEXR.PortV1
             int[] channelOffsets = BuildChannelOffsets(header.Channels.Select(static c => c.Type).ToArray(), out int pixelSize);
             for (int blockIndex = 0; blockIndex < blockCount; blockIndex++)
             {
-                int offsetPos = offsetTableOffset + blockIndex * sizeof(long);
-                long chunkOffset = BinaryPrimitives.ReadInt64LittleEndian(data.Slice(offsetPos, sizeof(long)));
+                long chunkOffset = offsets[blockIndex];
                 if (chunkOffset < 0 || chunkOffset + sizeof(int) * 2 > data.Length)
                 {
                     return ResultCode.InvalidData;
@@ -539,10 +806,20 @@ namespace TinyEXR.PortV1
                     int lineBase = line * width * pixelSize;
                     for (int channelIndex = 0; channelIndex < channels.Count; channelIndex++)
                     {
-                        int sampleSize = Exr.TypeSize(channels[channelIndex].Channel.Type);
                         int sourceOffset = lineBase + channelOffsets[channelIndex] * width;
-                        int destinationOffset = targetY * width * sampleSize;
-                        Buffer.BlockCopy(raw, sourceOffset, channels[channelIndex].Data, destinationOffset, width * sampleSize);
+                        int destinationSampleIndex = targetY * width;
+                        ResultCode copyResult = TryCopySamples(
+                            raw,
+                            sourceOffset,
+                            header.Channels[channelIndex].Type,
+                            channels[channelIndex].Data,
+                            destinationSampleIndex,
+                            channels[channelIndex].DataType,
+                            width);
+                        if (copyResult != ResultCode.Success)
+                        {
+                            return copyResult;
+                        }
                     }
                 }
             }
@@ -550,13 +827,12 @@ namespace TinyEXR.PortV1
             return ResultCode.Success;
         }
 
-        private static ResultCode TryDecodeTiledImage(ReadOnlySpan<byte> data, ParsedHeader parsed, out ExrImage image)
+        private static ResultCode TryDecodeTiledImage(ReadOnlySpan<byte> data, ParsedHeader parsed, ReadOnlySpan<long> offsets, out ExrImage image)
         {
             ExrHeader header = parsed.Header;
             int width = header.DataWindow.Width;
             int height = header.DataWindow.Height;
-            List<ExrImageChannel> channels = CreateOutputChannels(width, height, header.Channels);
-            image = new ExrImage(width, height, channels);
+            image = new ExrImage(width, height, Array.Empty<ExrImageChannel>());
 
             if (header.Tiles == null)
             {
@@ -566,30 +842,41 @@ namespace TinyEXR.PortV1
             int[] numXTiles;
             int[] numYTiles;
             CalculateTileInfo(header, width, height, out numXTiles, out numYTiles, out int numXLevels, out int numYLevels, out int totalBlocks);
-            int offsetTableOffset = parsed.HeaderEndOffset;
-            int offsetTableSize = totalBlocks * sizeof(long);
-            if (offsetTableOffset + offsetTableSize > data.Length)
+            if (offsets.Length != totalBlocks)
             {
                 return ResultCode.InvalidData;
-            }
-
-            long[] offsets = new long[totalBlocks];
-            for (int i = 0; i < totalBlocks; i++)
-            {
-                offsets[i] = BinaryPrimitives.ReadInt64LittleEndian(data.Slice(offsetTableOffset + i * sizeof(long), sizeof(long)));
             }
 
             int[] channelOffsets = BuildChannelOffsets(header.Channels.Select(static c => c.Type).ToArray(), out int pixelSize);
             int blockIndex = 0;
             int levelCount = header.Tiles.LevelMode == ExrTileLevelMode.RipMapLevels ? numXLevels * numYLevels : numXLevels;
+            ExrImageLevel[] levels = new ExrImageLevel[levelCount];
+            List<ExrImageChannel>[] levelChannels = new List<ExrImageChannel>[levelCount];
+            List<ExrTile>[] levelTiles = new List<ExrTile>[levelCount];
+            int[] levelWidths = new int[levelCount];
+            int[] levelHeights = new int[levelCount];
             for (int levelIndex = 0; levelIndex < levelCount; levelIndex++)
             {
                 int levelX = header.Tiles.LevelMode == ExrTileLevelMode.RipMapLevels ? levelIndex % numXLevels : levelIndex;
                 int levelY = header.Tiles.LevelMode == ExrTileLevelMode.RipMapLevels ? levelIndex / numXLevels : levelIndex;
                 int levelWidth = LevelSize(width, levelX, header.Tiles.RoundingMode);
                 int levelHeight = LevelSize(height, levelY, header.Tiles.RoundingMode);
+                levelWidths[levelIndex] = levelWidth;
+                levelHeights[levelIndex] = levelHeight;
+                levelChannels[levelIndex] = CreateOutputChannels(levelWidth, levelHeight, header.Channels);
+                levelTiles[levelIndex] = new List<ExrTile>();
+            }
+
+            for (int levelIndex = 0; levelIndex < levelCount; levelIndex++)
+            {
+                int levelX = header.Tiles.LevelMode == ExrTileLevelMode.RipMapLevels ? levelIndex % numXLevels : levelIndex;
+                int levelY = header.Tiles.LevelMode == ExrTileLevelMode.RipMapLevels ? levelIndex / numXLevels : levelIndex;
+                int levelWidth = levelWidths[levelIndex];
+                int levelHeight = levelHeights[levelIndex];
                 int tileColumns = numXTiles[levelX];
                 int tileRows = numYTiles[levelY];
+                List<ExrImageChannel> currentLevelChannels = levelChannels[levelIndex];
+                List<ExrTile> currentLevelTiles = levelTiles[levelIndex];
 
                 for (int tileY = 0; tileY < tileRows; tileY++)
                 {
@@ -622,38 +909,71 @@ namespace TinyEXR.PortV1
                             return decodeResult;
                         }
 
-                        if (headerLevelX != 0 || headerLevelY != 0)
+                        if (headerLevelX != levelX || headerLevelY != levelY)
                         {
-                            continue;
+                            return ResultCode.InvalidData;
                         }
+
+                        ExrImageChannel[] tileChannels = CreateOutputChannels(tileWidth, tileHeight, header.Channels).ToArray();
 
                         for (int localY = 0; localY < tileHeight; localY++)
                         {
                             int destinationY = tilePixelY + localY;
-                            if (destinationY < 0 || destinationY >= height)
+                            if (destinationY < 0 || destinationY >= levelHeight)
                             {
                                 continue;
                             }
 
                             int lineBase = localY * tileWidth * pixelSize;
-                            for (int channelIndex = 0; channelIndex < channels.Count; channelIndex++)
+                            for (int channelIndex = 0; channelIndex < currentLevelChannels.Count; channelIndex++)
                             {
-                                int sampleSize = Exr.TypeSize(channels[channelIndex].Channel.Type);
                                 int sourceOffset = lineBase + channelOffsets[channelIndex] * tileWidth;
-                                int destinationOffset = (destinationY * width + tilePixelX) * sampleSize;
-                                int bytesToCopy = tileWidth * sampleSize;
-                                if (tilePixelX < 0 || tilePixelX + tileWidth > width)
+                                if (tilePixelX < 0 || tilePixelX + tileWidth > levelWidth)
                                 {
                                     continue;
                                 }
 
-                                Buffer.BlockCopy(raw, sourceOffset, channels[channelIndex].Data, destinationOffset, bytesToCopy);
+                                ResultCode levelCopyResult = TryCopySamples(
+                                    raw,
+                                    sourceOffset,
+                                    header.Channels[channelIndex].Type,
+                                    currentLevelChannels[channelIndex].Data,
+                                    destinationY * levelWidth + tilePixelX,
+                                    currentLevelChannels[channelIndex].DataType,
+                                    tileWidth);
+                                if (levelCopyResult != ResultCode.Success)
+                                {
+                                    return levelCopyResult;
+                                }
+
+                                ResultCode tileCopyResult = TryCopySamples(
+                                    raw,
+                                    sourceOffset,
+                                    header.Channels[channelIndex].Type,
+                                    tileChannels[channelIndex].Data,
+                                    localY * tileWidth,
+                                    tileChannels[channelIndex].DataType,
+                                    tileWidth);
+                                if (tileCopyResult != ResultCode.Success)
+                                {
+                                    return tileCopyResult;
+                                }
                             }
                         }
+
+                        currentLevelTiles.Add(new ExrTile(tilePixelX, tilePixelY, levelX, levelY, tileWidth, tileHeight, tileChannels));
                     }
                 }
             }
 
+            for (int levelIndex = 0; levelIndex < levelCount; levelIndex++)
+            {
+                int levelX = header.Tiles.LevelMode == ExrTileLevelMode.RipMapLevels ? levelIndex % numXLevels : levelIndex;
+                int levelY = header.Tiles.LevelMode == ExrTileLevelMode.RipMapLevels ? levelIndex / numXLevels : levelIndex;
+                levels[levelIndex] = new ExrImageLevel(levelX, levelY, levelWidths[levelIndex], levelHeights[levelIndex], levelChannels[levelIndex], levelTiles[levelIndex]);
+            }
+
+            image = new ExrImage(levels);
             return ResultCode.Success;
         }
 
@@ -812,8 +1132,103 @@ namespace TinyEXR.PortV1
                 return ResultCode.UnsupportedFeature;
             }
 
+            ResultCode parseResult = TryParseHeaderAt(data.Slice(ExrVersionHeaderSize), version, out ExrHeader? header, out int headerLength, out bool emptyHeader);
+            if (parseResult != ResultCode.Success)
+            {
+                return parseResult;
+            }
+
+            if (emptyHeader || header == null)
+            {
+                return ResultCode.InvalidHeader;
+            }
+
+            parsed = new ParsedHeader
+            {
+                Version = version,
+                Header = header,
+                HeaderEndOffset = ExrVersionHeaderSize + headerLength,
+            };
+            return ResultCode.Success;
+        }
+
+        private static ResultCode TryParseMultipartHeaders(ReadOnlySpan<byte> data, out ParsedMultipartHeaders? parsed)
+        {
+            parsed = null;
+            ResultCode versionResult = TryReadVersion(data, out ExrVersion version);
+            if (versionResult != ResultCode.Success)
+            {
+                return versionResult;
+            }
+
+            if (!version.Multipart)
+            {
+                return ResultCode.UnsupportedFeature;
+            }
+
+            ParsedMultipartHeaders result = new ParsedMultipartHeaders
+            {
+                Version = version,
+            };
+
             int offset = ExrVersionHeaderSize;
-            ExrHeader header = new ExrHeader
+            while (true)
+            {
+                ResultCode headerResult = TryParseHeaderAt(data.Slice(offset), version, out ExrHeader? header, out int headerLength, out bool emptyHeader);
+                if (headerResult != ResultCode.Success)
+                {
+                    return headerResult;
+                }
+
+                if (emptyHeader)
+                {
+                    offset += 1;
+                    break;
+                }
+
+                if (header == null || header.ChunkCount <= 0)
+                {
+                    return ResultCode.InvalidData;
+                }
+
+                result.Headers.Add(new ParsedHeader
+                {
+                    Version = version,
+                    Header = header,
+                    HeaderEndOffset = offset + headerLength,
+                });
+
+                offset += headerLength;
+            }
+
+            result.HeaderSectionEndOffset = offset;
+            parsed = result;
+            return ResultCode.Success;
+        }
+
+        private static ResultCode TryParseHeaderAt(ReadOnlySpan<byte> data, ExrVersion version, out ExrHeader? header, out int headerLength, out bool emptyHeader)
+        {
+            header = null;
+            headerLength = 0;
+            emptyHeader = false;
+
+            if (version.Multipart)
+            {
+                if (data.Length == 0)
+                {
+                    return ResultCode.InvalidData;
+                }
+
+                if (data[0] == 0)
+                {
+                    emptyHeader = true;
+                    headerLength = 1;
+                    return ResultCode.Success;
+                }
+            }
+
+            int offset = 0;
+            ExrHeader parsedHeader = new ExrHeader
             {
                 HasLongNames = version.LongName,
                 IsMultipart = version.Multipart,
@@ -827,6 +1242,8 @@ namespace TinyEXR.PortV1
             bool hasPixelAspectRatio = false;
             bool hasScreenWindowCenter = false;
             bool hasScreenWindowWidth = false;
+            bool hasName = false;
+            bool hasType = false;
 
             while (true)
             {
@@ -865,18 +1282,20 @@ namespace TinyEXR.PortV1
                 switch (attributeName)
                 {
                     case "name":
-                        header.Name = DecodeStringAttributeValue(value);
+                        parsedHeader.Name = DecodeStringAttributeValue(value);
+                        hasName = !string.IsNullOrEmpty(parsedHeader.Name);
                         break;
                     case "type":
-                        header.PartType = DecodeStringAttributeValue(value);
-                        if (string.Equals(header.PartType, "deepscanline", StringComparison.Ordinal) ||
-                            string.Equals(header.PartType, "deeptile", StringComparison.Ordinal))
+                        parsedHeader.PartType = DecodeStringAttributeValue(value);
+                        hasType = !string.IsNullOrEmpty(parsedHeader.PartType);
+                        if (string.Equals(parsedHeader.PartType, "deepscanline", StringComparison.Ordinal) ||
+                            string.Equals(parsedHeader.PartType, "deeptile", StringComparison.Ordinal))
                         {
-                            header.IsDeep = true;
+                            parsedHeader.IsDeep = true;
                         }
                         break;
                     case "channels":
-                        ResultCode channelResult = TryParseChannels(value, header.Channels);
+                        ResultCode channelResult = TryParseChannels(value, parsedHeader.Channels);
                         if (channelResult != ResultCode.Success)
                         {
                             return channelResult;
@@ -893,7 +1312,7 @@ namespace TinyEXR.PortV1
                             return ResultCode.UnsupportedFormat;
                         }
 
-                        header.Compression = (CompressionType)value[0];
+                        parsedHeader.Compression = (CompressionType)value[0];
                         hasCompression = true;
                         break;
                     case "dataWindow":
@@ -902,7 +1321,7 @@ namespace TinyEXR.PortV1
                             return ResultCode.InvalidHeader;
                         }
 
-                        header.DataWindow = new ExrBox2i(
+                        parsedHeader.DataWindow = new ExrBox2i(
                             BinaryPrimitives.ReadInt32LittleEndian(value),
                             BinaryPrimitives.ReadInt32LittleEndian(value.Slice(4)),
                             BinaryPrimitives.ReadInt32LittleEndian(value.Slice(8)),
@@ -915,7 +1334,7 @@ namespace TinyEXR.PortV1
                             return ResultCode.InvalidHeader;
                         }
 
-                        header.DisplayWindow = new ExrBox2i(
+                        parsedHeader.DisplayWindow = new ExrBox2i(
                             BinaryPrimitives.ReadInt32LittleEndian(value),
                             BinaryPrimitives.ReadInt32LittleEndian(value.Slice(4)),
                             BinaryPrimitives.ReadInt32LittleEndian(value.Slice(8)),
@@ -928,7 +1347,7 @@ namespace TinyEXR.PortV1
                             return ResultCode.InvalidHeader;
                         }
 
-                        header.LineOrder = (LineOrderType)value[0];
+                        parsedHeader.LineOrder = (LineOrderType)value[0];
                         hasLineOrder = true;
                         break;
                     case "pixelAspectRatio":
@@ -937,7 +1356,7 @@ namespace TinyEXR.PortV1
                             return ResultCode.InvalidHeader;
                         }
 
-                        header.PixelAspectRatio = Exr.ReadSingleLittleEndian(value);
+                        parsedHeader.PixelAspectRatio = Exr.ReadSingleLittleEndian(value);
                         hasPixelAspectRatio = true;
                         break;
                     case "screenWindowCenter":
@@ -946,7 +1365,7 @@ namespace TinyEXR.PortV1
                             return ResultCode.InvalidHeader;
                         }
 
-                        header.ScreenWindowCenter = new Vector2(
+                        parsedHeader.ScreenWindowCenter = new Vector2(
                             Exr.ReadSingleLittleEndian(value),
                             Exr.ReadSingleLittleEndian(value.Slice(4)));
                         hasScreenWindowCenter = true;
@@ -957,7 +1376,7 @@ namespace TinyEXR.PortV1
                             return ResultCode.InvalidHeader;
                         }
 
-                        header.ScreenWindowWidth = Exr.ReadSingleLittleEndian(value);
+                        parsedHeader.ScreenWindowWidth = Exr.ReadSingleLittleEndian(value);
                         hasScreenWindowWidth = true;
                         break;
                     case "tiles":
@@ -966,7 +1385,7 @@ namespace TinyEXR.PortV1
                             return ResultCode.InvalidHeader;
                         }
 
-                        header.Tiles = new ExrTileDescription
+                        parsedHeader.Tiles = new ExrTileDescription
                         {
                             TileSizeX = BinaryPrimitives.ReadInt32LittleEndian(value),
                             TileSizeY = BinaryPrimitives.ReadInt32LittleEndian(value.Slice(4)),
@@ -974,23 +1393,33 @@ namespace TinyEXR.PortV1
                             RoundingMode = (ExrTileRoundingMode)((value[8] >> 4) & 0x1),
                         };
                         break;
+                    case "chunkCount":
+                        if (value.Length < sizeof(int))
+                        {
+                            return ResultCode.InvalidHeader;
+                        }
+
+                        parsedHeader.ChunkCount = BinaryPrimitives.ReadInt32LittleEndian(value);
+                        break;
                     default:
-                        header.CustomAttributes.Add(new ExrAttribute(attributeName, attributeType, value.ToArray()));
+                        parsedHeader.CustomAttributes.Add(new ExrAttribute(attributeName, attributeType, value.ToArray()));
                         break;
                 }
             }
 
-            if (!hasCompression || !hasDataWindow || !hasDisplayWindow || !hasLineOrder || !hasPixelAspectRatio || !hasScreenWindowCenter || !hasScreenWindowWidth || header.Channels.Count == 0)
+            if (!hasCompression || !hasDataWindow || !hasDisplayWindow || !hasLineOrder || !hasPixelAspectRatio || !hasScreenWindowCenter || !hasScreenWindowWidth || parsedHeader.Channels.Count == 0)
             {
                 return ResultCode.InvalidHeader;
             }
 
-            parsed = new ParsedHeader
+            if ((version.Multipart || version.NonImage) && (!hasName || !hasType))
             {
-                Version = version,
-                Header = header,
-                HeaderEndOffset = offset,
-            };
+                return ResultCode.InvalidHeader;
+            }
+
+            parsedHeader.HeaderLength = offset;
+            header = parsedHeader;
+            headerLength = offset;
             return ResultCode.Success;
         }
 
@@ -1069,7 +1498,8 @@ namespace TinyEXR.PortV1
             List<ExrImageChannel> channels = new List<ExrImageChannel>();
             foreach (ExrChannel channel in sourceChannels)
             {
-                channels.Add(new ExrImageChannel(channel, channel.Type, new byte[checked(width * height * Exr.TypeSize(channel.Type))]));
+                ExrPixelType outputType = channel.RequestedPixelType;
+                channels.Add(new ExrImageChannel(channel, outputType, new byte[checked(width * height * Exr.TypeSize(outputType))]));
             }
 
             return channels;
@@ -1170,6 +1600,67 @@ namespace TinyEXR.PortV1
             };
         }
 
+        private static bool TryApplyRequestedPixelTypes(ExrHeader parsedHeader, ExrHeader requestedHeader)
+        {
+            if (requestedHeader.Channels.Count != parsedHeader.Channels.Count)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < parsedHeader.Channels.Count; i++)
+            {
+                ExrChannel parsedChannel = parsedHeader.Channels[i];
+                ExrChannel requestedChannel = requestedHeader.Channels[i];
+                if (!string.Equals(parsedChannel.Name, requestedChannel.Name, StringComparison.Ordinal) ||
+                    parsedChannel.Type != requestedChannel.Type)
+                {
+                    return false;
+                }
+
+                parsedChannel.RequestedPixelType = requestedChannel.RequestedPixelType;
+            }
+
+            return true;
+        }
+
+        private static ResultCode TryCopySamples(
+            byte[] source,
+            int sourceOffset,
+            ExrPixelType sourceType,
+            byte[] destination,
+            int destinationSampleIndex,
+            ExrPixelType destinationType,
+            int sampleCount)
+        {
+            int sourceSampleSize = Exr.TypeSize(sourceType);
+            int destinationSampleSize = Exr.TypeSize(destinationType);
+            if (sourceSampleSize <= 0 || destinationSampleSize <= 0)
+            {
+                return ResultCode.UnsupportedFeature;
+            }
+
+            int destinationOffset = checked(destinationSampleIndex * destinationSampleSize);
+            if (sourceType == destinationType)
+            {
+                Buffer.BlockCopy(source, sourceOffset, destination, destinationOffset, checked(sampleCount * sourceSampleSize));
+                return ResultCode.Success;
+            }
+
+            for (int i = 0; i < sampleCount; i++)
+            {
+                if (!TryConvertSample(
+                    source.AsSpan(sourceOffset + i * sourceSampleSize, sourceSampleSize),
+                    sourceType,
+                    destination.AsSpan(destinationOffset + i * destinationSampleSize, destinationSampleSize),
+                    destinationType))
+                {
+                    return ResultCode.UnsupportedFeature;
+                }
+            }
+
+            return ResultCode.Success;
+        }
+
         private static bool TryConvertSample(ReadOnlySpan<byte> source, ExrPixelType sourceType, Span<byte> destination, ExrPixelType targetType)
         {
             if (sourceType == targetType)
@@ -1178,17 +1669,35 @@ namespace TinyEXR.PortV1
                 return true;
             }
 
-            if (sourceType == ExrPixelType.Float && targetType == ExrPixelType.Half)
+            float floatValue = sourceType switch
             {
-                ushort half = HalfHelper.SingleToHalf(Exr.ReadSingleLittleEndian(source));
+                ExrPixelType.UInt => BinaryPrimitives.ReadUInt32LittleEndian(source),
+                ExrPixelType.Half => HalfHelper.HalfToSingle(BinaryPrimitives.ReadUInt16LittleEndian(source)),
+                ExrPixelType.Float => Exr.ReadSingleLittleEndian(source),
+                _ => 0.0f,
+            };
+
+            if (targetType == ExrPixelType.Float)
+            {
+                Exr.WriteSingleLittleEndian(destination, floatValue);
+                return true;
+            }
+
+            if (targetType == ExrPixelType.Half)
+            {
+                ushort half = HalfHelper.SingleToHalf(floatValue);
                 BinaryPrimitives.WriteUInt16LittleEndian(destination, half);
                 return true;
             }
 
-            if (sourceType == ExrPixelType.Half && targetType == ExrPixelType.Float)
+            if (targetType == ExrPixelType.UInt)
             {
-                float value = HalfHelper.HalfToSingle(BinaryPrimitives.ReadUInt16LittleEndian(source));
-                Exr.WriteSingleLittleEndian(destination, value);
+                if (float.IsNaN(floatValue) || float.IsInfinity(floatValue) || floatValue < 0.0f || floatValue > uint.MaxValue)
+                {
+                    return false;
+                }
+
+                BinaryPrimitives.WriteUInt32LittleEndian(destination, (uint)floatValue);
                 return true;
             }
 
