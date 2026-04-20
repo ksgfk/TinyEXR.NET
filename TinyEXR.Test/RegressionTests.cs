@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Reflection;
+using System.Text;
 
 namespace TinyEXR.Test;
 
@@ -240,6 +241,36 @@ public sealed class RegressionTests
         Assert.AreEqual(0, images.Images.Count);
     }
 
+    [TestMethod(DisplayName = "[TinyEXR.NET Test] Regression: ScanlineLineOrder|LoadIgnoresHeaderOrder")]
+    public void Case_Regression_ScanlineLineOrder_LoadIgnoresHeaderOrder()
+    {
+        ExrImage sourceImage = new(
+            2,
+            2,
+            new[]
+            {
+                ExrTestHelper.FloatChannel("Y", ExrPixelType.Float, new[] { 10.0f, 20.0f, 30.0f, 40.0f }),
+            });
+
+        ExrHeader sourceHeader = new()
+        {
+            Compression = CompressionType.None,
+        };
+
+        Assert.AreEqual(ResultCode.Success, Exr.SaveEXRImageToMemory(sourceImage, sourceHeader, out byte[] encoded));
+
+        byte[] mutated = (byte[])encoded.Clone();
+        SetLineOrderAttribute(mutated, LineOrderType.DecreasingY);
+
+        Assert.AreEqual(ResultCode.Success, Exr.ParseEXRHeaderFromMemory(mutated, out _, out ExrHeader header));
+        Assert.AreEqual(LineOrderType.DecreasingY, header.LineOrder);
+        Assert.AreEqual(ResultCode.Success, Exr.LoadEXRImageFromMemory(mutated, header, out ExrImage decoded));
+
+        CollectionAssert.AreEqual(
+            new[] { 10.0f, 20.0f, 30.0f, 40.0f },
+            ExrTestHelper.ReadFloatChannel(decoded, "Y"));
+    }
+
     [TestMethod(DisplayName = "Regression: Issue160|Piz")]
     public void Case_Regression_Issue160_Piz()
     {
@@ -262,6 +293,21 @@ public sealed class RegressionTests
         Assert.AreEqual(0.0f, image[(30 * width + 417) * 4 + 0], 0.000001f);
         Assert.AreEqual(1.0f, image[(30 * width + 417) * 4 + 1], 0.000001f);
         Assert.AreEqual(1.0f, image[(30 * width + 417) * 4 + 2], 0.000001f);
+    }
+
+    private static void SetLineOrderAttribute(byte[] encoded, LineOrderType lineOrder)
+    {
+        byte[] marker = Encoding.ASCII.GetBytes("lineOrder\0lineOrder\0");
+        int markerIndex = encoded.AsSpan().IndexOf(marker);
+        Assert.IsTrue(markerIndex >= 0, "lineOrder attribute marker was not found.");
+
+        int valueSizeOffset = markerIndex + marker.Length;
+        Assert.IsTrue(valueSizeOffset + sizeof(int) < encoded.Length, "lineOrder attribute size was truncated.");
+        Assert.AreEqual(1, BitConverter.ToInt32(encoded, valueSizeOffset), "lineOrder attribute size must be 1 byte.");
+
+        int valueOffset = valueSizeOffset + sizeof(int);
+        Assert.IsTrue(valueOffset < encoded.Length, "lineOrder attribute value was truncated.");
+        encoded[valueOffset] = (byte)lineOrder;
     }
 
     private static void AssertFuzzedHeaderRejected(string fileName)

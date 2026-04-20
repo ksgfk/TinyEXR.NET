@@ -1279,10 +1279,9 @@ namespace TinyEXR.PortV1
                 for (int line = 0; line < chunkLineCount; line++)
                 {
                     int sourceY = relativeLine + line;
-                    int targetY = header.LineOrder == LineOrderType.IncreasingY
-                        ? sourceY
-                        : height - 1 - sourceY;
-                    if (targetY < 0 || targetY >= height)
+                    // tinyexr decodes scanline chunks in line offset table order, so the
+                    // destination rows are always increasing Y regardless of the header attribute.
+                    if (sourceY < 0 || sourceY >= height)
                     {
                         return ResultCode.InvalidData;
                     }
@@ -1295,7 +1294,7 @@ namespace TinyEXR.PortV1
                             continue;
                         }
 
-                        if (!TryGetSampleIndex(0, targetY, headerChannel.SamplingY, out int destinationSampleY))
+                        if (!TryGetSampleIndex(0, sourceY, headerChannel.SamplingY, out int destinationSampleY))
                         {
                             return ResultCode.InvalidData;
                         }
