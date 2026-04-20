@@ -32,9 +32,20 @@ The public data model is fully managed:
 
 Current v1 support is intentionally conservative:
 
-- `None`: supported on `net10.0`
-- `ZIP`, `ZIPS`, `RLE`, `PIZ`, `PXR24`, `B44`, `B44A`: supported on `net10.0`
+- `None`, `ZIP`, `ZIPS`, `RLE`, `PIZ`, `PXR24`, `B44`, `B44A`: supported on `net10.0`
 - `DWAA`, `DWAB`: recognized but not implemented yet, reported as `UnsupportedFeature`
+
+For deep scanline loading, the supported compression set is narrower and follows the OpenEXR deep file layout:
+
+- `None`, `RLE`, `ZIP`, `ZIPS`: supported
+- `PIZ`, `PXR24`, `B44`, `B44A`, `DWAA`, `DWAB`: unsupported for deep images
+
+This is an intentional divergence from the current vendored `tinyexr` source:
+
+- `TinyEXR.NET` treats deep image compression as spec-bound behavior and rejects non-standard combinations such as deep scanline + `PIZ` with `UnsupportedFeature`
+- the current `tinyexr` source tree kept in `TinyEXR.Native/tinyexr` is more permissive here and may attempt to decode deep scanline + `PIZ` when built with `TINYEXR_USE_PIZ`
+
+In other words, this repository does not treat deep + `PIZ` as a missing ported feature. It treats it as a non-standard extension and keeps the managed implementation aligned with the OpenEXR deep file layout instead of mirroring that permissive upstream behavior.
 
 ## Quick Example
 

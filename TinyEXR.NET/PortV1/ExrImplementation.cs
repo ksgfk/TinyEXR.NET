@@ -355,7 +355,7 @@ namespace TinyEXR.PortV1
                 return ResultCode.UnsupportedFeature;
             }
 
-            if (!SupportsCompression(header.Compression))
+            if (!SupportsDeepCompression(header.Compression))
             {
                 return ResultCode.UnsupportedFeature;
             }
@@ -1640,6 +1640,20 @@ namespace TinyEXR.PortV1
                 case CompressionType.ZIPS:
                 case CompressionType.ZIP:
                 case CompressionType.PXR24:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        private static bool SupportsDeepCompression(CompressionType compression)
+        {
+            switch (compression)
+            {
+                case CompressionType.None:
+                case CompressionType.RLE:
+                case CompressionType.ZIPS:
+                case CompressionType.ZIP:
                     return true;
                 default:
                     return false;

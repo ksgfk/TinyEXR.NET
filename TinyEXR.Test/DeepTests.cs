@@ -40,6 +40,30 @@ public sealed class DeepTests
         }
     }
 
+    [TestMethod(DisplayName = "[TinyEXR.NET Test] deepscanline.piz.exr|LoadDeep|RejectUnsupportedCompression")]
+    public void Case_Deep_PIZ_scanline_rejected()
+    {
+        byte[] encoded = CreateDeepScanlineFile(
+            CompressionType.PIZ,
+            new[] { 1, 2, 2, 2 },
+            new[] { 0.0f, 0.0f });
+
+        string path = Path.Combine(Path.GetTempPath(), $"tinyexr-deep-piz-{Guid.NewGuid():N}.exr");
+        try
+        {
+            File.WriteAllBytes(path, encoded);
+
+            Assert.AreEqual(ResultCode.UnsupportedFeature, Exr.LoadDeepEXR(path, out _, out _));
+        }
+        finally
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+    }
+
     private static byte[] CreateDeepScanlineFile(CompressionType compression, int[] pixelOffsets, float[] samples)
     {
         const int width = 4;
