@@ -1,0 +1,10 @@
+<Application
+    x:Class="TinyEXR.Viewer.App"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:fluent="clr-namespace:Avalonia.Themes.Fluent;assembly=Avalonia.Themes.Fluent"
+    RequestedThemeVariant="Dark">
+  <Application.Styles>
+    <fluent:FluentTheme />
+  </Application.Styles>
+</Application>

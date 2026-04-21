@@ -1,7 +1,7 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio Version 17
-VisualStudioVersion = 17.2.32616.157
+# Visual Studio Version 18
+VisualStudioVersion = 18.5.11709.299 stable
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "TinyEXR.NET", "TinyEXR.NET\TinyEXR.NET.csproj", "{8F266B52-70C3-4C92-AC87-A0F0303AA12B}"
 EndProject
@@ -14,6 +14,12 @@ EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Benchmark", "Benchmark", "{09EED85C-BE3C-7566-DC0E-2E8E43466740}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TinyEXR.Benchmark", "Benchmark\TinyEXR.Benchmark\TinyEXR.Benchmark.csproj", "{D7B97EE5-8DAA-4FD3-A465-7AB02DBA932E}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Samples", "Samples", "{5D20AA90-6969-D8BD-9DCD-8634F4692FDA}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TinyEXR.Viewer", "Samples\TinyEXR.Viewer\TinyEXR.Viewer.csproj", "{D007418A-DDBC-4DC9-B0BA-73868BD63D21}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Test", "Test", "{5C93AD39-5C49-480D-A428-22405CDBE5B6}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -73,19 +79,35 @@ Global
 		{D7B97EE5-8DAA-4FD3-A465-7AB02DBA932E}.Release|x64.Build.0 = Release|Any CPU
 		{D7B97EE5-8DAA-4FD3-A465-7AB02DBA932E}.Release|x86.ActiveCfg = Release|Any CPU
 		{D7B97EE5-8DAA-4FD3-A465-7AB02DBA932E}.Release|x86.Build.0 = Release|Any CPU
+		{D007418A-DDBC-4DC9-B0BA-73868BD63D21}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D007418A-DDBC-4DC9-B0BA-73868BD63D21}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D007418A-DDBC-4DC9-B0BA-73868BD63D21}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{D007418A-DDBC-4DC9-B0BA-73868BD63D21}.Debug|x64.Build.0 = Debug|Any CPU
+		{D007418A-DDBC-4DC9-B0BA-73868BD63D21}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{D007418A-DDBC-4DC9-B0BA-73868BD63D21}.Debug|x86.Build.0 = Debug|Any CPU
+		{D007418A-DDBC-4DC9-B0BA-73868BD63D21}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D007418A-DDBC-4DC9-B0BA-73868BD63D21}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D007418A-DDBC-4DC9-B0BA-73868BD63D21}.Release|x64.ActiveCfg = Release|Any CPU
+		{D007418A-DDBC-4DC9-B0BA-73868BD63D21}.Release|x64.Build.0 = Release|Any CPU
+		{D007418A-DDBC-4DC9-B0BA-73868BD63D21}.Release|x86.ActiveCfg = Release|Any CPU
+		{D007418A-DDBC-4DC9-B0BA-73868BD63D21}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
+		{C5D96E08-0A0D-4EC0-9B9D-8C4D1FBAE66E} = {5C93AD39-5C49-480D-A428-22405CDBE5B6}
+		{F4A6D445-9D0A-4B16-B76D-D4D5E8221B90} = {5C93AD39-5C49-480D-A428-22405CDBE5B6}
+		{8E724801-1B0D-47F4-9F32-A379347D627F} = {5C93AD39-5C49-480D-A428-22405CDBE5B6}
 		{D7B97EE5-8DAA-4FD3-A465-7AB02DBA932E} = {09EED85C-BE3C-7566-DC0E-2E8E43466740}
+		{D007418A-DDBC-4DC9-B0BA-73868BD63D21} = {5D20AA90-6969-D8BD-9DCD-8634F4692FDA}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {69A3148C-5390-4E23-A50B-662D3E5AE412}
 	EndGlobalSection
 	GlobalSection(SharedMSBuildProjectFiles) = preSolution
-		Test\TinyEXR.Test.Shared\TinyEXR.Test.Shared.projitems*{f4a6d445-9d0a-4b16-b76d-d4d5e8221b90}*SharedItemsImports = 13
-		Test\TinyEXR.Test.Shared\TinyEXR.Test.Shared.projitems*{c5d96e08-0a0d-4ec0-9b9d-8c4d1fbae66e}*SharedItemsImports = 5
 		Test\TinyEXR.Test.Shared\TinyEXR.Test.Shared.projitems*{8e724801-1b0d-47f4-9f32-a379347d627f}*SharedItemsImports = 5
+		Test\TinyEXR.Test.Shared\TinyEXR.Test.Shared.projitems*{c5d96e08-0a0d-4ec0-9b9d-8c4d1fbae66e}*SharedItemsImports = 5
+		Test\TinyEXR.Test.Shared\TinyEXR.Test.Shared.projitems*{f4a6d445-9d0a-4b16-b76d-d4d5e8221b90}*SharedItemsImports = 13
 	EndGlobalSection
 EndGlobal

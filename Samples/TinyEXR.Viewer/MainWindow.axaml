@@ -1,0 +1,257 @@
+<Window
+    x:Class="TinyEXR.Viewer.MainWindow"
+    x:DataType="viewModels:MainWindowViewModel"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:models="clr-namespace:TinyEXR.Viewer.Models"
+    xmlns:viewModels="clr-namespace:TinyEXR.Viewer.ViewModels"
+    Title="TinyEXR.Viewer"
+    Width="1480"
+    Height="920"
+    MinWidth="1200"
+    MinHeight="760"
+    Background="#020617"
+    Foreground="#E5E7EB"
+    RequestedThemeVariant="Dark"
+    mc:Ignorable="d">
+  <Design.DataContext>
+    <viewModels:MainWindowViewModel />
+  </Design.DataContext>
+
+  <Window.Styles>
+    <Style Selector="TextBlock.sectionHeader">
+      <Setter Property="FontSize" Value="15" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style Selector="Border.sectionCard">
+      <Setter Property="Padding" Value="12" />
+      <Setter Property="CornerRadius" Value="10" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="BorderBrush" Value="#334155" />
+      <Setter Property="Background" Value="#111827" />
+    </Style>
+    <Style Selector="Border.sectionCard TextBlock">
+      <Setter Property="Foreground" Value="#E5E7EB" />
+    </Style>
+    <Style Selector="Border.toolbar TextBlock">
+      <Setter Property="Foreground" Value="#E5E7EB" />
+    </Style>
+    <Style Selector="TextBlock.mono">
+      <Setter Property="FontFamily" Value="Consolas, Cascadia Mono, Menlo, monospace" />
+    </Style>
+  </Window.Styles>
+
+  <DockPanel LastChildFill="True">
+    <Border DockPanel.Dock="Top" Classes="toolbar" Background="#0F172A" Padding="12">
+      <Grid ColumnDefinitions="Auto,12,*,12,Auto">
+        <Button Content="Open EXR..." Click="OpenFileClick" />
+        <TextBlock
+            Grid.Column="2"
+            VerticalAlignment="Center"
+            Text="{Binding CurrentPath}"
+            TextTrimming="CharacterEllipsis" />
+        <StackPanel Grid.Column="4" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+          <TextBlock VerticalAlignment="Center" Text="Exposure" />
+          <Slider
+              Width="240"
+              Minimum="-12"
+              Maximum="12"
+              TickFrequency="0.1"
+              Value="{Binding Exposure, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+          <TextBlock Width="64" VerticalAlignment="Center" Text="{Binding ExposureDisplay}" />
+          <Button Content="Reset" Click="ResetExposureClick" />
+        </StackPanel>
+      </Grid>
+    </Border>
+
+    <Grid ColumnDefinitions="2.2*,440" Margin="12">
+      <Border Grid.Column="0" Classes="sectionCard">
+        <Grid RowDefinitions="Auto,Auto,*">
+          <Grid ColumnDefinitions="280,16,220,16,220">
+            <StackPanel>
+              <TextBlock Margin="0,0,0,6" Text="Part" />
+              <ComboBox
+                  ItemsSource="{Binding PartOptions}"
+                  SelectedItem="{Binding SelectedPart}">
+                <ComboBox.ItemTemplate>
+                  <DataTemplate x:DataType="models:PartOption">
+                    <TextBlock Text="{Binding Label}" TextWrapping="Wrap" />
+                  </DataTemplate>
+                </ComboBox.ItemTemplate>
+              </ComboBox>
+            </StackPanel>
+
+            <StackPanel Grid.Column="2">
+              <TextBlock Margin="0,0,0,6" Text="Layer" />
+              <ComboBox
+                  IsEnabled="{Binding HasLayerSelection}"
+                  ItemsSource="{Binding LayerOptions}"
+                  SelectedItem="{Binding SelectedLayer}">
+                <ComboBox.ItemTemplate>
+                  <DataTemplate x:DataType="models:LayerOption">
+                    <TextBlock Text="{Binding Label}" TextWrapping="Wrap" />
+                  </DataTemplate>
+                </ComboBox.ItemTemplate>
+              </ComboBox>
+            </StackPanel>
+
+            <StackPanel Grid.Column="4">
+              <TextBlock Margin="0,0,0,6" Text="Level" />
+              <ComboBox
+                  IsEnabled="{Binding HasLevelSelection}"
+                  ItemsSource="{Binding LevelOptions}"
+                  SelectedItem="{Binding SelectedLevel}">
+                <ComboBox.ItemTemplate>
+                  <DataTemplate x:DataType="models:LevelOption">
+                    <TextBlock Text="{Binding Label}" TextWrapping="Wrap" />
+                  </DataTemplate>
+                </ComboBox.ItemTemplate>
+              </ComboBox>
+            </StackPanel>
+          </Grid>
+
+          <TextBlock
+              Grid.Row="1"
+              Margin="0,12,0,12"
+              Foreground="#CBD5E1"
+              Text="{Binding PreviewMessage}"
+              TextWrapping="Wrap" />
+
+          <Border
+              Grid.Row="2"
+              Background="#020617"
+              BorderBrush="#334155"
+              BorderThickness="1"
+              CornerRadius="10"
+              Padding="12">
+            <Grid>
+              <Image
+                  HorizontalAlignment="Stretch"
+                  VerticalAlignment="Stretch"
+                  IsVisible="{Binding HasPreviewBitmap}"
+                  Source="{Binding PreviewBitmap}"
+                  Stretch="Uniform" />
+              <TextBlock
+                  HorizontalAlignment="Center"
+                  VerticalAlignment="Center"
+                  Foreground="#94A3B8"
+                  IsVisible="{Binding HasNoPreviewBitmap}"
+                  Text="{Binding EmptyPreviewMessage}"
+                  TextAlignment="Center"
+                  TextWrapping="Wrap" />
+            </Grid>
+          </Border>
+        </Grid>
+      </Border>
+
+      <ScrollViewer Grid.Column="1" Margin="12,0,0,0">
+        <StackPanel Spacing="12">
+          <Border Classes="sectionCard">
+            <StackPanel Spacing="8">
+              <TextBlock Classes="sectionHeader" Text="Overview" />
+              <ItemsControl ItemsSource="{Binding OverviewEntries}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="models:KeyValueItem">
+                    <Grid Margin="0,0,0,6" ColumnDefinitions="160,*">
+                      <TextBlock FontWeight="SemiBold" Text="{Binding Key}" />
+                      <TextBlock Grid.Column="1" Text="{Binding Value}" TextWrapping="Wrap" />
+                    </Grid>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+          </Border>
+
+          <Border Classes="sectionCard">
+            <StackPanel Spacing="8">
+              <TextBlock Classes="sectionHeader" Text="Parts" />
+              <ItemsControl ItemsSource="{Binding PartEntries}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="models:PartInfoItem">
+                    <Border Margin="0,0,0,8" Padding="8" Background="#0B1220" CornerRadius="8">
+                      <StackPanel Spacing="4">
+                        <TextBlock FontWeight="SemiBold" Text="{Binding Title}" TextWrapping="Wrap" />
+                        <TextBlock Text="{Binding Summary}" TextWrapping="Wrap" />
+                      </StackPanel>
+                    </Border>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+          </Border>
+
+          <Border Classes="sectionCard">
+            <StackPanel Spacing="8">
+              <TextBlock Classes="sectionHeader" Text="Layers" />
+              <ItemsControl ItemsSource="{Binding LayerEntries}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="x:String">
+                    <TextBlock Text="{Binding}" />
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+          </Border>
+
+          <Border Classes="sectionCard">
+            <StackPanel Spacing="8">
+              <TextBlock Classes="sectionHeader" Text="Channels" />
+              <ItemsControl ItemsSource="{Binding ChannelEntries}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="models:ChannelInfoItem">
+                    <Border Margin="0,0,0,8" Padding="8" Background="#0B1220" CornerRadius="8">
+                      <Grid RowDefinitions="Auto,Auto,Auto" ColumnDefinitions="*,*">
+                        <TextBlock FontWeight="SemiBold" Text="{Binding Name}" />
+                        <TextBlock Grid.Column="1" HorizontalAlignment="Right" Text="{Binding DataType}" />
+                        <TextBlock Grid.Row="1" Text="{Binding Sampling}" />
+                        <TextBlock Grid.Row="1" Grid.Column="1" HorizontalAlignment="Right" Text="{Binding Storage}" />
+                        <TextBlock Grid.Row="2" Grid.ColumnSpan="2" Text="{Binding Notes}" TextWrapping="Wrap" />
+                      </Grid>
+                    </Border>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+          </Border>
+
+          <Border Classes="sectionCard" IsVisible="{Binding HasDeepEntries}">
+            <StackPanel Spacing="8">
+              <TextBlock Classes="sectionHeader" Text="Deep Data" />
+              <ItemsControl ItemsSource="{Binding DeepEntries}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="models:KeyValueItem">
+                    <Grid Margin="0,0,0,6" ColumnDefinitions="160,*">
+                      <TextBlock FontWeight="SemiBold" Text="{Binding Key}" />
+                      <TextBlock Grid.Column="1" Text="{Binding Value}" TextWrapping="Wrap" />
+                    </Grid>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+          </Border>
+
+          <Border Classes="sectionCard">
+            <StackPanel Spacing="8">
+              <TextBlock Classes="sectionHeader" Text="Custom Attributes" />
+              <ItemsControl ItemsSource="{Binding AttributeEntries}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="models:AttributeInfoItem">
+                    <Border Margin="0,0,0,8" Padding="8" Background="#0B1220" CornerRadius="8">
+                      <StackPanel Spacing="4">
+                        <TextBlock FontWeight="SemiBold" Text="{Binding Name}" />
+                        <TextBlock Text="{Binding TypeName}" />
+                        <TextBlock Classes="mono" Text="{Binding Value}" TextWrapping="Wrap" />
+                      </StackPanel>
+                    </Border>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+          </Border>
+        </StackPanel>
+      </ScrollViewer>
+    </Grid>
+  </DockPanel>
+</Window>
