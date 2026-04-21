@@ -89,7 +89,7 @@ The integration samples are pinned to `openexr-images` commit `e38ffb0790f62f05a
 Prepare them with:
 
 ```powershell
-pwsh ./TinyEXR.Test/prepare-openexr-images.ps1
+pwsh ./Scripts/prepare-openexr-images.ps1
 ```
 
 You can override the sample location with `TINYEXR_OPENEXR_IMAGES_ROOT`.

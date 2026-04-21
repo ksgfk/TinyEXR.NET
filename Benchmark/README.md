@@ -18,10 +18,8 @@ The shared manifest currently maps these sample ids:
 
 ## Case Matrix
 
-- C++ `baseline`: `LoadEXRFromMemory`, `SaveEXRToMemory`, `LoadEXRImageFromMemory`, `SaveEXRImageToMemory`, `ParseEXRMultipartHeaderFromMemory`, `LoadEXRMultipartImageFromMemory`, `SaveEXRMultipartImageToMemory`
+- C++ `baseline`: `LoadEXRFromMemory`, `SaveEXRToMemory`, `LoadEXRImageFromMemory`, `SaveEXRImageToMemory`, `LoadEXRMultipartImageFromMemory`, `SaveEXRMultipartImageToMemory`
 - C# `TinyEXR.Benchmark`: the same matrix plus managed-only `LoadDeepImageFromMemory`
-
-`IsEXRFromMemory` and `ParseEXRHeaderFromMemory` are intentionally excluded because they are too short to be useful benchmark references.
 
 ## C++ Baseline
 

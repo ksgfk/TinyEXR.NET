@@ -15,3 +15,5 @@ BenchmarkDotNet.Artifacts
 *.dll
 *.so
 *.dylib
+
+TestResults/
