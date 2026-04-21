@@ -25,6 +25,8 @@
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <DebugType>embedded</DebugType>
     <DebugSymbols>true</DebugSymbols>
+    <SignAssemblyKey Condition="'$(SignAssemblyKey)' == '' and '$(Configuration)' == 'Release'">true</SignAssemblyKey>
+    <SignAssemblyKey Condition="'$(SignAssemblyKey)' == ''">false</SignAssemblyKey>
     <StrongNameKeyFile Condition="'$(StrongNameKeyFile)' == ''">F:\csharp\ksgfk.snk</StrongNameKeyFile>
     <FriendAssemblyPublicKey>0024000004800000940000000602000000240000525341310004000001000100d93b14d3540e1f5f8c54bf26b09d84964701a51a6e4bfa0b67465633ddae5d185a944fa918f78e95696cadb8d3e0ef9dccfbc37f01d2b43c34d8ba5c80f456669fb6901b21b9f4fc9b0ecc9b74860788280d51a9de3c2aedb7a40bff75707cc5bb8fd77fc0d0ecdd6e957da2e3ce85f91b2d3bf553e7eac3e9e27657010075ce</FriendAssemblyPublicKey>
   </PropertyGroup>
@@ -34,17 +36,17 @@
     <Deterministic>true</Deterministic>
     <EmbedUntrackedSources>true</EmbedUntrackedSources>
     <EnablePackageValidation>true</EnablePackageValidation>
-    <SignAssembly>true</SignAssembly>
-    <AssemblyOriginatorKeyFile>$(StrongNameKeyFile)</AssemblyOriginatorKeyFile>
+    <SignAssembly>$(SignAssemblyKey)</SignAssembly>
+    <AssemblyOriginatorKeyFile Condition="'$(SignAssemblyKey)' == 'true'">$(StrongNameKeyFile)</AssemblyOriginatorKeyFile>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)' != 'Release'">
-    <SignAssembly>false</SignAssembly>
+    <SignAssembly>$(SignAssemblyKey)</SignAssembly>
   </PropertyGroup>
 
   <Target Name="EnsureStrongNameKeyForRelease"
           BeforeTargets="CoreCompile"
-          Condition="'$(Configuration)' == 'Release' and '$(SignAssembly)' == 'true' and !Exists('$(AssemblyOriginatorKeyFile)')">
+          Condition="'$(Configuration)' == 'Release' and '$(SignAssemblyKey)' == 'true' and !Exists('$(StrongNameKeyFile)')">
     <Error Text="Release build/package requires a strong-name key file. Set StrongNameKeyFile to a valid .snk path. Current value: '$(AssemblyOriginatorKeyFile)'." />
   </Target>
 
