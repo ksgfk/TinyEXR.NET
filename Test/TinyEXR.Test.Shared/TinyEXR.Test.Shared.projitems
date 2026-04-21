@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <MSBuildAllProjects Condition="'$(MSBuildVersion)' == '' Or '$(MSBuildVersion)' &lt; '16.0'">$(MSBuildAllProjects);$(MSBuildThisFileFullPath)</MSBuildAllProjects>
+    <HasSharedItems>true</HasSharedItems>
+    <SharedGUID>f4a6d445-9d0a-4b16-b76d-d4d5e8221b90</SharedGUID>
+  </PropertyGroup>
+  <PropertyGroup Label="Configuration">
+    <Import_RootNamespace>TinyEXR.Test</Import_RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(MSBuildThisFileDirectory)DeepTests.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)LoadTests.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)MultipartCompatibilityTests.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)MultiViewTests.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RegressionTests.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RoundTripTests.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)SpectralAndCompressionTests.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)StandardAttributeTests.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)SubsampledChannelTests.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)TestInfrastructure.cs" />
+  </ItemGroup>
+</Project>

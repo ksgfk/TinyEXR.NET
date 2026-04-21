@@ -1,6 +1,5 @@
 using System.Buffers.Binary;
 using System.Numerics;
-using System.IO.Compression;
 
 namespace TinyEXR.PortV1
 {
@@ -3082,11 +3081,7 @@ namespace TinyEXR.PortV1
             byte[] tmp;
             try
             {
-                using MemoryStream input = new MemoryStream(compressed.ToArray(), writable: false);
-                using ZLibStream zlib = new ZLibStream(input, CompressionMode.Decompress);
-                using MemoryStream output = new MemoryStream();
-                zlib.CopyTo(output);
-                tmp = output.ToArray();
+                tmp = ZlibCompat.Decompress(compressed);
             }
             catch
             {
@@ -3146,13 +3141,7 @@ namespace TinyEXR.PortV1
 
             try
             {
-                using MemoryStream output = new MemoryStream();
-                using (ZLibStream zlib = new ZLibStream(output, CompressionLevel.Optimal, leaveOpen: true))
-                {
-                    zlib.Write(tmp, 0, tmp.Length);
-                }
-
-                payload = output.ToArray();
+                payload = ZlibCompat.Compress(tmp);
                 if (payload.Length >= raw.Length)
                 {
                     payload = raw.ToArray();

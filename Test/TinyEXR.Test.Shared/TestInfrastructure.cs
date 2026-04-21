@@ -132,7 +132,7 @@ internal static class TestPaths
 
     public static string OpenExrImagesRoot { get; } = EnsureDirectory(
         Path.Combine(RepoRoot, ".cache", "openexr-images"),
-        "Run TinyEXR.Test/prepare-openexr-images.ps1 before executing the test suite.");
+        "Run Scripts/prepare-openexr-images.ps1 before executing the test suite.");
 
     public static string NativeTinyExrRoot { get; } = EnsureDirectory(Path.Combine(RepoRoot, "TinyEXR.Native", "tinyexr"));
 
@@ -153,7 +153,7 @@ internal static class TestPaths
         {
             if (Directory.Exists(Path.Combine(directory.FullName, "TinyEXR.NET")) &&
                 Directory.Exists(Path.Combine(directory.FullName, "TinyEXR.Native")) &&
-                Directory.Exists(Path.Combine(directory.FullName, "TinyEXR.Test")))
+                File.Exists(Path.Combine(directory.FullName, "TinyEXR.NET.sln")))
             {
                 return directory.FullName;
             }

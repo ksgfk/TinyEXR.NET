@@ -13,7 +13,9 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\TinyEXR.NET\TinyEXR.NET.csproj" />
+    <ProjectReference Include="..\..\TinyEXR.NET\TinyEXR.NET.csproj"
+                      SetTargetFramework="TargetFramework=net8.0"
+                      SkipGetTargetFrameworkProperties="true" />
   </ItemGroup>
 
   <ItemGroup>
@@ -23,5 +25,7 @@
   <ItemGroup>
     <Using Include="Microsoft.VisualStudio.TestTools.UnitTesting" />
   </ItemGroup>
+
+  <Import Project="..\TinyEXR.Test.Shared\TinyEXR.Test.Shared.projitems" Label="Shared" />
 
 </Project>

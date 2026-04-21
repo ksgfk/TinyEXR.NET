@@ -1,5 +1,4 @@
 using System.Buffers.Binary;
-using System.IO.Compression;
 
 namespace TinyEXR.PortV1
 {
@@ -553,13 +552,7 @@ namespace TinyEXR.PortV1
 
             try
             {
-                using MemoryStream output = new MemoryStream();
-                using (ZLibStream zlib = new ZLibStream(output, CompressionLevel.Optimal, leaveOpen: true))
-                {
-                    zlib.Write(tmp, 0, tmp.Length);
-                }
-
-                payload = output.ToArray();
+                payload = ZlibCompat.Compress(tmp);
                 if (payload.Length >= raw.Length)
                 {
                     payload = raw.ToArray();
@@ -584,11 +577,7 @@ namespace TinyEXR.PortV1
 
             try
             {
-                using MemoryStream input = new MemoryStream(payload.ToArray(), writable: false);
-                using ZLibStream zlib = new ZLibStream(input, CompressionMode.Decompress);
-                using MemoryStream output = new MemoryStream();
-                zlib.CopyTo(output);
-                byte[] tmp = output.ToArray();
+                byte[] tmp = ZlibCompat.Decompress(payload);
                 if (tmp.Length != expectedSize)
                 {
                     raw = Array.Empty<byte>();
@@ -609,13 +598,7 @@ namespace TinyEXR.PortV1
         {
             try
             {
-                using MemoryStream output = new MemoryStream();
-                using (ZLibStream zlib = new ZLibStream(output, CompressionLevel.Optimal, leaveOpen: true))
-                {
-                    zlib.Write(raw);
-                }
-
-                payload = output.ToArray();
+                payload = ZlibCompat.Compress(raw);
                 return ResultCode.Success;
             }
             catch
@@ -635,11 +618,7 @@ namespace TinyEXR.PortV1
 
             try
             {
-                using MemoryStream input = new MemoryStream(payload.ToArray(), writable: false);
-                using ZLibStream zlib = new ZLibStream(input, CompressionMode.Decompress);
-                using MemoryStream output = new MemoryStream();
-                zlib.CopyTo(output);
-                raw = output.ToArray();
+                raw = ZlibCompat.Decompress(payload);
                 return raw.Length == expectedSize ? ResultCode.Success : ResultCode.InvalidData;
             }
             catch

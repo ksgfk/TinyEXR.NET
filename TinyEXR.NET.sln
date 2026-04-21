@@ -5,7 +5,11 @@ VisualStudioVersion = 17.2.32616.157
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "TinyEXR.NET", "TinyEXR.NET\TinyEXR.NET.csproj", "{8F266B52-70C3-4C92-AC87-A0F0303AA12B}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "TinyEXR.Test", "TinyEXR.Test\TinyEXR.Test.csproj", "{C5D96E08-0A0D-4EC0-9B9D-8C4D1FBAE66E}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "TinyEXR.Test", "Test\TinyEXR.Test\TinyEXR.Test.csproj", "{C5D96E08-0A0D-4EC0-9B9D-8C4D1FBAE66E}"
+EndProject
+Project("{D954291E-2A0B-460D-934E-DC6B0785DB48}") = "TinyEXR.Test.Shared", "Test\TinyEXR.Test.Shared\TinyEXR.Test.Shared.shproj", "{F4A6D445-9D0A-4B16-B76D-D4D5E8221B90}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "TinyEXR.NetStandardFallback.Test", "Test\TinyEXR.NetStandardFallback.Test\TinyEXR.NetStandardFallback.Test.csproj", "{8E724801-1B0D-47F4-9F32-A379347D627F}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Benchmark", "Benchmark", "{09EED85C-BE3C-7566-DC0E-2E8E43466740}"
 EndProject
@@ -45,6 +49,18 @@ Global
 		{C5D96E08-0A0D-4EC0-9B9D-8C4D1FBAE66E}.Release|x64.Build.0 = Release|Any CPU
 		{C5D96E08-0A0D-4EC0-9B9D-8C4D1FBAE66E}.Release|x86.ActiveCfg = Release|Any CPU
 		{C5D96E08-0A0D-4EC0-9B9D-8C4D1FBAE66E}.Release|x86.Build.0 = Release|Any CPU
+		{8E724801-1B0D-47F4-9F32-A379347D627F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8E724801-1B0D-47F4-9F32-A379347D627F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8E724801-1B0D-47F4-9F32-A379347D627F}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{8E724801-1B0D-47F4-9F32-A379347D627F}.Debug|x64.Build.0 = Debug|Any CPU
+		{8E724801-1B0D-47F4-9F32-A379347D627F}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{8E724801-1B0D-47F4-9F32-A379347D627F}.Debug|x86.Build.0 = Debug|Any CPU
+		{8E724801-1B0D-47F4-9F32-A379347D627F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8E724801-1B0D-47F4-9F32-A379347D627F}.Release|Any CPU.Build.0 = Release|Any CPU
+		{8E724801-1B0D-47F4-9F32-A379347D627F}.Release|x64.ActiveCfg = Release|Any CPU
+		{8E724801-1B0D-47F4-9F32-A379347D627F}.Release|x64.Build.0 = Release|Any CPU
+		{8E724801-1B0D-47F4-9F32-A379347D627F}.Release|x86.ActiveCfg = Release|Any CPU
+		{8E724801-1B0D-47F4-9F32-A379347D627F}.Release|x86.Build.0 = Release|Any CPU
 		{D7B97EE5-8DAA-4FD3-A465-7AB02DBA932E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{D7B97EE5-8DAA-4FD3-A465-7AB02DBA932E}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{D7B97EE5-8DAA-4FD3-A465-7AB02DBA932E}.Debug|x64.ActiveCfg = Debug|Any CPU
@@ -66,5 +82,10 @@ Global
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {69A3148C-5390-4E23-A50B-662D3E5AE412}
+	EndGlobalSection
+	GlobalSection(SharedMSBuildProjectFiles) = preSolution
+		Test\TinyEXR.Test.Shared\TinyEXR.Test.Shared.projitems*{f4a6d445-9d0a-4b16-b76d-d4d5e8221b90}*SharedItemsImports = 13
+		Test\TinyEXR.Test.Shared\TinyEXR.Test.Shared.projitems*{c5d96e08-0a0d-4ec0-9b9d-8c4d1fbae66e}*SharedItemsImports = 5
+		Test\TinyEXR.Test.Shared\TinyEXR.Test.Shared.projitems*{8e724801-1b0d-47f4-9f32-a379347d627f}*SharedItemsImports = 5
 	EndGlobalSection
 EndGlobal
