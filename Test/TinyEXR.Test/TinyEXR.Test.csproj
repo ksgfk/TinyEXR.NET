@@ -13,9 +13,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\TinyEXR.NET\TinyEXR.NET.csproj"
-                      SetTargetFramework="TargetFramework=net8.0"
-                      SkipGetTargetFrameworkProperties="true" />
+    <ProjectReference Include="..\..\TinyEXR.NET\TinyEXR.NET.csproj" />
   </ItemGroup>
 
   <ItemGroup>
