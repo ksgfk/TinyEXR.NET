@@ -1,6 +1,8 @@
 # TinyEXR.NET
 
-`TinyEXR.NET` is a pure C# port library of [tinyexr](https://github.com/syoyo/tinyexr) `v1.0.13 v1`
+[![Test](https://github.com/ksgfk/TinyEXR.NET/actions/workflows/test.yml/badge.svg)](https://github.com/ksgfk/TinyEXR.NET/actions/workflows/test.yml)
+
+`TinyEXR.NET` is a pure C# port library of [tinyexr](https://github.com/syoyo/tinyexr)
 
 The target frameworks are `net8.0`, `netstandard2.1`
 
@@ -13,6 +15,19 @@ The target frameworks are `net8.0`, `netstandard2.1`
 The `net8.0` target has no additional runtime dependencies.
 
 The `netstandard2.1` target depends on [SharpZipLib](https://github.com/icsharpcode/SharpZipLib).
+
+## Features
+
+- [x] full NativeAOT support!
+- [x] Single-part EXR read/write for scanline images.
+- [x] Single-part EXR read/write for tiled images, including one-level tiles and multi-resolution mipmap/ripmap layouts.
+- [x] Multipart image EXR parse/load/save for image parts.
+- [x] Deep single-part scanline EXR load through `LoadDeepEXR`.
+- [x] Regular image compression support for `NONE`, `RLE`, `ZIP`, `ZIPS`, `PIZ`, `PXR24`, `B44`, and `B44A`.
+- [x] Deep scanline compression support for `NONE`, `RLE`, `ZIPS`, and `ZIP`.
+- [x] Layer- and multiview-aware helpers such as `EXRLayers` and `LoadEXRWithLayer`, including RGBA expansion for subsampled channels in the convenience load path.
+- [x] Managed header/image models that preserve EXR metadata needed by tools and inspectors, including data/display windows, tile descriptions, custom attributes, channel sampling, line order, and long names.
+- [ ] Full image decode for mixed multipart files that include deep or non-image parts. Current behavior is metadata-only for those parts.
 
 ## Usage
 

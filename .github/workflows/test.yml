@@ -24,10 +24,10 @@ jobs:
 
     - name: Prepare openexr-images samples
       shell: pwsh
-      run: ./TinyEXR.Test/prepare-openexr-images.ps1
+      run: ./Scripts/prepare-openexr-images.ps1
 
-    - name: Build
-      run: dotnet build TinyEXR.Test/TinyEXR.Test.sln --configuration Release -p:SignAssemblyKey=false
+    - name: Test default target
+      run: dotnet test --project ./Test/TinyEXR.Test/TinyEXR.Test.csproj --configuration Release --report-trx --report-trx-filename TinyEXR.Test.trx -p:SignAssemblyKey=false
 
-    - name: Test
-      run: dotnet test --solution TinyEXR.Test/TinyEXR.Test.sln --configuration Release --no-build --report-trx --report-trx-filename test-results.trx -p:SignAssemblyKey=false
+    - name: Test netstandard fallback target
+      run: dotnet test --project ./Test/TinyEXR.NetStandardFallback.Test/TinyEXR.NetStandardFallback.Test.csproj --configuration Release --report-trx --report-trx-filename TinyEXR.NetStandardFallback.Test.trx -p:SignAssemblyKey=false
