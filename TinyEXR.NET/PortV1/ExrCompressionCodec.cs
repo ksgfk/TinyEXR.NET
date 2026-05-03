@@ -19,11 +19,6 @@ namespace TinyEXR.PortV1
         private const int UShortRange = 1 << 16;
         private const int BitmapSize = UShortRange >> 3;
 
-        private static readonly object B44TableLock = new object();
-        private static readonly ushort[] B44ExpTable = new ushort[UShortRange];
-        private static readonly ushort[] B44LogTable = new ushort[UShortRange];
-        private static bool s_b44TablesInitialized;
-
         internal readonly struct ChannelLayout
         {
             public ChannelLayout(ExrPixelType type, int sampleSize, int offsetBytes, int samplingX, int samplingY, byte linear)
@@ -81,6 +76,16 @@ namespace TinyEXR.PortV1
             public int[]? Symbols;
         }
 
+        private static byte[] EnsureByteArray(ref byte[] array, int length)
+        {
+            if (array.Length < length)
+            {
+                array = new byte[length];
+            }
+
+            return array;
+        }
+
         internal sealed class DecodeWorkspace
         {
             private byte[] _payload = Array.Empty<byte>();
@@ -98,22 +103,22 @@ namespace TinyEXR.PortV1
 
             public byte[] GetPayload(int length)
             {
-                return EnsureByteArray(ref _payload, length);
+                return ExrCompressionCodec.EnsureByteArray(ref _payload, length);
             }
 
             internal byte[] GetRaw(int length)
             {
-                return EnsureByteArray(ref _raw, length);
+                return ExrCompressionCodec.EnsureByteArray(ref _raw, length);
             }
 
             internal byte[] GetWork(int length)
             {
-                return EnsureByteArray(ref _work, length);
+                return ExrCompressionCodec.EnsureByteArray(ref _work, length);
             }
 
             internal byte[] GetBitmap()
             {
-                return EnsureByteArray(ref _bitmap, BitmapSize);
+                return ExrCompressionCodec.EnsureByteArray(ref _bitmap, BitmapSize);
             }
 
             internal ushort[] GetUShortWork(int length)
@@ -195,16 +200,6 @@ namespace TinyEXR.PortV1
                 return _pizChannelData;
             }
 
-            private static byte[] EnsureByteArray(ref byte[] array, int length)
-            {
-                if (array.Length < length)
-                {
-                    array = new byte[length];
-                }
-
-                return array;
-            }
-
             private static ushort[] EnsureUShortArray(ref ushort[] array, int length)
             {
                 if (array.Length < length)
@@ -245,6 +240,16 @@ namespace TinyEXR.PortV1
                 return array;
             }
 
+        }
+
+        internal sealed class EncodeWorkspace
+        {
+            private byte[] _work = Array.Empty<byte>();
+
+            internal byte[] GetWork(int length)
+            {
+                return ExrCompressionCodec.EnsureByteArray(ref _work, length);
+            }
         }
 
         private sealed class BitWriter
@@ -327,6 +332,20 @@ namespace TinyEXR.PortV1
             byte[] raw,
             out byte[] payload)
         {
+            return TryEncodePayload(compression, channels, startX, startY, width, height, raw, null, out payload);
+        }
+
+        public static ResultCode TryEncodePayload(
+            CompressionType compression,
+            IList<ExrChannel> channels,
+            int startX,
+            int startY,
+            int width,
+            int height,
+            byte[] raw,
+            EncodeWorkspace? workspace,
+            out byte[] payload)
+        {
             payload = raw;
 
             if (!TryBuildLayouts(channels, out ChannelLayout[] layouts, out int pixelStride))
@@ -353,7 +372,7 @@ namespace TinyEXR.PortV1
                     return ResultCode.Success;
                 case CompressionType.ZIP:
                 case CompressionType.ZIPS:
-                    return TryCompressZip(raw, out payload);
+                    return TryCompressZip(raw, workspace, out payload);
                 case CompressionType.PIZ:
                     return TryCompressPiz(layouts, startX, startY, width, height, raw, out payload);
                 case CompressionType.PXR24:
@@ -362,7 +381,7 @@ namespace TinyEXR.PortV1
                         return ResultCode.UnsupportedFeature;
                     }
 
-                    return TryCompressPxr24(layouts, pixelStride, width, height, raw, out payload);
+                    return TryCompressPxr24(layouts, pixelStride, width, height, raw, workspace, out payload);
                 case CompressionType.B44:
                 case CompressionType.B44A:
                     return TryCompressB44(layouts, startX, startY, width, height, raw, compression == CompressionType.B44A, out payload);
@@ -784,6 +803,12 @@ namespace TinyEXR.PortV1
         private static byte[] ApplyExrPredictorAndReorder(ReadOnlySpan<byte> raw)
         {
             byte[] tmp = new byte[raw.Length];
+            ApplyExrPredictorAndReorder(raw, tmp);
+            return tmp;
+        }
+
+        private static void ApplyExrPredictorAndReorder(ReadOnlySpan<byte> raw, Span<byte> tmp)
+        {
             int half = (raw.Length + 1) / 2;
             int targetA = 0;
             int targetB = half;
@@ -803,8 +828,6 @@ namespace TinyEXR.PortV1
                 tmp[i] = unchecked((byte)(current - previous + 384));
                 previous = current;
             }
-
-            return tmp;
         }
 
         private static byte[] UndoExrPredictorAndReorder(byte[] tmp, int expectedSize)
@@ -850,12 +873,13 @@ namespace TinyEXR.PortV1
             }
         }
 
-        private static ResultCode TryCompressZip(ReadOnlySpan<byte> raw, out byte[] payload)
+        private static ResultCode TryCompressZip(ReadOnlySpan<byte> raw, EncodeWorkspace? workspace, out byte[] payload)
         {
-            byte[] tmp = ApplyExrPredictorAndReorder(raw);
-
             try
             {
+                byte[] tmpBuffer = workspace?.GetWork(raw.Length) ?? new byte[raw.Length];
+                Span<byte> tmp = tmpBuffer.AsSpan(0, raw.Length);
+                ApplyExrPredictorAndReorder(raw, tmp);
                 payload = ZlibCompat.Compress(tmp);
                 if (payload.Length >= raw.Length)
                 {
@@ -1479,7 +1503,7 @@ namespace TinyEXR.PortV1
             return ResultCode.Success;
         }
 
-        private static ResultCode TryCompressPxr24(ChannelLayout[] layouts, int pixelStride, int width, int height, byte[] raw, out byte[] payload)
+        private static ResultCode TryCompressPxr24(ChannelLayout[] layouts, int pixelStride, int width, int height, byte[] raw, EncodeWorkspace? workspace, out byte[] payload)
         {
             int packedSize = 0;
             for (int i = 0; i < layouts.Length; i++)
@@ -1487,7 +1511,8 @@ namespace TinyEXR.PortV1
                 packedSize += width * height * (layouts[i].Type == ExrPixelType.Float ? 3 : layouts[i].SampleSize);
             }
 
-            byte[] packed = new byte[packedSize];
+            byte[] packedBuffer = workspace?.GetWork(packedSize) ?? new byte[packedSize];
+            Span<byte> packed = packedBuffer.AsSpan(0, packedSize);
             int packedOffset = 0;
             for (int line = 0; line < height; line++)
             {
@@ -1645,8 +1670,6 @@ namespace TinyEXR.PortV1
 
         private static ResultCode TryCompressB44(ChannelLayout[] layouts, int startX, int startY, int width, int height, byte[] raw, bool isB44A, out byte[] payload)
         {
-            EnsureB44Tables();
-
             if (!TrySplitRawByChannel(layouts, startX, startY, width, height, raw, out ChannelPlane[] planes))
             {
                 payload = Array.Empty<byte>();
@@ -1694,8 +1717,6 @@ namespace TinyEXR.PortV1
 
         private static ResultCode TryDecompressB44(ChannelLayout[] layouts, int startX, int startY, int width, int height, ReadOnlySpan<byte> payload, int expectedSize, out byte[] raw)
         {
-            EnsureB44Tables();
-
             if (!TryCreateChannelPlanes(layouts, startX, startY, width, height, out ChannelPlane[] planes))
             {
                 raw = Array.Empty<byte>();
@@ -2854,59 +2875,50 @@ namespace TinyEXR.PortV1
             return (sign >> 8) | value;
         }
 
-        private static void EnsureB44Tables()
+        private static class B44Tables
         {
-            if (s_b44TablesInitialized)
-            {
-                return;
-            }
+            internal static readonly ushort[] Exp = new ushort[UShortRange];
+            internal static readonly ushort[] Log = new ushort[UShortRange];
 
-            lock (B44TableLock)
+            static B44Tables()
             {
-                if (s_b44TablesInitialized)
-                {
-                    return;
-                }
-
                 for (int i = 0; i < UShortRange; i++)
                 {
                     ushort value = (ushort)i;
                     if ((value & 0x7c00) == 0x7c00)
                     {
-                        B44ExpTable[i] = 0;
-                        B44LogTable[i] = 0;
+                        Exp[i] = 0;
+                        Log[i] = 0;
                         continue;
                     }
 
                     if (value >= 0x558c && value < 0x8000)
                     {
-                        B44ExpTable[i] = 0x7bff;
+                        Exp[i] = 0x7bff;
                     }
                     else
                     {
                         float f = HalfHelper.HalfToSingle(value);
-                        B44ExpTable[i] = HalfHelper.SingleToHalf((float)Math.Exp(f / 8.0f));
+                        Exp[i] = HalfHelper.SingleToHalf((float)Math.Exp(f / 8.0f));
                     }
 
                     if (value > 0x8000)
                     {
-                        B44LogTable[i] = 0;
+                        Log[i] = 0;
                         continue;
                     }
 
                     float logInput = HalfHelper.HalfToSingle(value);
-                    B44LogTable[i] = logInput <= 0.0f
+                    Log[i] = logInput <= 0.0f
                         ? (ushort)0
                         : HalfHelper.SingleToHalf((float)(8.0 * Math.Log(logInput)));
                 }
-
-                s_b44TablesInitialized = true;
             }
         }
 
-        private static ushort B44ConvertFromLinear(ushort value) => B44ExpTable[value];
+        private static ushort B44ConvertFromLinear(ushort value) => B44Tables.Exp[value];
 
-        private static ushort B44ConvertToLinear(ushort value) => B44LogTable[value];
+        private static ushort B44ConvertToLinear(ushort value) => B44Tables.Log[value];
 
         private static int B44ShiftAndRound(int value, int shift)
         {

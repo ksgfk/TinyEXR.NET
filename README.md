@@ -71,15 +71,15 @@ Updated on `2026-05-03`. C# results use BenchmarkDotNet `Mean`; C++ baseline res
 
 | Method | Sample | C# mean | C# allocated | C++ baseline | Managed / baseline |
 | --- | --- | ---: | ---: | ---: | ---: |
-| `LoadEXRFromMemory` | `desk_scanline` | `39.79 ms` | `15.73 MB` | `40.44 ms` | `0.98x` |
-| `SaveEXRToMemory` | `desk_scanline` | `109.25 ms` | `58.10 MB` | `160.16 ms` | `0.68x` |
-| `LoadEXRImageFromMemory` | `desk_scanline` | `23.36 ms` | `7.15 MB` | `41.19 ms` | `0.57x` |
-| `SaveEXRImageToMemory` | `desk_scanline` | `44.08 ms` | `80.89 MB` | `59.03 ms` | `0.75x` |
-| `LoadEXRImageFromMemory` | `kapaa_multires` | `42.83 ms` | `21.27 MB` | `72.92 ms` | `0.59x` |
-| `SaveEXRImageToMemory` | `kapaa_multires` | `170.12 ms` | `66.92 MB` | `208.33 ms` | `0.82x` |
-| `LoadEXRMultipartImageFromMemory` | `beachball_multipart_0001` | `84.24 ms` | `30.65 MB` | `132.81 ms` | `0.63x` |
-| `SaveEXRMultipartImageToMemory` | `beachball_multipart_0001` | `222.58 ms` | `83.21 MB` | `218.75 ms` | `1.02x` |
-| `LoadDeepImageFromMemory` | `balls_deep_scanline` | `14.06 ms` | `5.48 MB` | `N/A` | `N/A` |
+| `LoadEXRFromMemory` | `desk_scanline` | `40.05 ms` | `15.73 MB` | `38.65 ms` | `1.04x` |
+| `SaveEXRToMemory` | `desk_scanline` | `108.77 ms` | `46.56 MB` | `164.06 ms` | `0.66x` |
+| `LoadEXRImageFromMemory` | `desk_scanline` | `23.43 ms` | `7.15 MB` | `28.65 ms` | `0.82x` |
+| `SaveEXRImageToMemory` | `desk_scanline` | `43.48 ms` | `80.90 MB` | `41.36 ms` | `1.05x` |
+| `LoadEXRImageFromMemory` | `kapaa_multires` | `42.94 ms` | `21.27 MB` | `55.40 ms` | `0.78x` |
+| `SaveEXRImageToMemory` | `kapaa_multires` | `169.49 ms` | `53.54 MB` | `213.54 ms` | `0.79x` |
+| `LoadEXRMultipartImageFromMemory` | `beachball_multipart_0001` | `82.74 ms` | `30.65 MB` | `127.60 ms` | `0.65x` |
+| `SaveEXRMultipartImageToMemory` | `beachball_multipart_0001` | `213.06 ms` | `78.32 MB` | `223.96 ms` | `0.95x` |
+| `LoadDeepImageFromMemory` | `balls_deep_scanline` | `14.19 ms` | `5.47 MB` | `N/A` | `N/A` |
 
 See `Benchmark/README.md` for more details.
 
@@ -101,6 +101,10 @@ For new development, prefer the mainline `v1.0+` branch. Use the `v0.3.x` mainte
 - Native-style structs are replaced by managed types such as `ExrVersion`, `ExrHeader`, `ExrImage`, `ExrMultipartHeader`, `ExrMultipartImage`, `ExrDeepImage`, and `ExrBox2i`.
 - Low-level read/write calls are now managed `out`-based APIs instead of `ref`-based native mutation. For example, `ParseEXRHeaderFromFile(path, ref version, ref header)` becomes `ParseEXRHeaderFromFile(path, out ExrVersion version, out ExrHeader header)`, and `LoadEXRImageFromFile(ref image, ref header, path)` becomes `LoadEXRImageFromFile(path, header, out ExrImage image)`.
 - `SaveEXRImageToMemory` also changed shape: `v0.3.x` returned `byte[]?`, while the current API returns `ResultCode` and writes the payload to `out byte[] encoded`.
+
+## Known Limitation
+
+Mixed multipart files that include deep or non-image parts are currently metadata-only for those parts; full image decode is supported for image parts.
 
 ## License
 

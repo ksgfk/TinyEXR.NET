@@ -12,7 +12,7 @@ namespace TinyEXR.PortV1
     {
         public static byte[] Compress(ReadOnlySpan<byte> raw)
         {
-            using MemoryStream output = new MemoryStream();
+            using MemoryStream output = new MemoryStream(raw.Length);
 
 #if NETSTANDARD2_1
             byte[] buffer = raw.ToArray();

@@ -7,8 +7,8 @@
     <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
     <RootNamespace>TinyEXR</RootNamespace>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
-    <AssemblyVersion>1.0.0</AssemblyVersion>
-    <FileVersion>1.0.0</FileVersion>
+    <AssemblyVersion>1.0.1</AssemblyVersion>
+    <FileVersion>1.0.1</FileVersion>
     <RepositoryType>git</RepositoryType>
     <Description>TinyEXR.NET is a pure managed C# implementation of tinyexr v1 APIs</Description>
     <Company>ksgfk</Company>
@@ -17,9 +17,9 @@
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <RepositoryUrl>https://github.com/ksgfk/TinyEXR.NET</RepositoryUrl>
     <PackageTags>OpenEXR,HDR</PackageTags>
-    <PackageReleaseNotes>update</PackageReleaseNotes>
+    <PackageReleaseNotes>First stable v1.0 release. TinyEXR.NET is now a pure managed C# implementation of the tinyexr-compatible API, with NativeAOT support, net8.0/netstandard2.1 targets, scanline/tiled/multipart/deep EXR coverage, compression support, expanded tests, benchmarks, and a viewer sample.</PackageReleaseNotes>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <Version>1.0.0-rc1</Version>
+    <Version>1.0.0</Version>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
@@ -44,9 +44,7 @@
     <SignAssembly>$(SignAssemblyKey)</SignAssembly>
   </PropertyGroup>
 
-  <Target Name="EnsureStrongNameKeyForRelease"
-          BeforeTargets="CoreCompile"
-          Condition="'$(Configuration)' == 'Release' and '$(SignAssemblyKey)' == 'true' and !Exists('$(StrongNameKeyFile)')">
+  <Target Name="EnsureStrongNameKeyForRelease" BeforeTargets="CoreCompile" Condition="'$(Configuration)' == 'Release' and '$(SignAssemblyKey)' == 'true' and !Exists('$(StrongNameKeyFile)')">
     <Error Text="Release build/package requires a strong-name key file. Set StrongNameKeyFile to a valid .snk path. Current value: '$(AssemblyOriginatorKeyFile)'." />
   </Target>
 

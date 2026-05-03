@@ -982,11 +982,12 @@ namespace TinyEXR.PortV1
         {
             int linesPerChunk = NumScanlines(header.Compression);
             int blockCount = (image.Height + linesPerChunk - 1) / linesPerChunk;
+            ExrCompressionCodec.EncodeWorkspace encodeWorkspace = new ExrCompressionCodec.EncodeWorkspace();
             for (int blockIndex = 0; blockIndex < blockCount; blockIndex++)
             {
                 int startY = blockIndex * linesPerChunk;
                 int numLines = Math.Min(linesPerChunk, image.Height - startY);
-                ResultCode chunkResult = TryEncodeScanlineChunk(image.Levels[0], header, startY, numLines, out byte[] chunk);
+                ResultCode chunkResult = TryEncodeScanlineChunk(image.Levels[0], header, encodeWorkspace, startY, numLines, out byte[] chunk);
                 if (chunkResult != ResultCode.Success)
                 {
                     return chunkResult;
@@ -1017,6 +1018,7 @@ namespace TinyEXR.PortV1
                 return ResultCode.InvalidArgument;
             }
 
+            ExrCompressionCodec.EncodeWorkspace encodeWorkspace = new ExrCompressionCodec.EncodeWorkspace();
             for (int levelIndex = 0; levelIndex < levelCount; levelIndex++)
             {
                 ExrImageLevel level = image.Levels[levelIndex];
@@ -1029,7 +1031,7 @@ namespace TinyEXR.PortV1
                 {
                     for (int tileX = 0; tileX < tileColumns; tileX++)
                     {
-                        ResultCode chunkResult = TryEncodeTileChunk(level, header, tileX, tileY, levelX, levelY, out byte[] chunk);
+                        ResultCode chunkResult = TryEncodeTileChunk(level, header, encodeWorkspace, tileX, tileY, levelX, levelY, out byte[] chunk);
                         if (chunkResult != ResultCode.Success)
                         {
                             return chunkResult;
@@ -1043,7 +1045,13 @@ namespace TinyEXR.PortV1
             return ResultCode.Success;
         }
 
-        private static ResultCode TryEncodeScanlineChunk(ExrImageLevel level, ExrHeader header, int startY, int numLines, out byte[] chunk)
+        private static ResultCode TryEncodeScanlineChunk(
+            ExrImageLevel level,
+            ExrHeader header,
+            ExrCompressionCodec.EncodeWorkspace encodeWorkspace,
+            int startY,
+            int numLines,
+            out byte[] chunk)
         {
             chunk = Array.Empty<byte>();
             ResultCode rawResult = TryEncodePixelBlock(level.Channels, header, level.Width, level.Height, 0, startY, level.Width, numLines, out byte[] raw);
@@ -1052,7 +1060,7 @@ namespace TinyEXR.PortV1
                 return rawResult;
             }
 
-            ResultCode payloadResult = ExrCompressionCodec.TryEncodePayload(header.Compression, header.Channels, 0, startY, level.Width, numLines, raw, out byte[] payload);
+            ResultCode payloadResult = ExrCompressionCodec.TryEncodePayload(header.Compression, header.Channels, 0, startY, level.Width, numLines, raw, encodeWorkspace, out byte[] payload);
             if (payloadResult != ResultCode.Success)
             {
                 return payloadResult;
@@ -1065,7 +1073,15 @@ namespace TinyEXR.PortV1
             return ResultCode.Success;
         }
 
-        private static ResultCode TryEncodeTileChunk(ExrImageLevel level, ExrHeader header, int tileX, int tileY, int levelX, int levelY, out byte[] chunk)
+        private static ResultCode TryEncodeTileChunk(
+            ExrImageLevel level,
+            ExrHeader header,
+            ExrCompressionCodec.EncodeWorkspace encodeWorkspace,
+            int tileX,
+            int tileY,
+            int levelX,
+            int levelY,
+            out byte[] chunk)
         {
             chunk = Array.Empty<byte>();
             if (header.Tiles == null)
@@ -1088,7 +1104,7 @@ namespace TinyEXR.PortV1
                 return rawResult;
             }
 
-            ResultCode payloadResult = ExrCompressionCodec.TryEncodePayload(header.Compression, header.Channels, tilePixelX, tilePixelY, tileWidth, tileHeight, raw, out byte[] payload);
+            ResultCode payloadResult = ExrCompressionCodec.TryEncodePayload(header.Compression, header.Channels, tilePixelX, tilePixelY, tileWidth, tileHeight, raw, encodeWorkspace, out byte[] payload);
             if (payloadResult != ResultCode.Success)
             {
                 return payloadResult;
@@ -1189,21 +1205,6 @@ namespace TinyEXR.PortV1
             }
 
             return ResultCode.Success;
-        }
-
-        private static ResultCode TryEncodePayload(CompressionType compression, byte[] raw, out byte[] payload)
-        {
-            payload = raw;
-            switch (compression)
-            {
-                case CompressionType.None:
-                    return ResultCode.Success;
-                case CompressionType.ZIP:
-                case CompressionType.ZIPS:
-                    return TryCompressZip(raw, out payload);
-                default:
-                    return ResultCode.UnsupportedFeature;
-            }
         }
 
         private static ResultCode TryCreateWriteHeader(ExrImage image, ExrHeader? header, bool multipartPart, out ExrHeader effective)
@@ -2345,8 +2346,22 @@ namespace TinyEXR.PortV1
 
             int[][] offsetRows = new int[height][];
             float[][][] rowsByChannel = new float[header.Channels.Count][][];
-            for (int channelIndex = 0; channelIndex < header.Channels.Count; channelIndex++)
+            int channelCount = header.Channels.Count;
+            ExrPixelType[] channelTypes = new ExrPixelType[channelCount];
+            int[] channelTypeSizes = new int[channelCount];
+            int sampleSize = 0;
+            for (int channelIndex = 0; channelIndex < channelCount; channelIndex++)
             {
+                ExrPixelType channelType = header.Channels[channelIndex].Type;
+                int typeSize = Exr.TypeSize(channelType);
+                if (typeSize <= 0)
+                {
+                    return ResultCode.UnsupportedFeature;
+                }
+
+                channelTypes[channelIndex] = channelType;
+                channelTypeSizes[channelIndex] = typeSize;
+                sampleSize = checked(sampleSize + typeSize);
                 rowsByChannel[channelIndex] = new float[height][];
             }
 
@@ -2423,7 +2438,6 @@ namespace TinyEXR.PortV1
                 }
 
                 offsetRows[rowIndex] = pixelOffsets;
-                int sampleSize = header.Channels.Sum(static channel => Exr.TypeSize(channel.Type));
                 if ((pixelOffsets.Length == 0 ? 0 : pixelOffsets[pixelOffsets.Length - 1]) * sampleSize != sampleBytesLength)
                 {
                     return ResultCode.InvalidData;
@@ -2431,11 +2445,11 @@ namespace TinyEXR.PortV1
 
                 int sampleCount = sampleSize == 0 ? 0 : sampleBytesLength / sampleSize;
                 int dataOffset = 0;
-                for (int channelIndex = 0; channelIndex < header.Channels.Count; channelIndex++)
+                for (int channelIndex = 0; channelIndex < channelCount; channelIndex++)
                 {
-                    ExrPixelType pixelType = header.Channels[channelIndex].Type;
+                    ExrPixelType pixelType = channelTypes[channelIndex];
                     float[] row = new float[sampleCount];
-                    int typeSize = Exr.TypeSize(pixelType);
+                    int typeSize = channelTypeSizes[channelIndex];
                     for (int sampleIndex = 0; sampleIndex < sampleCount; sampleIndex++)
                     {
                         row[sampleIndex] = ReadSampleAsFloat(sampleBytes, pixelType, dataOffset / typeSize + sampleIndex);
@@ -2452,11 +2466,6 @@ namespace TinyEXR.PortV1
                 offsetRows,
                 header.Channels.Select((channel, index) => new ExrDeepChannel(channel.Name, rowsByChannel[index])).ToArray());
             return ResultCode.Success;
-        }
-
-        private static ResultCode TryDecodePayload(CompressionType compression, byte[] payload, int expectedSize, out byte[] raw)
-        {
-            return ExrCompressionCodec.TryDecodeDeepPayload(compression, payload, expectedSize, out raw);
         }
 
         private static ResultCode TryDecodePayload(
@@ -3700,97 +3709,15 @@ namespace TinyEXR.PortV1
             return result;
         }
 
-        private static ResultCode TryDecompressZip(ReadOnlySpan<byte> compressed, int expectedSize, out byte[] raw)
-        {
-            if (expectedSize == compressed.Length)
-            {
-                raw = compressed.ToArray();
-                return ResultCode.Success;
-            }
-
-            byte[] tmp;
-            try
-            {
-                tmp = ZlibCompat.Decompress(compressed);
-            }
-            catch
-            {
-                raw = Array.Empty<byte>();
-                return ResultCode.InvalidData;
-            }
-
-            if (tmp.Length != expectedSize)
-            {
-                raw = Array.Empty<byte>();
-                return ResultCode.InvalidData;
-            }
-
-            for (int i = 1; i < tmp.Length; i++)
-            {
-                tmp[i] = unchecked((byte)(tmp[i - 1] + tmp[i] - 128));
-            }
-
-            raw = new byte[expectedSize];
-            int half = (expectedSize + 1) / 2;
-            int sourceA = 0;
-            int sourceB = half;
-            for (int i = 0; i < expectedSize; i += 2)
-            {
-                raw[i] = tmp[sourceA++];
-                if (i + 1 < expectedSize)
-                {
-                    raw[i + 1] = tmp[sourceB++];
-                }
-            }
-
-            return ResultCode.Success;
-        }
-
-        private static ResultCode TryCompressZip(byte[] raw, out byte[] payload)
-        {
-            byte[] tmp = new byte[raw.Length];
-            int half = (raw.Length + 1) / 2;
-            int targetA = 0;
-            int targetB = half;
-            for (int i = 0; i < raw.Length; i += 2)
-            {
-                tmp[targetA++] = raw[i];
-                if (i + 1 < raw.Length)
-                {
-                    tmp[targetB++] = raw[i + 1];
-                }
-            }
-
-            int previous = tmp.Length == 0 ? 0 : tmp[0];
-            for (int i = 1; i < tmp.Length; i++)
-            {
-                int current = tmp[i];
-                tmp[i] = unchecked((byte)(current - previous + 384));
-                previous = current;
-            }
-
-            try
-            {
-                payload = ZlibCompat.Compress(tmp);
-                if (payload.Length >= raw.Length)
-                {
-                    payload = raw.ToArray();
-                }
-
-                return ResultCode.Success;
-            }
-            catch
-            {
-                payload = Array.Empty<byte>();
-                return ResultCode.SerialzationFailed;
-            }
-        }
     }
 
     internal static class HalfHelper
     {
         internal static float HalfToSingle(ushort value)
         {
+#if NET8_0_OR_GREATER
+            return (float)BitConverter.UInt16BitsToHalf(value);
+#else
             uint sign = (uint)(value >> 15) & 0x1;
             uint exp = (uint)(value >> 10) & 0x1f;
             uint mantissa = (uint)value & 0x3ff;
@@ -3820,10 +3747,14 @@ namespace TinyEXR.PortV1
             exp = exp + (127 - 15);
             uint result = (sign << 31) | (exp << 23) | (mantissa << 13);
             return BitConverter.Int32BitsToSingle((int)result);
+#endif
         }
 
         internal static ushort SingleToHalf(float value)
         {
+#if NET8_0_OR_GREATER
+            return BitConverter.HalfToUInt16Bits((Half)value);
+#else
             uint bits = (uint)BitConverter.SingleToInt32Bits(value);
             uint sign = (bits >> 16) & 0x8000u;
             uint mantissa = bits & 0x7fffffu;
@@ -3865,6 +3796,7 @@ namespace TinyEXR.PortV1
             }
 
             return (ushort)(sign | ((uint)exponent << 10) | (mantissa >> 13));
+#endif
         }
     }
 }
