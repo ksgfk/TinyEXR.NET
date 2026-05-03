@@ -6,6 +6,40 @@ namespace TinyEXR.Test;
 [TestClass]
 public sealed class StandardAttributeTests
 {
+    [TestMethod(DisplayName = "[TinyEXR.NET Test] StandardAttributes|TypedReaders")]
+    public void Case_StandardAttributes_typed_readers()
+    {
+        ExrAttribute intAttribute = ExrAttribute.FromInt("intValue", 42);
+        Assert.AreEqual(42, intAttribute.ReadInt());
+        Assert.AreEqual(42, intAttribute.ReadInt32());
+        Assert.AreEqual(42, intAttribute.GetInt32Value());
+
+        ExrAttribute floatAttribute = ExrAttribute.FromFloat("floatValue", 1.25f);
+        Assert.AreEqual(1.25f, floatAttribute.ReadFloat());
+        Assert.AreEqual(1.25f, floatAttribute.ReadSingle());
+        Assert.AreEqual(1.25f, floatAttribute.GetFloatValue());
+        Assert.AreEqual(1.25f, floatAttribute.GetSingleValue());
+
+        ExrAttribute doubleAttribute = ExrAttribute.FromDouble("doubleValue", 2.5d);
+        Assert.AreEqual(2.5d, doubleAttribute.ReadDouble());
+        Assert.AreEqual(2.5d, doubleAttribute.GetDoubleValue());
+
+        ExrAttribute stringAttribute = ExrAttribute.FromString("stringValue", "hello");
+        Assert.AreEqual("hello", stringAttribute.ReadString());
+        Assert.AreEqual("hello", stringAttribute.GetStringValue());
+
+        ExrAttribute vectorAttribute = new ExrAttribute("vector", "v2f", EncodeSingles(3.5f, 4.5f));
+        Assert.AreEqual(3.5f, vectorAttribute.ReadFloat(0));
+        Assert.AreEqual(4.5f, vectorAttribute.ReadFloat(sizeof(float)));
+        CollectionAssert.AreEqual(
+            new byte[] { vectorAttribute.Value[4], vectorAttribute.Value[5], vectorAttribute.Value[6], vectorAttribute.Value[7] },
+            vectorAttribute.ReadBytes(sizeof(float), sizeof(float)).ToArray());
+
+        Assert.IsNull(floatAttribute.GetInt32Value());
+        AssertThrows<InvalidOperationException>(() => intAttribute.ReadDouble());
+        AssertThrows<ArgumentOutOfRangeException>(() => intAttribute.ReadInt(-1));
+    }
+
     [TestMethod(DisplayName = "[TinyEXR.NET Test] StandardAttributes|OfficialSamples|RawRoundTrip")]
     public void Case_StandardAttributes_OfficialSamples_raw_round_trip()
     {
@@ -95,6 +129,32 @@ public sealed class StandardAttributeTests
         }
 
         return data;
+    }
+
+    private static byte[] EncodeSingles(params float[] values)
+    {
+        byte[] data = new byte[checked(values.Length * sizeof(float))];
+        for (int index = 0; index < values.Length; index++)
+        {
+            BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(index * sizeof(float), sizeof(float)), BitConverter.SingleToInt32Bits(values[index]));
+        }
+
+        return data;
+    }
+
+    private static void AssertThrows<TException>(Action action)
+        where TException : Exception
+    {
+        try
+        {
+            action();
+        }
+        catch (TException)
+        {
+            return;
+        }
+
+        Assert.Fail($"Expected exception of type {typeof(TException).Name}.");
     }
 
     private static ExrAttribute GetCustomAttribute(ExrHeader header, string name)

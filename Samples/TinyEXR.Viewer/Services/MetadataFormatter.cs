@@ -1,4 +1,3 @@
-using System.Buffers.Binary;
 using System.Globalization;
 using System.Text;
 using TinyEXR;
@@ -188,21 +187,27 @@ internal sealed class MetadataFormatter
 
     private static string FormatAttribute(ExrAttribute attribute)
     {
-        if (attribute.GetStringValue() is string stringValue)
+        if (string.Equals(attribute.TypeName, "string", StringComparison.Ordinal))
         {
-            return stringValue;
+            return attribute.ReadString();
         }
 
-        if (attribute.GetInt32Value() is int intValue)
+        if (string.Equals(attribute.TypeName, "int", StringComparison.Ordinal) &&
+            attribute.Value.Length >= sizeof(int))
         {
-            return intValue.ToString();
+            return attribute.ReadInt().ToString();
         }
 
         if (string.Equals(attribute.TypeName, "float", StringComparison.Ordinal) &&
             attribute.Value.Length >= sizeof(float))
         {
-            float floatValue = BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(attribute.Value));
-            return floatValue.ToString("G9", CultureInfo.InvariantCulture);
+            return attribute.ReadFloat().ToString("G9", CultureInfo.InvariantCulture);
+        }
+
+        if (string.Equals(attribute.TypeName, "double", StringComparison.Ordinal) &&
+            attribute.Value.Length >= sizeof(double))
+        {
+            return attribute.ReadDouble().ToString("G17", CultureInfo.InvariantCulture);
         }
 
         if (attribute.Value.Length == 0)
