@@ -48,6 +48,16 @@ namespace TinyEXR
             ProcessImage(header, image);
         }
 
+        public void Read(Stream stream)
+        {
+            ResultCode headerResult = Exr.ParseEXRHeaderFromStream(stream, out _, out ExrHeader header);
+            ThrowOnFailure(headerResult, null);
+
+            ResultCode result = Exr.LoadEXRImageFromStream(stream, header, out ExrImage image);
+            ThrowOnFailure(result, null);
+            ProcessImage(header, image);
+        }
+
         public ReadOnlySpan<byte> GetImageData(int channel)
         {
             if (channel < 0 || channel >= _channelData.Length)

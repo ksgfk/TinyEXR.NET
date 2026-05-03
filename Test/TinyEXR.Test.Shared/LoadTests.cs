@@ -500,6 +500,108 @@ public sealed class LoadTests
         Assert.AreEqual(header.Channels.Count, image.Channels.Count);
     }
 
+    [TestMethod(DisplayName = "[TinyEXR.NET Test] Stream read APIs match file APIs")]
+    public void Case_StreamReadApis_Match_FileApis()
+    {
+        string singlePartPath = TestPaths.OpenExr("ScanLines/Desk.exr");
+        Assert.AreEqual(ResultCode.Success, Exr.ParseEXRVersionFromFile(singlePartPath, out ExrVersion expectedVersion));
+        Assert.AreEqual(ResultCode.Success, Exr.ParseEXRHeaderFromFile(singlePartPath, out _, out ExrHeader expectedHeader));
+        Assert.AreEqual(ResultCode.Success, Exr.LoadEXRImageFromFile(singlePartPath, expectedHeader, out ExrImage expectedImage));
+        Assert.AreEqual(ResultCode.Success, Exr.LoadEXR(singlePartPath, out float[] expectedRgba, out int expectedWidth, out int expectedHeight));
+
+        using (FileStream versionStream = File.OpenRead(singlePartPath))
+        {
+            Assert.AreEqual(ResultCode.Success, Exr.ParseEXRVersionFromStream(versionStream, out ExrVersion streamVersion));
+            Assert.AreEqual(0, versionStream.Position);
+            Assert.AreEqual(expectedVersion.Tiled, streamVersion.Tiled);
+            Assert.AreEqual(expectedVersion.Multipart, streamVersion.Multipart);
+            Assert.AreEqual(expectedVersion.NonImage, streamVersion.NonImage);
+        }
+
+        using (FileStream headerStream = File.OpenRead(singlePartPath))
+        {
+            Assert.AreEqual(ResultCode.Success, Exr.ParseEXRHeaderFromStream(headerStream, out _, out ExrHeader streamHeader));
+            Assert.AreEqual(0, headerStream.Position);
+            ExrTestHelper.EqualHeaders(expectedHeader, streamHeader);
+        }
+
+        using (FileStream imageStream = File.OpenRead(singlePartPath))
+        {
+            Assert.AreEqual(ResultCode.Success, Exr.LoadEXRImageFromStream(imageStream, expectedHeader, out ExrImage streamImage));
+            Assert.AreEqual(0, imageStream.Position);
+            ExrTestHelper.EqualImages(expectedImage, streamImage);
+        }
+
+        using (FileStream rgbaStream = File.OpenRead(singlePartPath))
+        {
+            Assert.AreEqual(ResultCode.Success, Exr.LoadEXRFromStream(rgbaStream, out float[] streamRgba, out int streamWidth, out int streamHeight));
+            Assert.AreEqual(0, rgbaStream.Position);
+            Assert.AreEqual(expectedWidth, streamWidth);
+            Assert.AreEqual(expectedHeight, streamHeight);
+            CollectionAssert.AreEqual(expectedRgba, streamRgba);
+        }
+
+        using (FileStream layersStream = File.OpenRead(singlePartPath))
+        {
+            Assert.AreEqual(ResultCode.Success, Exr.EXRLayers(singlePartPath, out string[] expectedLayers));
+            Assert.AreEqual(ResultCode.Success, Exr.EXRLayersFromStream(layersStream, out string[] streamLayers));
+            Assert.AreEqual(0, layersStream.Position);
+            CollectionAssert.AreEqual(expectedLayers, streamLayers);
+        }
+
+        string multipartPath = TestPaths.OpenExr("Beachball/multipart.0001.exr");
+        Assert.AreEqual(ResultCode.Success, Exr.ParseEXRMultipartHeaderFromFile(multipartPath, out _, out ExrMultipartHeader expectedMultipartHeaders));
+        Assert.AreEqual(ResultCode.Success, Exr.LoadEXRMultipartImageFromFile(multipartPath, expectedMultipartHeaders, out ExrMultipartImage expectedMultipartImages));
+
+        using (FileStream multipartHeaderStream = File.OpenRead(multipartPath))
+        {
+            Assert.AreEqual(ResultCode.Success, Exr.ParseEXRMultipartHeaderFromStream(multipartHeaderStream, out ExrVersion streamVersion, out ExrMultipartHeader streamHeaders));
+            Assert.AreEqual(0, multipartHeaderStream.Position);
+            Assert.IsTrue(streamVersion.Multipart);
+            Assert.AreEqual(expectedMultipartHeaders.Headers.Count, streamHeaders.Headers.Count);
+        }
+
+        using (FileStream multipartImageStream = File.OpenRead(multipartPath))
+        {
+            Assert.AreEqual(ResultCode.Success, Exr.LoadEXRMultipartImageFromStream(multipartImageStream, expectedMultipartHeaders, out ExrMultipartImage streamImages));
+            Assert.AreEqual(0, multipartImageStream.Position);
+            Assert.AreEqual(expectedMultipartImages.Images.Count, streamImages.Images.Count);
+        }
+
+        string deepPath = Path.Combine(TestPaths.NativeTinyExrRoot, "deepscanline.exr");
+        Assert.AreEqual(ResultCode.Success, Exr.LoadDeepEXR(deepPath, out ExrHeader expectedDeepHeader, out ExrDeepImage expectedDeepImage));
+        using (FileStream deepStream = File.OpenRead(deepPath))
+        {
+            Assert.AreEqual(ResultCode.Success, Exr.LoadDeepEXRFromStream(deepStream, out ExrHeader streamDeepHeader, out ExrDeepImage streamDeepImage));
+            Assert.AreEqual(0, deepStream.Position);
+            ExrTestHelper.EqualHeaders(expectedDeepHeader, streamDeepHeader);
+            Assert.AreEqual(expectedDeepImage.Width, streamDeepImage.Width);
+            Assert.AreEqual(expectedDeepImage.Height, streamDeepImage.Height);
+            Assert.AreEqual(expectedDeepImage.Channels.Count, streamDeepImage.Channels.Count);
+        }
+
+        using (FileStream readerStream = File.OpenRead(singlePartPath))
+        {
+            SinglePartExrReader reader = new();
+            reader.Read(readerStream);
+            Assert.AreEqual(0, readerStream.Position);
+            Assert.AreEqual(expectedHeader.DataWindow.Width, reader.Width);
+            Assert.AreEqual(expectedHeader.DataWindow.Height, reader.Height);
+        }
+    }
+
+    [TestMethod(DisplayName = "[TinyEXR.NET Test] Stream APIs require seekable streams")]
+    public void Case_StreamReadApis_RequireSeekableStreams()
+    {
+        byte[] data = File.ReadAllBytes(TestPaths.Asakusa);
+        using NonSeekableReadStream stream = new(data);
+
+        Assert.AreEqual(ResultCode.InvalidArgument, Exr.ParseEXRVersionFromStream(stream, out _));
+        Assert.IsFalse(Exr.IsEXRFromStream(stream));
+        Assert.AreEqual(ResultCode.InvalidArgument, Exr.ParseEXRHeaderFromStream(stream, out _, out _));
+        Assert.AreEqual(ResultCode.InvalidArgument, Exr.LoadEXRFromStream(stream, out _, out _, out _));
+    }
+
     private static void AssertSinglePartLoads(string relativePath)
     {
         string path = TestPaths.OpenExr(relativePath);
@@ -597,4 +699,14 @@ public sealed class LoadTests
         int Width,
         int Height,
         bool IsCube);
+
+    private sealed class NonSeekableReadStream : MemoryStream
+    {
+        public NonSeekableReadStream(byte[] buffer)
+            : base(buffer, writable: false)
+        {
+        }
+
+        public override bool CanSeek => false;
+    }
 }

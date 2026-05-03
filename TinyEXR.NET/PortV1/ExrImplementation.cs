@@ -38,6 +38,97 @@ namespace TinyEXR.PortV1
             public List<byte[]> Chunks { get; } = new List<byte[]>();
         }
 
+        private readonly ref struct ExrSource
+        {
+            private readonly ReadOnlySpan<byte> _data;
+            private readonly Stream _stream;
+            private readonly long _origin;
+
+            public ExrSource(ReadOnlySpan<byte> data)
+            {
+                _data = data;
+                _stream = null!;
+                _origin = 0;
+                Length = data.Length;
+            }
+
+            public ExrSource(Stream stream)
+            {
+                _data = default;
+                _stream = stream;
+                _origin = stream.Position;
+                Length = stream.Length - _origin;
+            }
+
+            public long Length { get; }
+
+            public ResultCode TryRead(long offset, Span<byte> destination)
+            {
+                if (offset < 0 || destination.Length < 0 || offset > Length - destination.Length)
+                {
+                    return ResultCode.InvalidData;
+                }
+
+                if (_stream == null)
+                {
+                    _data.Slice((int)offset, destination.Length).CopyTo(destination);
+                    return ResultCode.Success;
+                }
+
+                long previousPosition = _origin;
+                try
+                {
+                    previousPosition = _stream.Position;
+                    _stream.Seek(_origin + offset, SeekOrigin.Begin);
+                    int total = 0;
+                    while (total < destination.Length)
+                    {
+                        int read = _stream.Read(destination.Slice(total));
+                        if (read <= 0)
+                        {
+                            return ResultCode.InvalidData;
+                        }
+
+                        total += read;
+                    }
+
+                    return ResultCode.Success;
+                }
+                catch (ArgumentException)
+                {
+                    return ResultCode.InvalidArgument;
+                }
+                catch (NotSupportedException)
+                {
+                    return ResultCode.InvalidArgument;
+                }
+                catch (ObjectDisposedException)
+                {
+                    return ResultCode.InvalidArgument;
+                }
+                catch (IOException)
+                {
+                    return ResultCode.InvalidData;
+                }
+                finally
+                {
+                    if (_stream.CanSeek)
+                    {
+                        try
+                        {
+                            _stream.Position = previousPosition;
+                        }
+                        catch (ArgumentException)
+                        {
+                        }
+                        catch (IOException)
+                        {
+                        }
+                    }
+                }
+            }
+        }
+
         private readonly struct LayerChannel
         {
             public LayerChannel(int index, string name)
@@ -52,6 +143,44 @@ namespace TinyEXR.PortV1
         }
 
         internal static ResultCode TryReadVersion(ReadOnlySpan<byte> data, out ExrVersion version)
+        {
+            version = new ExrVersion();
+            ExrSource source = new ExrSource(data);
+            return TryReadVersion(source, out version);
+        }
+
+        internal static ResultCode TryReadVersion(Stream stream, out ExrVersion version)
+        {
+            version = new ExrVersion();
+            ResultCode sourceResult = TryCreateStreamSource(stream, out ExrSource source);
+            if (sourceResult != ResultCode.Success)
+            {
+                return sourceResult;
+            }
+
+            return TryReadVersion(source, out version);
+        }
+
+        private static ResultCode TryReadVersion(ExrSource source, out ExrVersion version)
+        {
+            version = new ExrVersion();
+
+            if (source.Length < ExrVersionHeaderSize)
+            {
+                return ResultCode.InvalidExrVersion;
+            }
+
+            Span<byte> data = stackalloc byte[ExrVersionHeaderSize];
+            ResultCode readResult = source.TryRead(0, data);
+            if (readResult != ResultCode.Success)
+            {
+                return readResult;
+            }
+
+            return TryReadVersionBytes(data, out version);
+        }
+
+        private static ResultCode TryReadVersionBytes(ReadOnlySpan<byte> data, out ExrVersion version)
         {
             version = new ExrVersion();
 
@@ -82,9 +211,28 @@ namespace TinyEXR.PortV1
 
         internal static ResultCode TryReadHeader(ReadOnlySpan<byte> data, out ExrVersion version, out ExrHeader header)
         {
+            ExrSource source = new ExrSource(data);
+            return TryReadHeader(source, out version, out header);
+        }
+
+        internal static ResultCode TryReadHeader(Stream stream, out ExrVersion version, out ExrHeader header)
+        {
+            ResultCode sourceResult = TryCreateStreamSource(stream, out ExrSource source);
+            if (sourceResult != ResultCode.Success)
+            {
+                version = new ExrVersion();
+                header = new ExrHeader();
+                return sourceResult;
+            }
+
+            return TryReadHeader(source, out version, out header);
+        }
+
+        private static ResultCode TryReadHeader(ExrSource source, out ExrVersion version, out ExrHeader header)
+        {
             try
             {
-                ResultCode result = TryParseHeader(data, out ParsedHeader? parsed);
+                ResultCode result = TryParseHeader(source, out ParsedHeader? parsed);
                 if (result == ResultCode.Success)
                 {
                     version = parsed!.Version;
@@ -112,10 +260,29 @@ namespace TinyEXR.PortV1
 
         internal static ResultCode TryReadMultipartHeaders(ReadOnlySpan<byte> data, out ExrVersion version, out ExrHeader[] headers)
         {
+            ExrSource source = new ExrSource(data);
+            return TryReadMultipartHeaders(source, out version, out headers);
+        }
+
+        internal static ResultCode TryReadMultipartHeaders(Stream stream, out ExrVersion version, out ExrHeader[] headers)
+        {
+            ResultCode sourceResult = TryCreateStreamSource(stream, out ExrSource source);
+            if (sourceResult != ResultCode.Success)
+            {
+                version = new ExrVersion();
+                headers = Array.Empty<ExrHeader>();
+                return sourceResult;
+            }
+
+            return TryReadMultipartHeaders(source, out version, out headers);
+        }
+
+        private static ResultCode TryReadMultipartHeaders(ExrSource source, out ExrVersion version, out ExrHeader[] headers)
+        {
             headers = Array.Empty<ExrHeader>();
             try
             {
-                ResultCode result = TryParseMultipartHeaders(data, out ParsedMultipartHeaders? parsed);
+                ResultCode result = TryParseMultipartHeaders(source, out ParsedMultipartHeaders? parsed);
                 if (result != ResultCode.Success)
                 {
                     version = new ExrVersion();
@@ -140,13 +307,32 @@ namespace TinyEXR.PortV1
 
         internal static ResultCode TryReadImage(ReadOnlySpan<byte> data, out ExrHeader header, out ExrImage image)
         {
+            ExrSource source = new ExrSource(data);
+            return TryReadImage(source, out header, out image);
+        }
+
+        internal static ResultCode TryReadImage(Stream stream, out ExrHeader header, out ExrImage image)
+        {
+            ResultCode sourceResult = TryCreateStreamSource(stream, out ExrSource source);
+            if (sourceResult != ResultCode.Success)
+            {
+                header = new ExrHeader();
+                image = new ExrImage(0, 0, Array.Empty<ExrImageChannel>());
+                return sourceResult;
+            }
+
+            return TryReadImage(source, out header, out image);
+        }
+
+        private static ResultCode TryReadImage(ExrSource source, out ExrHeader header, out ExrImage image)
+        {
             header = new ExrHeader();
             image = new ExrImage(0, 0, Array.Empty<ExrImageChannel>());
 
             ParsedHeader? parsed;
             try
             {
-                ResultCode result = TryParseHeader(data, out parsed);
+                ResultCode result = TryParseHeader(source, out parsed);
                 if (result != ResultCode.Success)
                 {
                     return result;
@@ -171,13 +357,13 @@ namespace TinyEXR.PortV1
                     return readValidation;
                 }
 
-                ResultCode offsetResult = TryReadSinglePartChunkOffsets(data, parsed, out long[] offsets);
+                ResultCode offsetResult = TryReadSinglePartChunkOffsets(source, parsed, out long[] offsets);
                 if (offsetResult != ResultCode.Success)
                 {
                     return offsetResult;
                 }
 
-                return TryDecodeImage(data, parsed, offsets, out image);
+                return TryDecodeImage(source, parsed, offsets, out image);
             }
             catch (OverflowException)
             {
@@ -193,6 +379,24 @@ namespace TinyEXR.PortV1
 
         internal static ResultCode TryReadImage(ReadOnlySpan<byte> data, ExrHeader requestedHeader, out ExrImage image)
         {
+            ExrSource source = new ExrSource(data);
+            return TryReadImage(source, requestedHeader, out image);
+        }
+
+        internal static ResultCode TryReadImage(Stream stream, ExrHeader requestedHeader, out ExrImage image)
+        {
+            ResultCode sourceResult = TryCreateStreamSource(stream, out ExrSource source);
+            if (sourceResult != ResultCode.Success)
+            {
+                image = new ExrImage(0, 0, Array.Empty<ExrImageChannel>());
+                return sourceResult;
+            }
+
+            return TryReadImage(source, requestedHeader, out image);
+        }
+
+        private static ResultCode TryReadImage(ExrSource source, ExrHeader requestedHeader, out ExrImage image)
+        {
             image = new ExrImage(0, 0, Array.Empty<ExrImageChannel>());
             if (requestedHeader == null)
             {
@@ -202,7 +406,7 @@ namespace TinyEXR.PortV1
             ParsedHeader? parsed;
             try
             {
-                ResultCode result = TryParseHeader(data, out parsed);
+                ResultCode result = TryParseHeader(source, out parsed);
                 if (result != ResultCode.Success)
                 {
                     return result;
@@ -237,13 +441,13 @@ namespace TinyEXR.PortV1
                     return readValidation;
                 }
 
-                ResultCode offsetResult = TryReadSinglePartChunkOffsets(data, effectiveParsed, out long[] offsets);
+                ResultCode offsetResult = TryReadSinglePartChunkOffsets(source, effectiveParsed, out long[] offsets);
                 if (offsetResult != ResultCode.Success)
                 {
                     return offsetResult;
                 }
 
-                return TryDecodeImage(data, effectiveParsed, offsets, out image);
+                return TryDecodeImage(source, effectiveParsed, offsets, out image);
             }
             catch (OverflowException)
             {
@@ -259,6 +463,24 @@ namespace TinyEXR.PortV1
 
         internal static ResultCode TryReadMultipartImages(ReadOnlySpan<byte> data, IReadOnlyList<ExrHeader> requestedHeaders, out ExrImage[] images)
         {
+            ExrSource source = new ExrSource(data);
+            return TryReadMultipartImages(source, requestedHeaders, out images);
+        }
+
+        internal static ResultCode TryReadMultipartImages(Stream stream, IReadOnlyList<ExrHeader> requestedHeaders, out ExrImage[] images)
+        {
+            ResultCode sourceResult = TryCreateStreamSource(stream, out ExrSource source);
+            if (sourceResult != ResultCode.Success)
+            {
+                images = Array.Empty<ExrImage>();
+                return sourceResult;
+            }
+
+            return TryReadMultipartImages(source, requestedHeaders, out images);
+        }
+
+        private static ResultCode TryReadMultipartImages(ExrSource source, IReadOnlyList<ExrHeader> requestedHeaders, out ExrImage[] images)
+        {
             images = Array.Empty<ExrImage>();
             if (requestedHeaders == null)
             {
@@ -268,7 +490,7 @@ namespace TinyEXR.PortV1
             ParsedMultipartHeaders? parsed;
             try
             {
-                ResultCode result = TryParseMultipartHeaders(data, out parsed);
+                ResultCode result = TryParseMultipartHeaders(source, out parsed);
                 if (result != ResultCode.Success)
                 {
                     return result;
@@ -302,7 +524,7 @@ namespace TinyEXR.PortV1
                 }
             }
 
-            ResultCode offsetReadResult = TryReadMultipartChunkOffsets(data, parsed, out long[][] offsetsByPart);
+            ResultCode offsetReadResult = TryReadMultipartChunkOffsets(source, parsed, out long[][] offsetsByPart);
             if (offsetReadResult != ResultCode.Success)
             {
                 return offsetReadResult;
@@ -311,7 +533,7 @@ namespace TinyEXR.PortV1
             images = new ExrImage[parsed.Headers.Count];
             for (int i = 0; i < parsed.Headers.Count; i++)
             {
-                ResultCode decodeResult = TryDecodeImage(data, parsed.Headers[i], offsetsByPart[i], out ExrImage image);
+                ResultCode decodeResult = TryDecodeImage(source, parsed.Headers[i], offsetsByPart[i], out ExrImage image);
                 if (decodeResult != ResultCode.Success)
                 {
                     images = Array.Empty<ExrImage>();
@@ -326,13 +548,32 @@ namespace TinyEXR.PortV1
 
         internal static ResultCode TryReadDeepImage(ReadOnlySpan<byte> data, out ExrHeader header, out ExrDeepImage image)
         {
+            ExrSource source = new ExrSource(data);
+            return TryReadDeepImage(source, out header, out image);
+        }
+
+        internal static ResultCode TryReadDeepImage(Stream stream, out ExrHeader header, out ExrDeepImage image)
+        {
+            ResultCode sourceResult = TryCreateStreamSource(stream, out ExrSource source);
+            if (sourceResult != ResultCode.Success)
+            {
+                header = new ExrHeader();
+                image = new ExrDeepImage(0, 0, Array.Empty<int[]>(), Array.Empty<ExrDeepChannel>());
+                return sourceResult;
+            }
+
+            return TryReadDeepImage(source, out header, out image);
+        }
+
+        private static ResultCode TryReadDeepImage(ExrSource source, out ExrHeader header, out ExrDeepImage image)
+        {
             header = new ExrHeader();
             image = new ExrDeepImage(0, 0, Array.Empty<int[]>(), Array.Empty<ExrDeepChannel>());
 
             ParsedHeader? parsed;
             try
             {
-                ResultCode result = TryParseDeepHeader(data, out parsed);
+                ResultCode result = TryParseDeepHeader(source, out parsed);
                 if (result != ResultCode.Success)
                 {
                     return result;
@@ -366,7 +607,7 @@ namespace TinyEXR.PortV1
 
             try
             {
-                return TryDecodeDeepImage(data, parsed, out image);
+                return TryDecodeDeepImage(source, parsed, out image);
             }
             catch (OverflowException)
             {
@@ -382,8 +623,26 @@ namespace TinyEXR.PortV1
 
         internal static ResultCode TryReadLayers(ReadOnlySpan<byte> data, out string[] layers)
         {
+            ExrSource source = new ExrSource(data);
+            return TryReadLayers(source, out layers);
+        }
+
+        internal static ResultCode TryReadLayers(Stream stream, out string[] layers)
+        {
+            ResultCode sourceResult = TryCreateStreamSource(stream, out ExrSource source);
+            if (sourceResult != ResultCode.Success)
+            {
+                layers = Array.Empty<string>();
+                return sourceResult;
+            }
+
+            return TryReadLayers(source, out layers);
+        }
+
+        private static ResultCode TryReadLayers(ExrSource source, out string[] layers)
+        {
             layers = Array.Empty<string>();
-            ResultCode result = TryParseHeader(data, out ParsedHeader? parsed);
+            ResultCode result = TryParseHeader(source, out ParsedHeader? parsed);
             if (result != ResultCode.Success)
             {
                 return result;
@@ -395,11 +654,31 @@ namespace TinyEXR.PortV1
 
         internal static ResultCode TryReadRgba(ReadOnlySpan<byte> data, string? layerName, out float[] rgba, out int width, out int height)
         {
+            ExrSource source = new ExrSource(data);
+            return TryReadRgba(source, layerName, out rgba, out width, out height);
+        }
+
+        internal static ResultCode TryReadRgba(Stream stream, string? layerName, out float[] rgba, out int width, out int height)
+        {
+            ResultCode sourceResult = TryCreateStreamSource(stream, out ExrSource source);
+            if (sourceResult != ResultCode.Success)
+            {
+                rgba = Array.Empty<float>();
+                width = 0;
+                height = 0;
+                return sourceResult;
+            }
+
+            return TryReadRgba(source, layerName, out rgba, out width, out height);
+        }
+
+        private static ResultCode TryReadRgba(ExrSource source, string? layerName, out float[] rgba, out int width, out int height)
+        {
             rgba = Array.Empty<float>();
             width = 0;
             height = 0;
 
-            ResultCode versionResult = TryReadVersion(data, out ExrVersion version);
+            ResultCode versionResult = TryReadVersion(source, out ExrVersion version);
             if (versionResult != ResultCode.Success)
             {
                 return versionResult;
@@ -412,11 +691,20 @@ namespace TinyEXR.PortV1
                 return ResultCode.InvalidData;
             }
 
-            ResultCode result = TryReadImage(data, out ExrHeader header, out ExrImage image);
+            ResultCode result = TryReadImage(source, out ExrHeader header, out ExrImage image);
             if (result != ResultCode.Success)
             {
                 return result;
             }
+
+            return TryBuildRgbaFromImage(header, image, layerName, out rgba, out width, out height);
+        }
+
+        private static ResultCode TryBuildRgbaFromImage(ExrHeader header, ExrImage image, string? layerName, out float[] rgba, out int width, out int height)
+        {
+            rgba = Array.Empty<float>();
+            width = 0;
+            height = 0;
 
             List<LayerChannel> layerChannels = GetChannelsInLayer(header, layerName);
             if (layerChannels.Count == 0)
@@ -1176,7 +1464,201 @@ namespace TinyEXR.PortV1
             };
         }
 
-        private static ResultCode TryReadSinglePartChunkOffsets(ReadOnlySpan<byte> data, ParsedHeader parsed, out long[] offsets)
+        private static ResultCode TryCreateStreamSource(Stream stream, out ExrSource source)
+        {
+            source = default;
+            if (stream == null || !stream.CanRead || !stream.CanSeek)
+            {
+                return ResultCode.InvalidArgument;
+            }
+
+            try
+            {
+                source = new ExrSource(stream);
+                return source.Length < 0 ? ResultCode.InvalidArgument : ResultCode.Success;
+            }
+            catch (ArgumentException)
+            {
+                return ResultCode.InvalidArgument;
+            }
+            catch (NotSupportedException)
+            {
+                return ResultCode.InvalidArgument;
+            }
+            catch (ObjectDisposedException)
+            {
+                return ResultCode.InvalidArgument;
+            }
+            catch (IOException)
+            {
+                return ResultCode.InvalidArgument;
+            }
+        }
+
+        private static ResultCode TryReadHeaderSection(ExrSource source, out byte[] headerData)
+        {
+            headerData = Array.Empty<byte>();
+
+            if (source.Length < ExrVersionHeaderSize)
+            {
+                return ResultCode.InvalidExrVersion;
+            }
+
+            byte[] versionBytes = new byte[ExrVersionHeaderSize];
+            ResultCode versionReadResult = source.TryRead(0, versionBytes);
+            if (versionReadResult != ResultCode.Success)
+            {
+                return versionReadResult;
+            }
+
+            ResultCode versionResult = TryReadVersion(versionBytes, out ExrVersion version);
+            if (versionResult != ResultCode.Success)
+            {
+                return versionResult;
+            }
+
+            using MemoryStream header = new MemoryStream();
+            header.Write(versionBytes, 0, versionBytes.Length);
+            long offset = ExrVersionHeaderSize;
+            while (true)
+            {
+                ResultCode headerResult = TryAppendHeader(source, header, ref offset, out bool emptyHeader);
+                if (headerResult != ResultCode.Success)
+                {
+                    return headerResult;
+                }
+
+                if (!version.Multipart || emptyHeader)
+                {
+                    headerData = header.ToArray();
+                    return ResultCode.Success;
+                }
+            }
+        }
+
+        private static ResultCode TryAppendHeader(ExrSource source, MemoryStream header, ref long offset, out bool emptyHeader)
+        {
+            emptyHeader = false;
+            bool hasAttributes = false;
+            while (true)
+            {
+                ResultCode nameResult = TryAppendNullTerminatedField(source, header, ref offset, out int nameByteCount);
+                if (nameResult != ResultCode.Success)
+                {
+                    return nameResult;
+                }
+
+                if (nameByteCount == 1)
+                {
+                    emptyHeader = !hasAttributes;
+                    return ResultCode.Success;
+                }
+
+                hasAttributes = true;
+
+                ResultCode typeResult = TryAppendNullTerminatedField(source, header, ref offset, out int _);
+                if (typeResult != ResultCode.Success)
+                {
+                    return typeResult;
+                }
+
+                byte[] sizeBytes = new byte[sizeof(int)];
+                ResultCode sizeResult = source.TryRead(offset, sizeBytes);
+                if (sizeResult != ResultCode.Success)
+                {
+                    return sizeResult;
+                }
+
+                header.Write(sizeBytes, 0, sizeBytes.Length);
+                offset += sizeBytes.Length;
+
+                int valueSize = BinaryPrimitives.ReadInt32LittleEndian(sizeBytes);
+                if (valueSize < 0 || offset > source.Length - valueSize)
+                {
+                    return ResultCode.InvalidData;
+                }
+
+                if (valueSize == 0)
+                {
+                    continue;
+                }
+
+                byte[] value = new byte[valueSize];
+                ResultCode valueResult = source.TryRead(offset, value);
+                if (valueResult != ResultCode.Success)
+                {
+                    return valueResult;
+                }
+
+                header.Write(value, 0, value.Length);
+                offset += value.Length;
+            }
+        }
+
+        private static ResultCode TryAppendNullTerminatedField(ExrSource source, MemoryStream header, ref long offset, out int byteCount)
+        {
+            byteCount = 0;
+            Span<byte> buffer = stackalloc byte[1];
+            while (true)
+            {
+                ResultCode readResult = source.TryRead(offset, buffer);
+                if (readResult != ResultCode.Success)
+                {
+                    return readResult;
+                }
+
+                header.WriteByte(buffer[0]);
+                offset++;
+                byteCount++;
+
+                if (buffer[0] == 0)
+                {
+                    return ResultCode.Success;
+                }
+            }
+        }
+
+        private static ResultCode TryReadInt32(ExrSource source, long offset, out int value)
+        {
+            value = 0;
+            Span<byte> buffer = stackalloc byte[sizeof(int)];
+            ResultCode result = source.TryRead(offset, buffer);
+            if (result != ResultCode.Success)
+            {
+                return result;
+            }
+
+            value = BinaryPrimitives.ReadInt32LittleEndian(buffer);
+            return ResultCode.Success;
+        }
+
+        private static ResultCode TryReadInt64(ExrSource source, long offset, out long value)
+        {
+            value = 0;
+            Span<byte> buffer = stackalloc byte[sizeof(long)];
+            ResultCode result = source.TryRead(offset, buffer);
+            if (result != ResultCode.Success)
+            {
+                return result;
+            }
+
+            value = BinaryPrimitives.ReadInt64LittleEndian(buffer);
+            return ResultCode.Success;
+        }
+
+        private static ResultCode TryReadBytes(ExrSource source, long offset, int length, out byte[] data)
+        {
+            data = Array.Empty<byte>();
+            if (length < 0)
+            {
+                return ResultCode.InvalidData;
+            }
+
+            data = new byte[length];
+            return source.TryRead(offset, data);
+        }
+
+        private static ResultCode TryReadSinglePartChunkOffsets(ExrSource source, ParsedHeader parsed, out long[] offsets)
         {
             ExrHeader header = parsed.Header;
             int chunkCount;
@@ -1193,7 +1675,7 @@ namespace TinyEXR.PortV1
 
             int offsetTableOffset = parsed.HeaderEndOffset;
             int offsetTableSize = checked(chunkCount * sizeof(long));
-            if (offsetTableOffset < 0 || offsetTableOffset + offsetTableSize > data.Length)
+            if (offsetTableOffset < 0 || offsetTableOffset > source.Length - offsetTableSize)
             {
                 offsets = Array.Empty<long>();
                 return ResultCode.InvalidData;
@@ -1202,14 +1684,19 @@ namespace TinyEXR.PortV1
             offsets = new long[chunkCount];
             for (int i = 0; i < chunkCount; i++)
             {
-                offsets[i] = BinaryPrimitives.ReadInt64LittleEndian(data.Slice(offsetTableOffset + i * sizeof(long), sizeof(long)));
+                ResultCode readResult = TryReadInt64(source, offsetTableOffset + i * sizeof(long), out offsets[i]);
+                if (readResult != ResultCode.Success)
+                {
+                    offsets = Array.Empty<long>();
+                    return readResult;
+                }
             }
 
             if (ContainsInvalidOffsets(offsets))
             {
                 ResultCode reconstructResult = header.Tiles == null
-                    ? TryReconstructLineOffsets(data, parsed, offsets)
-                    : TryReconstructTileOffsets(data, parsed, offsets);
+                    ? TryReconstructLineOffsets(source, parsed, offsets)
+                    : TryReconstructTileOffsets(source, parsed, offsets);
                 if (reconstructResult != ResultCode.Success)
                 {
                     offsets = Array.Empty<long>();
@@ -1220,7 +1707,7 @@ namespace TinyEXR.PortV1
             return ResultCode.Success;
         }
 
-        private static ResultCode TryReadMultipartChunkOffsets(ReadOnlySpan<byte> data, ParsedMultipartHeaders parsed, out long[][] offsetsByPart)
+        private static ResultCode TryReadMultipartChunkOffsets(ExrSource source, ParsedMultipartHeaders parsed, out long[][] offsetsByPart)
         {
             offsetsByPart = Array.Empty<long[]>();
             int marker = parsed.HeaderSectionEndOffset;
@@ -1240,7 +1727,7 @@ namespace TinyEXR.PortV1
                 }
 
                 int offsetTableSize = checked(chunkCount * sizeof(long));
-                if (marker < 0 || marker + offsetTableSize > data.Length)
+                if (marker < 0 || marker > source.Length - offsetTableSize)
                 {
                     return ResultCode.InvalidData;
                 }
@@ -1248,13 +1735,23 @@ namespace TinyEXR.PortV1
                 long[] offsets = new long[chunkCount];
                 for (int i = 0; i < chunkCount; i++)
                 {
-                    long rawOffset = BinaryPrimitives.ReadInt64LittleEndian(data.Slice(marker + i * sizeof(long), sizeof(long)));
-                    if (rawOffset < 0 || rawOffset + sizeof(int) >= data.Length)
+                    ResultCode offsetResult = TryReadInt64(source, marker + i * sizeof(long), out long rawOffset);
+                    if (offsetResult != ResultCode.Success)
+                    {
+                        return offsetResult;
+                    }
+
+                    if (rawOffset < 0 || rawOffset > source.Length - sizeof(int))
                     {
                         return ResultCode.InvalidData;
                     }
 
-                    int partNumber = BinaryPrimitives.ReadInt32LittleEndian(data.Slice((int)rawOffset, sizeof(int)));
+                    ResultCode partResult = TryReadInt32(source, rawOffset, out int partNumber);
+                    if (partResult != ResultCode.Success)
+                    {
+                        return partResult;
+                    }
+
                     if (partNumber != partIndex)
                     {
                         return ResultCode.InvalidData;
@@ -1271,11 +1768,11 @@ namespace TinyEXR.PortV1
             return ResultCode.Success;
         }
 
-        private static ResultCode TryDecodeImage(ReadOnlySpan<byte> data, ParsedHeader parsed, ReadOnlySpan<long> offsets, out ExrImage image)
+        private static ResultCode TryDecodeImage(ExrSource source, ParsedHeader parsed, ReadOnlySpan<long> offsets, out ExrImage image)
         {
             return parsed.Header.Tiles == null
-                ? TryDecodeScanlineImage(data, parsed, offsets, out image)
-                : TryDecodeTiledImage(data, parsed, offsets, out image);
+                ? TryDecodeScanlineImage(source, parsed, offsets, out image)
+                : TryDecodeTiledImage(source, parsed, offsets, out image);
         }
 
         private static bool ContainsInvalidOffsets(ReadOnlySpan<long> offsets)
@@ -1293,23 +1790,28 @@ namespace TinyEXR.PortV1
 
         // Match tinyexr v1's fallback for incomplete line offset tables by rebuilding
         // offsets from the chunk stream that starts immediately after the table.
-        private static ResultCode TryReconstructLineOffsets(ReadOnlySpan<byte> data, ParsedHeader parsed, Span<long> offsets)
+        private static ResultCode TryReconstructLineOffsets(ExrSource source, ParsedHeader parsed, Span<long> offsets)
         {
             int marker = checked(parsed.HeaderEndOffset + offsets.Length * sizeof(long));
-            if (marker < 0 || marker > data.Length)
+            if (marker < 0 || marker > source.Length)
             {
                 return ResultCode.InvalidData;
             }
 
             for (int blockIndex = 0; blockIndex < offsets.Length; blockIndex++)
             {
-                if (marker + sizeof(int) * 2 > data.Length)
+                if (marker > source.Length - sizeof(int) * 2)
                 {
                     return ResultCode.InvalidData;
                 }
 
-                int packedSize = BinaryPrimitives.ReadInt32LittleEndian(data.Slice(marker + sizeof(int), sizeof(int)));
-                if (packedSize < 0 || packedSize >= data.Length)
+                ResultCode packedResult = TryReadInt32(source, marker + sizeof(int), out int packedSize);
+                if (packedResult != ResultCode.Success)
+                {
+                    return packedResult;
+                }
+
+                if (packedSize < 0 || packedSize >= source.Length)
                 {
                     return ResultCode.InvalidData;
                 }
@@ -1323,7 +1825,7 @@ namespace TinyEXR.PortV1
 
         // Match tinyexr v1's tile offset reconstruction by walking the serialized
         // tile chunks and placing their actual file offsets back into the flat table.
-        private static ResultCode TryReconstructTileOffsets(ReadOnlySpan<byte> data, ParsedHeader parsed, Span<long> offsets)
+        private static ResultCode TryReconstructTileOffsets(ExrSource source, ParsedHeader parsed, Span<long> offsets)
         {
             ExrHeader header = parsed.Header;
             if (header.Tiles == null)
@@ -1338,7 +1840,7 @@ namespace TinyEXR.PortV1
             }
 
             int marker = checked(parsed.HeaderEndOffset + offsets.Length * sizeof(long));
-            if (marker < 0 || marker > data.Length)
+            if (marker < 0 || marker > source.Length)
             {
                 return ResultCode.InvalidData;
             }
@@ -1346,23 +1848,30 @@ namespace TinyEXR.PortV1
             for (int blockIndex = 0; blockIndex < offsets.Length; blockIndex++)
             {
                 int tileOffset = marker;
-                if (marker + sizeof(int) * 5 > data.Length)
+                if (marker > source.Length - sizeof(int) * 5)
                 {
                     return ResultCode.InvalidData;
                 }
 
-                int tileX = BinaryPrimitives.ReadInt32LittleEndian(data.Slice(marker, sizeof(int)));
-                int tileY = BinaryPrimitives.ReadInt32LittleEndian(data.Slice(marker + 4, sizeof(int)));
-                int levelX = BinaryPrimitives.ReadInt32LittleEndian(data.Slice(marker + 8, sizeof(int)));
-                int levelY = BinaryPrimitives.ReadInt32LittleEndian(data.Slice(marker + 12, sizeof(int)));
-                int packedSize = BinaryPrimitives.ReadInt32LittleEndian(data.Slice(marker + 16, sizeof(int)));
+                ResultCode tileXResult = TryReadInt32(source, marker, out int tileX);
+                ResultCode tileYResult = TryReadInt32(source, marker + 4, out int tileY);
+                ResultCode levelXResult = TryReadInt32(source, marker + 8, out int levelX);
+                ResultCode levelYResult = TryReadInt32(source, marker + 12, out int levelY);
+                ResultCode packedResult = TryReadInt32(source, marker + 16, out int packedSize);
+                if (tileXResult != ResultCode.Success || tileYResult != ResultCode.Success ||
+                    levelXResult != ResultCode.Success || levelYResult != ResultCode.Success ||
+                    packedResult != ResultCode.Success)
+                {
+                    return ResultCode.InvalidData;
+                }
+
                 if (packedSize < 0)
                 {
                     return ResultCode.InvalidData;
                 }
 
                 marker = checked(marker + sizeof(int) * 5 + packedSize);
-                if (marker > data.Length)
+                if (marker > source.Length)
                 {
                     return ResultCode.InvalidData;
                 }
@@ -1459,7 +1968,7 @@ namespace TinyEXR.PortV1
             return offsetBase;
         }
 
-        private static ResultCode TryDecodeScanlineImage(ReadOnlySpan<byte> data, ParsedHeader parsed, ReadOnlySpan<long> offsets, out ExrImage image)
+        private static ResultCode TryDecodeScanlineImage(ExrSource source, ParsedHeader parsed, ReadOnlySpan<long> offsets, out ExrImage image)
         {
             ExrHeader header = parsed.Header;
             int width = header.DataWindow.Width;
@@ -1477,14 +1986,24 @@ namespace TinyEXR.PortV1
             for (int blockIndex = 0; blockIndex < blockCount; blockIndex++)
             {
                 long chunkOffset = offsets[blockIndex];
-                if (chunkOffset < 0 || chunkOffset + sizeof(int) * 2 > data.Length)
+                if (chunkOffset < 0 || chunkOffset > source.Length - sizeof(int) * 2)
                 {
                     return ResultCode.InvalidData;
                 }
 
-                int lineNumber = BinaryPrimitives.ReadInt32LittleEndian(data.Slice((int)chunkOffset, sizeof(int)));
-                int packedSize = BinaryPrimitives.ReadInt32LittleEndian(data.Slice((int)chunkOffset + sizeof(int), sizeof(int)));
-                if (packedSize < 0 || chunkOffset + sizeof(int) * 2 + packedSize > data.Length)
+                ResultCode lineResult = TryReadInt32(source, chunkOffset, out int lineNumber);
+                if (lineResult != ResultCode.Success)
+                {
+                    return lineResult;
+                }
+
+                ResultCode packedResult = TryReadInt32(source, chunkOffset + sizeof(int), out int packedSize);
+                if (packedResult != ResultCode.Success)
+                {
+                    return packedResult;
+                }
+
+                if (packedSize < 0 || chunkOffset + sizeof(int) * 2 > source.Length - packedSize)
                 {
                     return ResultCode.InvalidData;
                 }
@@ -1501,6 +2020,12 @@ namespace TinyEXR.PortV1
                     return ResultCode.InvalidData;
                 }
 
+                ResultCode payloadResult = TryReadBytes(source, chunkOffset + sizeof(int) * 2, packedSize, out byte[] payload);
+                if (payloadResult != ResultCode.Success)
+                {
+                    return payloadResult;
+                }
+
                 byte[] raw;
                 ResultCode decodeResult = ExrCompressionCodec.TryDecodePayload(
                     header.Compression,
@@ -1509,7 +2034,7 @@ namespace TinyEXR.PortV1
                     relativeLine,
                     width,
                     chunkLineCount,
-                    data.Slice((int)chunkOffset + sizeof(int) * 2, packedSize),
+                    payload,
                     expectedRawSize,
                     out raw);
                 if (decodeResult != ResultCode.Success)
@@ -1575,7 +2100,7 @@ namespace TinyEXR.PortV1
             return ResultCode.Success;
         }
 
-        private static ResultCode TryDecodeTiledImage(ReadOnlySpan<byte> data, ParsedHeader parsed, ReadOnlySpan<long> offsets, out ExrImage image)
+        private static ResultCode TryDecodeTiledImage(ExrSource source, ParsedHeader parsed, ReadOnlySpan<long> offsets, out ExrImage image)
         {
             ExrHeader header = parsed.Header;
             int width = header.DataWindow.Width;
@@ -1630,17 +2155,24 @@ namespace TinyEXR.PortV1
                     for (int tileX = 0; tileX < tileColumns; tileX++)
                     {
                         long chunkOffset = offsets[blockIndex++];
-                        if (chunkOffset < 0 || chunkOffset + sizeof(int) * 5 > data.Length)
+                        if (chunkOffset < 0 || chunkOffset > source.Length - sizeof(int) * 5)
                         {
                             return ResultCode.InvalidData;
                         }
 
-                        int headerTileX = BinaryPrimitives.ReadInt32LittleEndian(data.Slice((int)chunkOffset, sizeof(int)));
-                        int headerTileY = BinaryPrimitives.ReadInt32LittleEndian(data.Slice((int)chunkOffset + 4, sizeof(int)));
-                        int headerLevelX = BinaryPrimitives.ReadInt32LittleEndian(data.Slice((int)chunkOffset + 8, sizeof(int)));
-                        int headerLevelY = BinaryPrimitives.ReadInt32LittleEndian(data.Slice((int)chunkOffset + 12, sizeof(int)));
-                        int packedSize = BinaryPrimitives.ReadInt32LittleEndian(data.Slice((int)chunkOffset + 16, sizeof(int)));
-                        if (packedSize < 0 || chunkOffset + 20 + packedSize > data.Length)
+                        ResultCode tileXResult = TryReadInt32(source, chunkOffset, out int headerTileX);
+                        ResultCode tileYResult = TryReadInt32(source, chunkOffset + 4, out int headerTileY);
+                        ResultCode levelXResult = TryReadInt32(source, chunkOffset + 8, out int headerLevelX);
+                        ResultCode levelYResult = TryReadInt32(source, chunkOffset + 12, out int headerLevelY);
+                        ResultCode packedResult = TryReadInt32(source, chunkOffset + 16, out int packedSize);
+                        if (tileXResult != ResultCode.Success || tileYResult != ResultCode.Success ||
+                            levelXResult != ResultCode.Success || levelYResult != ResultCode.Success ||
+                            packedResult != ResultCode.Success)
+                        {
+                            return ResultCode.InvalidData;
+                        }
+
+                        if (packedSize < 0 || chunkOffset + 20 > source.Length - packedSize)
                         {
                             return ResultCode.InvalidData;
                         }
@@ -1654,6 +2186,12 @@ namespace TinyEXR.PortV1
                             return ResultCode.InvalidData;
                         }
 
+                        ResultCode payloadResult = TryReadBytes(source, chunkOffset + 20, packedSize, out byte[] payload);
+                        if (payloadResult != ResultCode.Success)
+                        {
+                            return payloadResult;
+                        }
+
                         byte[] raw;
                         ResultCode decodeResult = ExrCompressionCodec.TryDecodePayload(
                             header.Compression,
@@ -1662,7 +2200,7 @@ namespace TinyEXR.PortV1
                             tilePixelY,
                             tileWidth,
                             tileHeight,
-                            data.Slice((int)chunkOffset + 20, packedSize),
+                            payload,
                             expectedRawSize,
                             out raw);
                         if (decodeResult != ResultCode.Success)
@@ -1761,7 +2299,7 @@ namespace TinyEXR.PortV1
             return ResultCode.Success;
         }
 
-        private static ResultCode TryDecodeDeepImage(ReadOnlySpan<byte> data, ParsedHeader parsed, out ExrDeepImage image)
+        private static ResultCode TryDecodeDeepImage(ExrSource source, ParsedHeader parsed, out ExrDeepImage image)
         {
             ExrHeader header = parsed.Header;
             int width = header.DataWindow.Width;
@@ -1772,7 +2310,7 @@ namespace TinyEXR.PortV1
             int blockCount = (height + linesPerChunk - 1) / linesPerChunk;
             int offsetTableOffset = parsed.HeaderEndOffset;
             int offsetTableSize = blockCount * sizeof(long);
-            if (offsetTableOffset + offsetTableSize > data.Length)
+            if (offsetTableOffset > source.Length - offsetTableSize)
             {
                 return ResultCode.InvalidData;
             }
@@ -1780,7 +2318,11 @@ namespace TinyEXR.PortV1
             long[] offsets = new long[blockCount];
             for (int blockIndex = 0; blockIndex < blockCount; blockIndex++)
             {
-                offsets[blockIndex] = BinaryPrimitives.ReadInt64LittleEndian(data.Slice(offsetTableOffset + blockIndex * sizeof(long), sizeof(long)));
+                ResultCode readResult = TryReadInt64(source, offsetTableOffset + blockIndex * sizeof(long), out offsets[blockIndex]);
+                if (readResult != ResultCode.Success)
+                {
+                    return readResult;
+                }
             }
 
             int[][] offsetRows = new int[height][];
@@ -1793,27 +2335,52 @@ namespace TinyEXR.PortV1
             for (int blockIndex = 0; blockIndex < blockCount; blockIndex++)
             {
                 long chunkOffset = offsets[blockIndex];
-                if (chunkOffset < 0 || chunkOffset + 28 > data.Length)
+                if (chunkOffset < 0 || chunkOffset > source.Length - 28)
                 {
                     return ResultCode.InvalidData;
                 }
 
-                int lineNo = BinaryPrimitives.ReadInt32LittleEndian(data.Slice((int)chunkOffset, 4));
-                long packedOffsetSize = BinaryPrimitives.ReadInt64LittleEndian(data.Slice((int)chunkOffset + 4, 8));
-                long packedSampleSize = BinaryPrimitives.ReadInt64LittleEndian(data.Slice((int)chunkOffset + 12, 8));
-                long unpackedSampleSize = BinaryPrimitives.ReadInt64LittleEndian(data.Slice((int)chunkOffset + 20, 8));
-                if (packedOffsetSize < 0 || packedSampleSize < 0 || unpackedSampleSize < 0)
+                ResultCode lineResult = TryReadInt32(source, chunkOffset, out int lineNo);
+                ResultCode offsetSizeResult = TryReadInt64(source, chunkOffset + 4, out long packedOffsetSize);
+                ResultCode sampleSizeResult = TryReadInt64(source, chunkOffset + 12, out long packedSampleSize);
+                ResultCode unpackedSizeResult = TryReadInt64(source, chunkOffset + 20, out long unpackedSampleSize);
+                if (lineResult != ResultCode.Success || offsetSizeResult != ResultCode.Success ||
+                    sampleSizeResult != ResultCode.Success || unpackedSizeResult != ResultCode.Success)
                 {
                     return ResultCode.InvalidData;
                 }
 
-                ResultCode offsetResult = TryDecodePayload(header.Compression, data.Slice((int)chunkOffset + 28, (int)packedOffsetSize), width * sizeof(int), out byte[] packedOffsets);
+                if (packedOffsetSize < 0 || packedSampleSize < 0 || unpackedSampleSize < 0 ||
+                    packedOffsetSize > int.MaxValue || packedSampleSize > int.MaxValue || unpackedSampleSize > int.MaxValue)
+                {
+                    return ResultCode.InvalidData;
+                }
+
+                if (chunkOffset + 28 > source.Length - packedOffsetSize ||
+                    chunkOffset + 28 + packedOffsetSize > source.Length - packedSampleSize)
+                {
+                    return ResultCode.InvalidData;
+                }
+
+                ResultCode offsetPayloadResult = TryReadBytes(source, chunkOffset + 28, (int)packedOffsetSize, out byte[] offsetPayload);
+                if (offsetPayloadResult != ResultCode.Success)
+                {
+                    return offsetPayloadResult;
+                }
+
+                ResultCode offsetResult = TryDecodePayload(header.Compression, offsetPayload, width * sizeof(int), out byte[] packedOffsets);
                 if (offsetResult != ResultCode.Success)
                 {
                     return offsetResult;
                 }
 
-                ResultCode sampleResult = TryDecodePayload(header.Compression, data.Slice((int)chunkOffset + 28 + (int)packedOffsetSize, (int)packedSampleSize), (int)unpackedSampleSize, out byte[] sampleBytes);
+                ResultCode samplePayloadResult = TryReadBytes(source, chunkOffset + 28 + packedOffsetSize, (int)packedSampleSize, out byte[] samplePayload);
+                if (samplePayloadResult != ResultCode.Success)
+                {
+                    return samplePayloadResult;
+                }
+
+                ResultCode sampleResult = TryDecodePayload(header.Compression, samplePayload, (int)unpackedSampleSize, out byte[] sampleBytes);
                 if (sampleResult != ResultCode.Success)
                 {
                     return sampleResult;
@@ -1935,6 +2502,15 @@ namespace TinyEXR.PortV1
             return ResultCode.Success;
         }
 
+        private static ResultCode TryParseHeader(ExrSource source, out ParsedHeader? parsed)
+        {
+            parsed = null;
+            ResultCode readResult = TryReadHeaderSection(source, out byte[] headerData);
+            return readResult == ResultCode.Success
+                ? TryParseHeader(headerData, out parsed)
+                : readResult;
+        }
+
         private static ResultCode TryParseMultipartHeaders(ReadOnlySpan<byte> data, out ParsedMultipartHeaders? parsed)
         {
             parsed = null;
@@ -1987,6 +2563,15 @@ namespace TinyEXR.PortV1
             result.HeaderSectionEndOffset = offset;
             parsed = result;
             return ResultCode.Success;
+        }
+
+        private static ResultCode TryParseMultipartHeaders(ExrSource source, out ParsedMultipartHeaders? parsed)
+        {
+            parsed = null;
+            ResultCode readResult = TryReadHeaderSection(source, out byte[] headerData);
+            return readResult == ResultCode.Success
+                ? TryParseMultipartHeaders(headerData, out parsed)
+                : readResult;
         }
 
         private static ResultCode TryParseDeepHeader(ReadOnlySpan<byte> data, out ParsedHeader? parsed)
@@ -2204,6 +2789,15 @@ namespace TinyEXR.PortV1
                 HeaderEndOffset = offset,
             };
             return ResultCode.Success;
+        }
+
+        private static ResultCode TryParseDeepHeader(ExrSource source, out ParsedHeader? parsed)
+        {
+            parsed = null;
+            ResultCode readResult = TryReadHeaderSection(source, out byte[] headerData);
+            return readResult == ResultCode.Success
+                ? TryParseDeepHeader(headerData, out parsed)
+                : readResult;
         }
 
         private static ResultCode TryParseHeaderAt(ReadOnlySpan<byte> data, ExrVersion version, out ExrHeader? header, out int headerLength, out bool emptyHeader)

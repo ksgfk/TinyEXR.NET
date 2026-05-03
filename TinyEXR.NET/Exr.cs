@@ -26,6 +26,16 @@ namespace TinyEXR
             return TryReadRgba(data, out rgba, out width, out height);
         }
 
+        public static ResultCode LoadEXRFromStream(Stream stream, out float[] rgba, out int width, out int height)
+        {
+            return TryReadRgba(stream, out rgba, out width, out height);
+        }
+
+        public static ResultCode LoadEXRWithLayerFromStream(Stream stream, string? layer, out float[] rgba, out int width, out int height)
+        {
+            return TryReadRgba(stream, layer, out rgba, out width, out height);
+        }
+
         public static ResultCode SaveEXRToMemory(
             ReadOnlySpan<float> data,
             int width,
@@ -53,6 +63,11 @@ namespace TinyEXR
             return TryReadLayers(filename, out layers);
         }
 
+        public static ResultCode EXRLayersFromStream(Stream stream, out string[] layers)
+        {
+            return TryReadLayers(stream, out layers);
+        }
+
         public static bool IsEXR(string filename)
         {
             return TryReadVersion(filename, out _) == ResultCode.Success;
@@ -61,6 +76,11 @@ namespace TinyEXR
         public static bool IsEXRFromMemory(ReadOnlySpan<byte> data)
         {
             return TryReadVersion(data, out _) == ResultCode.Success;
+        }
+
+        public static bool IsEXRFromStream(Stream stream)
+        {
+            return TryReadVersion(stream, out _) == ResultCode.Success;
         }
 
         public static ResultCode ParseEXRVersionFromFile(string filename, out ExrVersion version)
@@ -73,6 +93,11 @@ namespace TinyEXR
             return TryReadVersion(data, out version);
         }
 
+        public static ResultCode ParseEXRVersionFromStream(Stream stream, out ExrVersion version)
+        {
+            return TryReadVersion(stream, out version);
+        }
+
         public static ResultCode ParseEXRHeaderFromFile(string filename, out ExrVersion version, out ExrHeader header)
         {
             return TryReadHeader(filename, out version, out header);
@@ -83,16 +108,24 @@ namespace TinyEXR
             return TryReadHeader(data, out version, out header);
         }
 
+        public static ResultCode ParseEXRHeaderFromStream(Stream stream, out ExrVersion version, out ExrHeader header)
+        {
+            return TryReadHeader(stream, out version, out header);
+        }
+
         public static ResultCode ParseEXRMultipartHeaderFromFile(string filename, out ExrVersion version, out ExrMultipartHeader headers)
         {
-            if (!TryReadFile(filename, out byte[] data, out ResultCode fileResult))
+            if (!TryOpenReadFile(filename, out FileStream? stream, out ResultCode fileResult))
             {
                 version = new ExrVersion();
                 headers = new ExrMultipartHeader(Array.Empty<ExrHeader>());
                 return fileResult;
             }
 
-            return ParseEXRMultipartHeaderFromMemory(data, out version, out headers);
+            using (stream)
+            {
+                return ParseEXRMultipartHeaderFromStream(stream!, out version, out headers);
+            }
         }
 
         public static ResultCode ParseEXRMultipartHeaderFromMemory(ReadOnlySpan<byte> data, out ExrVersion version, out ExrMultipartHeader headers)
@@ -102,15 +135,25 @@ namespace TinyEXR
             return result;
         }
 
+        public static ResultCode ParseEXRMultipartHeaderFromStream(Stream stream, out ExrVersion version, out ExrMultipartHeader headers)
+        {
+            ResultCode result = ExrImplementation.TryReadMultipartHeaders(stream, out version, out ExrHeader[] parsedHeaders);
+            headers = new ExrMultipartHeader(parsedHeaders);
+            return result;
+        }
+
         public static ResultCode LoadEXRImageFromFile(string filename, ExrHeader header, out ExrImage image)
         {
-            if (!TryReadFile(filename, out byte[] data, out ResultCode fileResult))
+            if (!TryOpenReadFile(filename, out FileStream? stream, out ResultCode fileResult))
             {
                 image = new ExrImage(0, 0, Array.Empty<ExrImageChannel>());
                 return fileResult;
             }
 
-            return LoadEXRImageFromMemory(data, header, out image);
+            using (stream)
+            {
+                return LoadEXRImageFromStream(stream!, header, out image);
+            }
         }
 
         public static ResultCode LoadEXRImageFromMemory(ReadOnlySpan<byte> data, ExrHeader header, out ExrImage image)
@@ -124,15 +167,29 @@ namespace TinyEXR
             return ExrImplementation.TryReadImage(data, header, out image);
         }
 
+        public static ResultCode LoadEXRImageFromStream(Stream stream, ExrHeader header, out ExrImage image)
+        {
+            if (header == null)
+            {
+                image = new ExrImage(0, 0, Array.Empty<ExrImageChannel>());
+                return ResultCode.InvalidArgument;
+            }
+
+            return ExrImplementation.TryReadImage(stream, header, out image);
+        }
+
         public static ResultCode LoadEXRMultipartImageFromFile(string filename, ExrMultipartHeader headers, out ExrMultipartImage images)
         {
-            if (!TryReadFile(filename, out byte[] data, out ResultCode fileResult))
+            if (!TryOpenReadFile(filename, out FileStream? stream, out ResultCode fileResult))
             {
                 images = new ExrMultipartImage(Array.Empty<ExrImage>());
                 return fileResult;
             }
 
-            return LoadEXRMultipartImageFromMemory(data, headers, out images);
+            using (stream)
+            {
+                return LoadEXRMultipartImageFromStream(stream!, headers, out images);
+            }
         }
 
         public static ResultCode LoadEXRMultipartImageFromMemory(ReadOnlySpan<byte> data, ExrMultipartHeader headers, out ExrMultipartImage images)
@@ -144,6 +201,19 @@ namespace TinyEXR
             }
 
             ResultCode result = ExrImplementation.TryReadMultipartImages(data, headers.Headers.ToArray(), out ExrImage[] decodedImages);
+            images = new ExrMultipartImage(decodedImages);
+            return result;
+        }
+
+        public static ResultCode LoadEXRMultipartImageFromStream(Stream stream, ExrMultipartHeader headers, out ExrMultipartImage images)
+        {
+            if (headers == null)
+            {
+                images = new ExrMultipartImage(Array.Empty<ExrImage>());
+                return ResultCode.InvalidArgument;
+            }
+
+            ResultCode result = ExrImplementation.TryReadMultipartImages(stream, headers.Headers.ToArray(), out ExrImage[] decodedImages);
             images = new ExrMultipartImage(decodedImages);
             return result;
         }
@@ -197,6 +267,11 @@ namespace TinyEXR
             return TryReadDeepImage(filename, out header, out image);
         }
 
+        public static ResultCode LoadDeepEXRFromStream(Stream stream, out ExrHeader header, out ExrDeepImage image)
+        {
+            return TryReadDeepImage(stream, out header, out image);
+        }
+
         public static int EXRNumLevels(ExrImage image)
         {
             return image?.Levels.Count ?? 0;
@@ -212,13 +287,16 @@ namespace TinyEXR
 
         internal static ResultCode TryReadVersion(string filename, out ExrVersion version)
         {
-            if (!TryReadFile(filename, out byte[] data, out ResultCode fileResult))
+            if (!TryOpenReadFile(filename, out FileStream? stream, out ResultCode fileResult))
             {
                 version = new ExrVersion();
                 return fileResult;
             }
 
-            return TryReadVersion(data, out version);
+            using (stream)
+            {
+                return TryReadVersion(stream!, out version);
+            }
         }
 
         internal static ResultCode TryReadVersion(ReadOnlySpan<byte> data, out ExrVersion version)
@@ -226,21 +304,34 @@ namespace TinyEXR
             return ExrImplementation.TryReadVersion(data, out version);
         }
 
+        internal static ResultCode TryReadVersion(Stream stream, out ExrVersion version)
+        {
+            return ExrImplementation.TryReadVersion(stream, out version);
+        }
+
         internal static ResultCode TryReadHeader(string filename, out ExrVersion version, out ExrHeader header)
         {
-            if (!TryReadFile(filename, out byte[] data, out ResultCode fileResult))
+            if (!TryOpenReadFile(filename, out FileStream? stream, out ResultCode fileResult))
             {
                 version = new ExrVersion();
                 header = new ExrHeader();
                 return fileResult;
             }
 
-            return TryReadHeader(data, out version, out header);
+            using (stream)
+            {
+                return TryReadHeader(stream!, out version, out header);
+            }
         }
 
         internal static ResultCode TryReadHeader(ReadOnlySpan<byte> data, out ExrVersion version, out ExrHeader header)
         {
             return ExrImplementation.TryReadHeader(data, out version, out header);
+        }
+
+        internal static ResultCode TryReadHeader(Stream stream, out ExrVersion version, out ExrHeader header)
+        {
+            return ExrImplementation.TryReadHeader(stream, out version, out header);
         }
 
         internal static ResultCode TryReadHeader(string filename, out ExrHeader header)
@@ -255,16 +346,25 @@ namespace TinyEXR
             return result;
         }
 
+        internal static ResultCode TryReadHeader(Stream stream, out ExrHeader header)
+        {
+            ResultCode result = TryReadHeader(stream, out _, out header);
+            return result;
+        }
+
         internal static ResultCode TryReadImage(string filename, out ExrHeader header, out ExrImage image)
         {
-            if (!TryReadFile(filename, out byte[] data, out ResultCode fileResult))
+            if (!TryOpenReadFile(filename, out FileStream? stream, out ResultCode fileResult))
             {
                 header = new ExrHeader();
                 image = new ExrImage(0, 0, Array.Empty<ExrImageChannel>());
                 return fileResult;
             }
 
-            return TryReadImage(data, out header, out image);
+            using (stream)
+            {
+                return TryReadImage(stream!, out header, out image);
+            }
         }
 
         internal static ResultCode TryReadImage(ReadOnlySpan<byte> data, out ExrHeader header, out ExrImage image)
@@ -272,16 +372,24 @@ namespace TinyEXR
             return ExrImplementation.TryReadImage(data, out header, out image);
         }
 
+        internal static ResultCode TryReadImage(Stream stream, out ExrHeader header, out ExrImage image)
+        {
+            return ExrImplementation.TryReadImage(stream, out header, out image);
+        }
+
         internal static ResultCode TryReadDeepImage(string filename, out ExrHeader header, out ExrDeepImage image)
         {
-            if (!TryReadFile(filename, out byte[] data, out ResultCode fileResult))
+            if (!TryOpenReadFile(filename, out FileStream? stream, out ResultCode fileResult))
             {
                 header = new ExrHeader();
                 image = new ExrDeepImage(0, 0, Array.Empty<int[]>(), Array.Empty<ExrDeepChannel>());
                 return fileResult;
             }
 
-            return TryReadDeepImage(data, out header, out image);
+            using (stream)
+            {
+                return TryReadDeepImage(stream!, out header, out image);
+            }
         }
 
         internal static ResultCode TryReadDeepImage(ReadOnlySpan<byte> data, out ExrHeader header, out ExrDeepImage image)
@@ -289,20 +397,33 @@ namespace TinyEXR
             return ExrImplementation.TryReadDeepImage(data, out header, out image);
         }
 
+        internal static ResultCode TryReadDeepImage(Stream stream, out ExrHeader header, out ExrDeepImage image)
+        {
+            return ExrImplementation.TryReadDeepImage(stream, out header, out image);
+        }
+
         internal static ResultCode TryReadLayers(string filename, out string[] layers)
         {
-            if (!TryReadFile(filename, out byte[] data, out ResultCode fileResult))
+            if (!TryOpenReadFile(filename, out FileStream? stream, out ResultCode fileResult))
             {
                 layers = Array.Empty<string>();
                 return fileResult;
             }
 
-            return TryReadLayers(data, out layers);
+            using (stream)
+            {
+                return TryReadLayers(stream!, out layers);
+            }
         }
 
         internal static ResultCode TryReadLayers(ReadOnlySpan<byte> data, out string[] layers)
         {
             return ExrImplementation.TryReadLayers(data, out layers);
+        }
+
+        internal static ResultCode TryReadLayers(Stream stream, out string[] layers)
+        {
+            return ExrImplementation.TryReadLayers(stream, out layers);
         }
 
         internal static ResultCode TryReadRgba(string filename, out float[] rgba, out int width, out int height)
@@ -312,7 +433,7 @@ namespace TinyEXR
 
         internal static ResultCode TryReadRgba(string filename, string? layerName, out float[] rgba, out int width, out int height)
         {
-            if (!TryReadFile(filename, out byte[] data, out ResultCode fileResult))
+            if (!TryOpenReadFile(filename, out FileStream? stream, out ResultCode fileResult))
             {
                 rgba = Array.Empty<float>();
                 width = 0;
@@ -320,7 +441,10 @@ namespace TinyEXR
                 return fileResult;
             }
 
-            return TryReadRgba(data, layerName, out rgba, out width, out height);
+            using (stream)
+            {
+                return TryReadRgba(stream!, layerName, out rgba, out width, out height);
+            }
         }
 
         internal static ResultCode TryReadRgba(ReadOnlySpan<byte> data, out float[] rgba, out int width, out int height)
@@ -331,6 +455,16 @@ namespace TinyEXR
         internal static ResultCode TryReadRgba(ReadOnlySpan<byte> data, string? layerName, out float[] rgba, out int width, out int height)
         {
             return ExrImplementation.TryReadRgba(data, layerName, out rgba, out width, out height);
+        }
+
+        internal static ResultCode TryReadRgba(Stream stream, out float[] rgba, out int width, out int height)
+        {
+            return TryReadRgba(stream, layerName: null, out rgba, out width, out height);
+        }
+
+        internal static ResultCode TryReadRgba(Stream stream, string? layerName, out float[] rgba, out int width, out int height)
+        {
+            return ExrImplementation.TryReadRgba(stream, layerName, out rgba, out width, out height);
         }
 
         internal static ResultCode TryWriteImage(ExrImage image, out byte[] encoded)
@@ -413,6 +547,12 @@ namespace TinyEXR
         public static bool IsSpectralEXRFromMemory(ReadOnlySpan<byte> data)
         {
             return TryReadHeader(data, out ExrHeader header) == ResultCode.Success &&
+                FindCustomAttribute(header, SpectralLayoutVersionAttribute) != null;
+        }
+
+        public static bool IsSpectralEXRFromStream(Stream stream)
+        {
+            return TryReadHeader(stream, out ExrHeader header) == ResultCode.Success &&
                 FindCustomAttribute(header, SpectralLayoutVersionAttribute) != null;
         }
 
@@ -725,9 +865,9 @@ namespace TinyEXR
             return ResultCode.Success;
         }
 
-        private static bool TryReadFile(string filename, out byte[] data, out ResultCode result)
+        private static bool TryOpenReadFile(string filename, out FileStream? stream, out ResultCode result)
         {
-            data = Array.Empty<byte>();
+            stream = null;
             if (string.IsNullOrWhiteSpace(filename))
             {
                 result = ResultCode.InvalidArgument;
@@ -736,7 +876,7 @@ namespace TinyEXR
 
             try
             {
-                data = File.ReadAllBytes(filename);
+                stream = new FileStream(filename, FileMode.Open, FileAccess.Read, FileShare.Read);
                 result = ResultCode.Success;
                 return true;
             }
