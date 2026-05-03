@@ -61,22 +61,25 @@ See `Test/README.md` for the current test layout and execution details.
 
 The repository includes memory-only benchmarks for the main read/write paths. Sample files are loaded during setup, so the timed results reflect decode/encode work on in-memory buffers rather than filesystem IO.
 
-* CPU: `Intel Core i7-11700F`
-* OS: `Windows 10 22H2 19045.6456`
-* .NET runtime: `10.0.6`
-* C++ compiler: `MSVC 19.50.35729.0`
+Updated on `2026-05-03`. C# results use BenchmarkDotNet `Mean`; C++ baseline results use the Google Benchmark `CPU` column.
 
-| Method | Sample | C# | C++ baseline | Managed / baseline |
-| --- | --- | ---: | ---: | ---: |
-| `LoadEXRFromMemory` | `desk_scanline` | `92.92 ms` | `54.69 ms` | `1.70x` |
-| `SaveEXRToMemory` | `desk_scanline` | `137.40 ms` | `197.92 ms` | `0.69x` |
-| `LoadEXRImageFromMemory` | `desk_scanline` | `70.72 ms` | `44.79 ms` | `1.58x` |
-| `SaveEXRImageToMemory` | `desk_scanline` | `56.68 ms` | `51.14 ms` | `1.11x` |
-| `LoadEXRImageFromMemory` | `kapaa_multires` | `60.03 ms` | `72.92 ms` | `0.82x` |
-| `SaveEXRImageToMemory` | `kapaa_multires` | `215.38 ms` | `273.44 ms` | `0.79x` |
-| `LoadEXRMultipartImageFromMemory` | `beachball_multipart_0001` | `112.6 ms` | `171.88 ms` | `0.66x` |
-| `SaveEXRMultipartImageToMemory` | `beachball_multipart_0001` | `276.3 ms` | `289.06 ms` | `0.96x` |
-| `LoadDeepImageFromMemory` | `balls_deep_scanline` | `21.05 ms` | `N/A` | `N/A` |
+* CPU: `13th Gen Intel Core i7-13700K 3.40GHz`
+* OS: `Windows 11 25H2 10.0.26200.8246`
+* .NET SDK/runtime: `10.0.203` / `10.0.7`
+* C# benchmark: `BenchmarkDotNet 0.15.8`, default job, workstation GC
+* C++ compiler: `MSVC 19.50.35730`, `Visual Studio 2026 18.5.2`
+
+| Method | Sample | C# mean | C# allocated | C++ baseline | Managed / baseline |
+| --- | --- | ---: | ---: | ---: | ---: |
+| `LoadEXRFromMemory` | `desk_scanline` | `39.79 ms` | `15.73 MB` | `40.44 ms` | `0.98x` |
+| `SaveEXRToMemory` | `desk_scanline` | `109.25 ms` | `58.10 MB` | `160.16 ms` | `0.68x` |
+| `LoadEXRImageFromMemory` | `desk_scanline` | `23.36 ms` | `7.15 MB` | `41.19 ms` | `0.57x` |
+| `SaveEXRImageToMemory` | `desk_scanline` | `44.08 ms` | `80.89 MB` | `59.03 ms` | `0.75x` |
+| `LoadEXRImageFromMemory` | `kapaa_multires` | `42.83 ms` | `21.27 MB` | `72.92 ms` | `0.59x` |
+| `SaveEXRImageToMemory` | `kapaa_multires` | `170.12 ms` | `66.92 MB` | `208.33 ms` | `0.82x` |
+| `LoadEXRMultipartImageFromMemory` | `beachball_multipart_0001` | `84.24 ms` | `30.65 MB` | `132.81 ms` | `0.63x` |
+| `SaveEXRMultipartImageToMemory` | `beachball_multipart_0001` | `222.58 ms` | `83.21 MB` | `218.75 ms` | `1.02x` |
+| `LoadDeepImageFromMemory` | `balls_deep_scanline` | `14.06 ms` | `5.48 MB` | `N/A` | `N/A` |
 
 See `Benchmark/README.md` for more details.
 

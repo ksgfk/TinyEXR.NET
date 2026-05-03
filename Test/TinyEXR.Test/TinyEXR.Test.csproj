@@ -10,7 +10,25 @@
     <IsPackable>false</IsPackable>
     <AssemblyName>TinyEXR.Test</AssemblyName>
     <RootNamespace>TinyEXR.Test</RootNamespace>
+    <SignAssemblyKey Condition="'$(SignAssemblyKey)' == '' and '$(Configuration)' == 'Release'">true</SignAssemblyKey>
+    <SignAssemblyKey Condition="'$(SignAssemblyKey)' == ''">false</SignAssemblyKey>
+    <StrongNameKeyFile Condition="'$(StrongNameKeyFile)' == ''">F:\csharp\ksgfk.snk</StrongNameKeyFile>
   </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <SignAssembly>$(SignAssemblyKey)</SignAssembly>
+    <AssemblyOriginatorKeyFile Condition="'$(SignAssemblyKey)' == 'true'">$(StrongNameKeyFile)</AssemblyOriginatorKeyFile>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)' != 'Release'">
+    <SignAssembly>$(SignAssemblyKey)</SignAssembly>
+  </PropertyGroup>
+
+  <Target Name="EnsureStrongNameKeyForRelease"
+          BeforeTargets="CoreCompile"
+          Condition="'$(Configuration)' == 'Release' and '$(SignAssemblyKey)' == 'true' and !Exists('$(StrongNameKeyFile)')">
+    <Error Text="Release build requires a strong-name key file. Set StrongNameKeyFile to a valid .snk path. Current value: '$(AssemblyOriginatorKeyFile)'." />
+  </Target>
 
   <ItemGroup>
     <ProjectReference Include="..\..\TinyEXR.NET\TinyEXR.NET.csproj" />

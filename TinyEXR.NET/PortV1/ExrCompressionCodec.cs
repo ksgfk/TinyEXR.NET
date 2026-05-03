@@ -24,7 +24,7 @@ namespace TinyEXR.PortV1
         private static readonly ushort[] B44LogTable = new ushort[UShortRange];
         private static bool s_b44TablesInitialized;
 
-        private readonly struct ChannelLayout
+        internal readonly struct ChannelLayout
         {
             public ChannelLayout(ExrPixelType type, int sampleSize, int offsetBytes, int samplingX, int samplingY, byte linear)
             {
@@ -74,11 +74,177 @@ namespace TinyEXR.PortV1
             public int RowBytes => checked(Width * Layout.SampleSize);
         }
 
-        private sealed class HufDecEntry
+        internal struct HufDecEntry
         {
             public byte Length;
             public int Literal;
             public int[]? Symbols;
+        }
+
+        internal sealed class DecodeWorkspace
+        {
+            private byte[] _payload = Array.Empty<byte>();
+            private byte[] _raw = Array.Empty<byte>();
+            private byte[] _work = Array.Empty<byte>();
+            private byte[] _bitmap = Array.Empty<byte>();
+            private ushort[] _ushortWork = Array.Empty<ushort>();
+            private ushort[] _ushortLut = Array.Empty<ushort>();
+            private int[] _channelPositions = Array.Empty<int>();
+            private long[] _hufCodes = Array.Empty<long>();
+            private HufDecEntry[] _hufTable = Array.Empty<HufDecEntry>();
+            private List<int>[] _hufLongSymbols = Array.Empty<List<int>>();
+            private ChannelLayout[] _layouts = Array.Empty<ChannelLayout>();
+            private PizChannelData[] _pizChannelData = Array.Empty<PizChannelData>();
+
+            public byte[] GetPayload(int length)
+            {
+                return EnsureByteArray(ref _payload, length);
+            }
+
+            internal byte[] GetRaw(int length)
+            {
+                return EnsureByteArray(ref _raw, length);
+            }
+
+            internal byte[] GetWork(int length)
+            {
+                return EnsureByteArray(ref _work, length);
+            }
+
+            internal byte[] GetBitmap()
+            {
+                return EnsureByteArray(ref _bitmap, BitmapSize);
+            }
+
+            internal ushort[] GetUShortWork(int length)
+            {
+                return EnsureUShortArray(ref _ushortWork, length);
+            }
+
+            internal ushort[] GetUShortLut()
+            {
+                return EnsureUShortArray(ref _ushortLut, UShortRange);
+            }
+
+            internal int[] GetChannelPositions(int length)
+            {
+                int[] positions = EnsureIntArray(ref _channelPositions, length);
+                Array.Clear(positions, 0, length);
+                return positions;
+            }
+
+            internal long[] GetHufCodes()
+            {
+                long[] codes = EnsureLongArray(ref _hufCodes, HufEncSize);
+                Array.Clear(codes, 0, HufEncSize);
+                return codes;
+            }
+
+            internal HufDecEntry[] GetHufTable()
+            {
+                HufDecEntry[] table = EnsureHufEntryArray(ref _hufTable, HufDecSize);
+                Array.Clear(table, 0, HufDecSize);
+                return table;
+            }
+
+            internal List<int>[] GetHufLongSymbols()
+            {
+                if (_hufLongSymbols.Length < HufDecSize)
+                {
+                    _hufLongSymbols = new List<int>[HufDecSize];
+                    return _hufLongSymbols;
+                }
+
+                for (int i = 0; i < HufDecSize; i++)
+                {
+                    _hufLongSymbols[i]?.Clear();
+                }
+
+                return _hufLongSymbols;
+            }
+
+            internal List<int> GetHufLongSymbolList(List<int>[] symbols, int slot)
+            {
+                List<int>? list = symbols[slot];
+                if (list == null)
+                {
+                    list = new List<int>();
+                    symbols[slot] = list;
+                }
+
+                return list;
+            }
+
+            internal ChannelLayout[] GetLayouts(int length)
+            {
+                if (_layouts.Length != length)
+                {
+                    _layouts = new ChannelLayout[length];
+                }
+
+                return _layouts;
+            }
+
+            internal PizChannelData[] GetPizChannelData(int length)
+            {
+                if (_pizChannelData.Length != length)
+                {
+                    _pizChannelData = new PizChannelData[length];
+                }
+
+                return _pizChannelData;
+            }
+
+            private static byte[] EnsureByteArray(ref byte[] array, int length)
+            {
+                if (array.Length < length)
+                {
+                    array = new byte[length];
+                }
+
+                return array;
+            }
+
+            private static ushort[] EnsureUShortArray(ref ushort[] array, int length)
+            {
+                if (array.Length < length)
+                {
+                    array = new ushort[length];
+                }
+
+                return array;
+            }
+
+            private static int[] EnsureIntArray(ref int[] array, int length)
+            {
+                if (array.Length < length)
+                {
+                    array = new int[length];
+                }
+
+                return array;
+            }
+
+            private static long[] EnsureLongArray(ref long[] array, int length)
+            {
+                if (array.Length < length)
+                {
+                    array = new long[length];
+                }
+
+                return array;
+            }
+
+            private static HufDecEntry[] EnsureHufEntryArray(ref HufDecEntry[] array, int length)
+            {
+                if (array.Length < length)
+                {
+                    array = new HufDecEntry[length];
+                }
+
+                return array;
+            }
+
         }
 
         private sealed class BitWriter
@@ -212,7 +378,7 @@ namespace TinyEXR.PortV1
             int startY,
             int width,
             int height,
-            ReadOnlySpan<byte> payload,
+            byte[] payload,
             int expectedSize,
             out byte[] raw)
         {
@@ -265,9 +431,84 @@ namespace TinyEXR.PortV1
             }
         }
 
+        internal static ResultCode TryDecodePayload(
+            CompressionType compression,
+            IList<ExrChannel> channels,
+            int startX,
+            int startY,
+            int width,
+            int height,
+            byte[] payload,
+            int payloadLength,
+            int expectedSize,
+            DecodeWorkspace workspace,
+            out byte[] raw,
+            out int rawLength)
+        {
+            raw = Array.Empty<byte>();
+            rawLength = 0;
+
+            if (payloadLength < 0 || payloadLength > payload.Length)
+            {
+                return ResultCode.InvalidData;
+            }
+
+            if (!TryBuildLayouts(channels, workspace, out ChannelLayout[] layouts, out int pixelStride))
+            {
+                return ResultCode.UnsupportedFeature;
+            }
+
+            if (!TryCalculateDecodedSize(layouts, startX, startY, width, height, out int decodedSize))
+            {
+                return ResultCode.InvalidArgument;
+            }
+
+            if (expectedSize != decodedSize)
+            {
+                return ResultCode.InvalidArgument;
+            }
+
+            switch (compression)
+            {
+                case CompressionType.None:
+                    if (payloadLength != expectedSize)
+                    {
+                        return ResultCode.InvalidData;
+                    }
+
+                    raw = workspace.GetRaw(expectedSize);
+                    payload.AsSpan(0, expectedSize).CopyTo(raw);
+                    rawLength = expectedSize;
+                    return ResultCode.Success;
+                case CompressionType.RLE:
+                    return TryDecompressRle(payload, payloadLength, expectedSize, workspace, out raw, out rawLength);
+                case CompressionType.ZIP:
+                case CompressionType.ZIPS:
+                    return TryDecompressZip(payload, payloadLength, expectedSize, workspace, out raw, out rawLength);
+                case CompressionType.PIZ:
+                    return TryDecompressPiz(layouts, startX, startY, width, height, payload, payloadLength, expectedSize, workspace, out raw, out rawLength);
+                case CompressionType.PXR24:
+                    if (HasSubsampledChannels(layouts))
+                    {
+                        return ResultCode.UnsupportedFeature;
+                    }
+
+                    ResultCode pxrResult = TryDecompressPxr24(layouts, pixelStride, width, height, payload.AsSpan(0, payloadLength), expectedSize, out raw);
+                    rawLength = pxrResult == ResultCode.Success ? raw.Length : 0;
+                    return pxrResult;
+                case CompressionType.B44:
+                case CompressionType.B44A:
+                    ResultCode b44Result = TryDecompressB44(layouts, startX, startY, width, height, payload.AsSpan(0, payloadLength), expectedSize, out raw);
+                    rawLength = b44Result == ResultCode.Success ? raw.Length : 0;
+                    return b44Result;
+                default:
+                    return ResultCode.UnsupportedFeature;
+            }
+        }
+
         internal static ResultCode TryDecodeDeepPayload(
             CompressionType compression,
-            ReadOnlySpan<byte> payload,
+            byte[] payload,
             int expectedSize,
             out byte[] raw)
         {
@@ -293,9 +534,53 @@ namespace TinyEXR.PortV1
             }
         }
 
+        internal static ResultCode TryDecodeDeepPayload(
+            CompressionType compression,
+            byte[] payload,
+            int payloadLength,
+            int expectedSize,
+            DecodeWorkspace workspace,
+            out byte[] raw,
+            out int rawLength)
+        {
+            raw = Array.Empty<byte>();
+            rawLength = 0;
+
+            if (payloadLength < 0 || payloadLength > payload.Length)
+            {
+                return ResultCode.InvalidData;
+            }
+
+            switch (compression)
+            {
+                case CompressionType.None:
+                    if (payloadLength != expectedSize)
+                    {
+                        return ResultCode.InvalidData;
+                    }
+
+                    raw = workspace.GetRaw(expectedSize);
+                    payload.AsSpan(0, expectedSize).CopyTo(raw);
+                    rawLength = expectedSize;
+                    return ResultCode.Success;
+                case CompressionType.RLE:
+                    return TryDecompressRle(payload, payloadLength, expectedSize, workspace, out raw, out rawLength);
+                case CompressionType.ZIPS:
+                case CompressionType.ZIP:
+                    return TryDecompressZip(payload, payloadLength, expectedSize, workspace, out raw, out rawLength);
+                default:
+                    return ResultCode.UnsupportedFeature;
+            }
+        }
+
         private static bool TryBuildLayouts(IList<ExrChannel> channels, out ChannelLayout[] layouts, out int pixelStride)
         {
-            layouts = new ChannelLayout[channels.Count];
+            return TryBuildLayouts(channels, null, out layouts, out pixelStride);
+        }
+
+        private static bool TryBuildLayouts(IList<ExrChannel> channels, DecodeWorkspace? workspace, out ChannelLayout[] layouts, out int pixelStride)
+        {
+            layouts = workspace?.GetLayouts(channels.Count) ?? new ChannelLayout[channels.Count];
             pixelStride = 0;
 
             for (int i = 0; i < channels.Count; i++)
@@ -522,9 +807,8 @@ namespace TinyEXR.PortV1
             return tmp;
         }
 
-        private static byte[] UndoExrPredictorAndReorder(ReadOnlySpan<byte> payload, int expectedSize)
+        private static byte[] UndoExrPredictorAndReorder(byte[] tmp, int expectedSize)
         {
-            byte[] tmp = payload.ToArray();
             for (int i = 1; i < tmp.Length; i++)
             {
                 tmp[i] = unchecked((byte)(tmp[i - 1] + tmp[i] - 128));
@@ -544,6 +828,26 @@ namespace TinyEXR.PortV1
             }
 
             return raw;
+        }
+
+        private static void UndoExrPredictorAndReorder(byte[] tmp, int expectedSize, byte[] raw)
+        {
+            for (int i = 1; i < expectedSize; i++)
+            {
+                tmp[i] = unchecked((byte)(tmp[i - 1] + tmp[i] - 128));
+            }
+
+            int half = (expectedSize + 1) / 2;
+            int sourceA = 0;
+            int sourceB = half;
+            for (int i = 0; i < expectedSize; i += 2)
+            {
+                raw[i] = tmp[sourceA++];
+                if (i + 1 < expectedSize)
+                {
+                    raw[i + 1] = tmp[sourceB++];
+                }
+            }
         }
 
         private static ResultCode TryCompressZip(ReadOnlySpan<byte> raw, out byte[] payload)
@@ -567,7 +871,7 @@ namespace TinyEXR.PortV1
             }
         }
 
-        private static ResultCode TryDecompressZip(ReadOnlySpan<byte> payload, int expectedSize, out byte[] raw)
+        private static ResultCode TryDecompressZip(byte[] payload, int expectedSize, out byte[] raw)
         {
             if (payload.Length == expectedSize)
             {
@@ -577,8 +881,8 @@ namespace TinyEXR.PortV1
 
             try
             {
-                byte[] tmp = ZlibCompat.Decompress(payload);
-                if (tmp.Length != expectedSize)
+                byte[] tmp = new byte[expectedSize];
+                if (!ZlibCompat.TryDecompress(payload, tmp, expectedSize))
                 {
                     raw = Array.Empty<byte>();
                     return ResultCode.InvalidData;
@@ -590,6 +894,40 @@ namespace TinyEXR.PortV1
             catch
             {
                 raw = Array.Empty<byte>();
+                return ResultCode.InvalidData;
+            }
+        }
+
+        private static ResultCode TryDecompressZip(byte[] payload, int payloadLength, int expectedSize, DecodeWorkspace workspace, out byte[] raw, out int rawLength)
+        {
+            raw = Array.Empty<byte>();
+            rawLength = 0;
+
+            if (payloadLength == expectedSize)
+            {
+                raw = workspace.GetRaw(expectedSize);
+                payload.AsSpan(0, expectedSize).CopyTo(raw);
+                rawLength = expectedSize;
+                return ResultCode.Success;
+            }
+
+            try
+            {
+                byte[] tmp = workspace.GetWork(expectedSize);
+                if (!ZlibCompat.TryDecompress(payload, payloadLength, tmp, expectedSize))
+                {
+                    return ResultCode.InvalidData;
+                }
+
+                raw = workspace.GetRaw(expectedSize);
+                UndoExrPredictorAndReorder(tmp, expectedSize, raw);
+                rawLength = expectedSize;
+                return ResultCode.Success;
+            }
+            catch
+            {
+                raw = Array.Empty<byte>();
+                rawLength = 0;
                 return ResultCode.InvalidData;
             }
         }
@@ -608,7 +946,7 @@ namespace TinyEXR.PortV1
             }
         }
 
-        private static ResultCode TryDecompressZlib(ReadOnlySpan<byte> payload, int expectedSize, out byte[] raw)
+        private static ResultCode TryDecompressZlib(byte[] payload, int expectedSize, out byte[] raw)
         {
             if (payload.Length == expectedSize)
             {
@@ -618,8 +956,14 @@ namespace TinyEXR.PortV1
 
             try
             {
-                raw = ZlibCompat.Decompress(payload);
-                return raw.Length == expectedSize ? ResultCode.Success : ResultCode.InvalidData;
+                raw = new byte[expectedSize];
+                if (!ZlibCompat.TryDecompress(payload, raw, expectedSize))
+                {
+                    raw = Array.Empty<byte>();
+                    return ResultCode.InvalidData;
+                }
+
+                return ResultCode.Success;
             }
             catch
             {
@@ -729,6 +1073,66 @@ namespace TinyEXR.PortV1
             return ResultCode.Success;
         }
 
+        private static ResultCode TryDecompressRle(byte[] payload, int payloadLength, int expectedSize, DecodeWorkspace workspace, out byte[] raw, out int rawLength)
+        {
+            raw = Array.Empty<byte>();
+            rawLength = 0;
+
+            if (payloadLength == expectedSize)
+            {
+                raw = workspace.GetRaw(expectedSize);
+                payload.AsSpan(0, expectedSize).CopyTo(raw);
+                rawLength = expectedSize;
+                return ResultCode.Success;
+            }
+
+            if (payloadLength <= 2)
+            {
+                return ResultCode.InvalidData;
+            }
+
+            byte[] tmp = workspace.GetWork(expectedSize);
+            int source = 0;
+            int destination = 0;
+            while (source < payloadLength)
+            {
+                int control = (sbyte)payload[source++];
+                if (control < 0)
+                {
+                    int count = -control;
+                    if (source + count > payloadLength || destination + count > expectedSize)
+                    {
+                        return ResultCode.InvalidData;
+                    }
+
+                    payload.AsSpan(source, count).CopyTo(tmp.AsSpan(destination, count));
+                    source += count;
+                    destination += count;
+                }
+                else
+                {
+                    int count = control + 1;
+                    if (source >= payloadLength || destination + count > expectedSize)
+                    {
+                        return ResultCode.InvalidData;
+                    }
+
+                    tmp.AsSpan(destination, count).Fill(payload[source++]);
+                    destination += count;
+                }
+            }
+
+            if (destination != expectedSize)
+            {
+                return ResultCode.InvalidData;
+            }
+
+            raw = workspace.GetRaw(expectedSize);
+            UndoExrPredictorAndReorder(tmp, expectedSize, raw);
+            rawLength = expectedSize;
+            return ResultCode.Success;
+        }
+
         private static ResultCode TryCompressPiz(ChannelLayout[] layouts, int startX, int startY, int width, int height, byte[] raw, out byte[] payload)
         {
             ushort[] tmpBuffer = new ushort[raw.Length / sizeof(ushort)];
@@ -810,7 +1214,7 @@ namespace TinyEXR.PortV1
             return ResultCode.Success;
         }
 
-        private static ResultCode TryDecompressPiz(ChannelLayout[] layouts, int startX, int startY, int width, int height, ReadOnlySpan<byte> payload, int expectedSize, out byte[] raw)
+        private static ResultCode TryDecompressPiz(ChannelLayout[] layouts, int startX, int startY, int width, int height, byte[] payload, int expectedSize, out byte[] raw)
         {
             if (payload.Length == expectedSize)
             {
@@ -826,9 +1230,9 @@ namespace TinyEXR.PortV1
 
             byte[] bitmap = new byte[BitmapSize];
             int offset = 0;
-            ushort minNonZero = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(offset, sizeof(ushort)));
+            ushort minNonZero = BinaryPrimitives.ReadUInt16LittleEndian(payload.AsSpan(offset, sizeof(ushort)));
             offset += sizeof(ushort);
-            ushort maxNonZero = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(offset, sizeof(ushort)));
+            ushort maxNonZero = BinaryPrimitives.ReadUInt16LittleEndian(payload.AsSpan(offset, sizeof(ushort)));
             offset += sizeof(ushort);
             if (maxNonZero >= BitmapSize)
             {
@@ -845,7 +1249,7 @@ namespace TinyEXR.PortV1
                     return ResultCode.InvalidData;
                 }
 
-                payload.Slice(offset, bitmapLength).CopyTo(bitmap.AsSpan(minNonZero, bitmapLength));
+                payload.AsSpan(offset, bitmapLength).CopyTo(bitmap.AsSpan(minNonZero, bitmapLength));
                 offset += bitmapLength;
             }
             else if (!(minNonZero == BitmapSize - 1 && maxNonZero == 0))
@@ -860,7 +1264,7 @@ namespace TinyEXR.PortV1
                 return ResultCode.InvalidData;
             }
 
-            int huffmanLength = BinaryPrimitives.ReadInt32LittleEndian(payload.Slice(offset, sizeof(int)));
+            int huffmanLength = BinaryPrimitives.ReadInt32LittleEndian(payload.AsSpan(offset, sizeof(int)));
             offset += sizeof(int);
             if (huffmanLength < 0 || offset + huffmanLength > payload.Length)
             {
@@ -870,7 +1274,7 @@ namespace TinyEXR.PortV1
 
             ushort[] reverseLut = new ushort[UShortRange];
             ushort maxValue = ReverseLutFromBitmap(bitmap, reverseLut);
-            if (!TryHufUncompress(payload.Slice(offset, huffmanLength).ToArray(), expectedSize / sizeof(ushort), out ushort[] tmpBuffer))
+            if (!TryHufUncompress(payload, offset, huffmanLength, expectedSize / sizeof(ushort), out ushort[] tmpBuffer))
             {
                 raw = Array.Empty<byte>();
                 return ResultCode.InvalidData;
@@ -933,6 +1337,145 @@ namespace TinyEXR.PortV1
                 return ResultCode.InvalidData;
             }
 
+            return ResultCode.Success;
+        }
+
+        private static ResultCode TryDecompressPiz(
+            ChannelLayout[] layouts,
+            int startX,
+            int startY,
+            int width,
+            int height,
+            byte[] payload,
+            int payloadLength,
+            int expectedSize,
+            DecodeWorkspace workspace,
+            out byte[] raw,
+            out int rawLength)
+        {
+            raw = Array.Empty<byte>();
+            rawLength = 0;
+
+            if (payloadLength == expectedSize)
+            {
+                raw = workspace.GetRaw(expectedSize);
+                payload.AsSpan(0, expectedSize).CopyTo(raw);
+                rawLength = expectedSize;
+                return ResultCode.Success;
+            }
+
+            if ((expectedSize & 1) != 0 || payloadLength < sizeof(ushort) * 2 + sizeof(int))
+            {
+                return ResultCode.InvalidData;
+            }
+
+            byte[] bitmap = workspace.GetBitmap();
+            Array.Clear(bitmap, 0, BitmapSize);
+
+            int offset = 0;
+            ushort minNonZero = BinaryPrimitives.ReadUInt16LittleEndian(payload.AsSpan(offset, sizeof(ushort)));
+            offset += sizeof(ushort);
+            ushort maxNonZero = BinaryPrimitives.ReadUInt16LittleEndian(payload.AsSpan(offset, sizeof(ushort)));
+            offset += sizeof(ushort);
+            if (maxNonZero >= BitmapSize)
+            {
+                return ResultCode.InvalidData;
+            }
+
+            if (minNonZero <= maxNonZero)
+            {
+                int bitmapLength = maxNonZero - minNonZero + 1;
+                if (offset + bitmapLength > payloadLength)
+                {
+                    return ResultCode.InvalidData;
+                }
+
+                payload.AsSpan(offset, bitmapLength).CopyTo(bitmap.AsSpan(minNonZero, bitmapLength));
+                offset += bitmapLength;
+            }
+            else if (!(minNonZero == BitmapSize - 1 && maxNonZero == 0))
+            {
+                return ResultCode.InvalidData;
+            }
+
+            if (offset + sizeof(int) > payloadLength)
+            {
+                return ResultCode.InvalidData;
+            }
+
+            int huffmanLength = BinaryPrimitives.ReadInt32LittleEndian(payload.AsSpan(offset, sizeof(int)));
+            offset += sizeof(int);
+            if (huffmanLength < 0 || offset + huffmanLength > payloadLength)
+            {
+                return ResultCode.InvalidData;
+            }
+
+            ushort[] reverseLut = workspace.GetUShortLut();
+            ushort maxValue = ReverseLutFromBitmap(bitmap, reverseLut);
+            int expectedWordCount = expectedSize / sizeof(ushort);
+            ushort[] tmpBuffer = workspace.GetUShortWork(expectedWordCount);
+            if (!TryHufUncompress(payload, offset, huffmanLength, expectedWordCount, workspace, tmpBuffer))
+            {
+                return ResultCode.InvalidData;
+            }
+
+            PizChannelData[] channelData = workspace.GetPizChannelData(layouts.Length);
+            int cursor = 0;
+            for (int i = 0; i < layouts.Length; i++)
+            {
+                int sampledWidth = CountSamplePositions(startX, width, layouts[i].SamplingX);
+                int sampledHeight = CountSamplePositions(startY, height, layouts[i].SamplingY);
+                channelData[i] = new PizChannelData(cursor, sampledWidth, sampledHeight, layouts[i].WordSize);
+                cursor += sampledWidth * sampledHeight * layouts[i].WordSize;
+            }
+
+            if (cursor != expectedWordCount)
+            {
+                return ResultCode.InvalidData;
+            }
+
+            for (int i = 0; i < channelData.Length; i++)
+            {
+                for (int plane = 0; plane < channelData[i].Size; plane++)
+                {
+                    Wav2Decode(tmpBuffer, channelData[i].Start + plane, channelData[i].Nx, channelData[i].Size, channelData[i].Ny, channelData[i].Nx * channelData[i].Size, maxValue);
+                }
+            }
+
+            ApplyLut(reverseLut, tmpBuffer.AsSpan(0, expectedWordCount));
+
+            raw = workspace.GetRaw(expectedSize);
+            int[] channelPositions = workspace.GetChannelPositions(layouts.Length);
+            int rawOffset = 0;
+            for (int y = 0; y < height; y++)
+            {
+                int absoluteY = startY + y;
+                for (int channelIndex = 0; channelIndex < layouts.Length; channelIndex++)
+                {
+                    if (!IsSampledCoordinate(absoluteY, layouts[channelIndex].SamplingY))
+                    {
+                        continue;
+                    }
+
+                    int rowWords = channelData[channelIndex].Nx * layouts[channelIndex].WordSize;
+                    for (int i = 0; i < rowWords; i++)
+                    {
+                        BinaryPrimitives.WriteUInt16LittleEndian(
+                            raw.AsSpan(rawOffset + i * sizeof(ushort), sizeof(ushort)),
+                            tmpBuffer[channelData[channelIndex].Start + channelPositions[channelIndex]++]);
+                    }
+
+                    rawOffset += rowWords * sizeof(ushort);
+                }
+            }
+
+            if (rawOffset != expectedSize)
+            {
+                raw = Array.Empty<byte>();
+                return ResultCode.InvalidData;
+            }
+
+            rawLength = expectedSize;
             return ResultCode.Success;
         }
 
@@ -1028,7 +1571,7 @@ namespace TinyEXR.PortV1
                 packedSize += width * height * (layouts[i].Type == ExrPixelType.Float ? 3 : layouts[i].SampleSize);
             }
 
-            ResultCode zlibResult = TryDecompressZlib(payload, packedSize, out byte[] packed);
+            ResultCode zlibResult = TryDecompressZlib(payload.ToArray(), packedSize, out byte[] packed);
             if (zlibResult != ResultCode.Success)
             {
                 raw = Array.Empty<byte>();
@@ -1252,7 +1795,7 @@ namespace TinyEXR.PortV1
             return ResultCode.Success;
         }
 
-        private readonly struct PizChannelData
+        internal readonly struct PizChannelData
         {
             public PizChannelData(int start, int nx, int ny, int size)
             {
@@ -1574,6 +2117,14 @@ namespace TinyEXR.PortV1
             }
         }
 
+        private static void ApplyLut(ushort[] lut, Span<ushort> data)
+        {
+            for (int i = 0; i < data.Length; i++)
+            {
+                data[i] = lut[data[i]];
+            }
+        }
+
         private static int HufLength(long code) => (int)(code & 63);
 
         private static long HufCode(long code) => code >> 6;
@@ -1828,14 +2379,63 @@ namespace TinyEXR.PortV1
             return true;
         }
 
+        private static bool TryHufUnpackEncTable(byte[] bytes, int offset, int length, int im, int iM, DecodeWorkspace workspace, out long[] codes)
+        {
+            codes = workspace.GetHufCodes();
+            BitReader reader = new BitReader(bytes, offset, length);
+            for (int index = im; index <= iM; index++)
+            {
+                if (!reader.TryReadBits(6, out int readLength))
+                {
+                    return false;
+                }
+
+                codes[index] = readLength;
+                if (readLength == LongZeroCodeRun)
+                {
+                    if (!reader.TryReadBits(8, out int zeroRunDelta))
+                    {
+                        return false;
+                    }
+
+                    int zeroRun = zeroRunDelta + ShortestLongRun;
+                    if (index + zeroRun > iM + 1)
+                    {
+                        return false;
+                    }
+
+                    while (zeroRun-- > 0)
+                    {
+                        codes[index++] = 0;
+                    }
+
+                    index--;
+                }
+                else if (readLength >= ShortZeroCodeRun)
+                {
+                    int zeroRun = readLength - ShortZeroCodeRun + 2;
+                    if (index + zeroRun > iM + 1)
+                    {
+                        return false;
+                    }
+
+                    while (zeroRun-- > 0)
+                    {
+                        codes[index++] = 0;
+                    }
+
+                    index--;
+                }
+            }
+
+            HufCanonicalCodeTable(codes);
+            return true;
+        }
+
         private static bool TryHufBuildDecTable(long[] codes, int im, int iM, out HufDecEntry[] table)
         {
             table = new HufDecEntry[HufDecSize];
             List<int>[] longSymbols = new List<int>[HufDecSize];
-            for (int i = 0; i < table.Length; i++)
-            {
-                table[i] = new HufDecEntry();
-            }
 
             for (int index = im; index <= iM; index++)
             {
@@ -1879,6 +2479,59 @@ namespace TinyEXR.PortV1
                 {
                     table[i].Literal = longSymbols[i]!.Count;
                     table[i].Symbols = longSymbols[i]!.ToArray();
+                }
+            }
+
+            return true;
+        }
+
+        private static bool TryHufBuildDecTable(long[] codes, int im, int iM, DecodeWorkspace workspace, out HufDecEntry[] table)
+        {
+            table = workspace.GetHufTable();
+            List<int>[] longSymbols = workspace.GetHufLongSymbols();
+
+            for (int index = im; index <= iM; index++)
+            {
+                long code = HufCode(codes[index]);
+                int length = HufLength(codes[index]);
+                if ((code >> length) != 0)
+                {
+                    return false;
+                }
+
+                if (length > HufDecBits)
+                {
+                    int slot = (int)(code >> (length - HufDecBits));
+                    if (table[slot].Length != 0)
+                    {
+                        return false;
+                    }
+
+                    workspace.GetHufLongSymbolList(longSymbols, slot).Add(index);
+                }
+                else if (length != 0)
+                {
+                    int slot = (int)(code << (HufDecBits - length));
+                    int count = 1 << (HufDecBits - length);
+                    for (int i = 0; i < count; i++)
+                    {
+                        if (table[slot + i].Length != 0 || longSymbols[slot + i] != null && longSymbols[slot + i].Count != 0)
+                        {
+                            return false;
+                        }
+
+                        table[slot + i].Length = (byte)length;
+                        table[slot + i].Literal = index;
+                    }
+                }
+            }
+
+            for (int i = 0; i < longSymbols.Length; i++)
+            {
+                if (longSymbols[i] != null && longSymbols[i].Count != 0)
+                {
+                    table[i].Literal = longSymbols[i].Count;
+                    table[i].Symbols = longSymbols[i].ToArray();
                 }
             }
 
@@ -1960,31 +2613,32 @@ namespace TinyEXR.PortV1
             return output;
         }
 
-        private static bool TryHufUncompress(byte[] compressed, int expectedCount, out ushort[] raw)
+        private static bool TryHufUncompress(byte[] compressed, int compressedOffset, int compressedLength, int expectedCount, out ushort[] raw)
         {
             raw = new ushort[expectedCount];
-            if (compressed.Length == 0)
+            if (compressedLength == 0)
             {
                 return false;
             }
 
-            if (compressed.Length < 20)
+            if (compressedOffset < 0 || compressedLength < 20 || compressedOffset > compressed.Length - compressedLength)
             {
                 return false;
             }
 
-            int im = BinaryPrimitives.ReadInt32LittleEndian(compressed.AsSpan(0, 4));
-            int iM = BinaryPrimitives.ReadInt32LittleEndian(compressed.AsSpan(4, 4));
-            int tableLength = BinaryPrimitives.ReadInt32LittleEndian(compressed.AsSpan(8, 4));
-            int nBits = BinaryPrimitives.ReadInt32LittleEndian(compressed.AsSpan(12, 4));
+            int im = BinaryPrimitives.ReadInt32LittleEndian(compressed.AsSpan(compressedOffset, 4));
+            int iM = BinaryPrimitives.ReadInt32LittleEndian(compressed.AsSpan(compressedOffset + 4, 4));
+            int tableLength = BinaryPrimitives.ReadInt32LittleEndian(compressed.AsSpan(compressedOffset + 8, 4));
+            int nBits = BinaryPrimitives.ReadInt32LittleEndian(compressed.AsSpan(compressedOffset + 12, 4));
             if (im < 0 || im >= HufEncSize || iM < 0 || iM >= HufEncSize || tableLength < 0)
             {
                 return false;
             }
 
-            int tableOffset = 20;
+            int tableOffset = compressedOffset + 20;
             int dataOffset = tableOffset + tableLength;
-            if (dataOffset > compressed.Length || nBits > (compressed.Length - dataOffset) * 8)
+            int compressedEnd = compressedOffset + compressedLength;
+            if (dataOffset > compressedEnd || nBits > (compressedEnd - dataOffset) * 8)
             {
                 return false;
             }
@@ -2002,7 +2656,54 @@ namespace TinyEXR.PortV1
             return TryHufDecode(codes, table, compressed, dataOffset, nBits, iM, raw);
         }
 
-        private static bool TryHufDecode(long[] codes, HufDecEntry[] table, byte[] input, int dataOffset, int bitLength, int runLengthCode, ushort[] output)
+        private static bool TryHufUncompress(byte[] compressed, int compressedOffset, int compressedLength, int expectedCount, DecodeWorkspace workspace, ushort[] raw)
+        {
+            if (compressedLength == 0)
+            {
+                return false;
+            }
+
+            if (compressedOffset < 0 || compressedLength < 20 || compressedOffset > compressed.Length - compressedLength || raw.Length < expectedCount)
+            {
+                return false;
+            }
+
+            int im = BinaryPrimitives.ReadInt32LittleEndian(compressed.AsSpan(compressedOffset, 4));
+            int iM = BinaryPrimitives.ReadInt32LittleEndian(compressed.AsSpan(compressedOffset + 4, 4));
+            int tableLength = BinaryPrimitives.ReadInt32LittleEndian(compressed.AsSpan(compressedOffset + 8, 4));
+            int nBits = BinaryPrimitives.ReadInt32LittleEndian(compressed.AsSpan(compressedOffset + 12, 4));
+            if (im < 0 || im >= HufEncSize || iM < 0 || iM >= HufEncSize || tableLength < 0)
+            {
+                return false;
+            }
+
+            int tableOffset = compressedOffset + 20;
+            int dataOffset = tableOffset + tableLength;
+            int compressedEnd = compressedOffset + compressedLength;
+            if (dataOffset > compressedEnd || nBits > (compressedEnd - dataOffset) * 8)
+            {
+                return false;
+            }
+
+            if (!TryHufUnpackEncTable(compressed, tableOffset, tableLength, im, iM, workspace, out long[] codes))
+            {
+                return false;
+            }
+
+            if (!TryHufBuildDecTable(codes, im, iM, workspace, out HufDecEntry[] table))
+            {
+                return false;
+            }
+
+            return TryHufDecode(codes, table, compressed, dataOffset, nBits, iM, raw.AsSpan(0, expectedCount));
+        }
+
+        private static bool TryHufDecode(long[] codes, HufDecEntry[] table, ReadOnlySpan<byte> input, int dataOffset, int bitLength, int runLengthCode, ushort[] output)
+        {
+            return TryHufDecode(codes, table, input, dataOffset, bitLength, runLengthCode, output.AsSpan());
+        }
+
+        private static bool TryHufDecode(long[] codes, HufDecEntry[] table, ReadOnlySpan<byte> input, int dataOffset, int bitLength, int runLengthCode, Span<ushort> output)
         {
             long buffer = 0;
             int bitCount = 0;
@@ -2088,7 +2789,7 @@ namespace TinyEXR.PortV1
             return outOffset == output.Length;
         }
 
-        private static bool TryGetCode(int symbol, int runLengthCode, ref long buffer, ref int bitCount, byte[] input, ref int inOffset, int inputEnd, ushort[] output, ref int outOffset)
+        private static bool TryGetCode(int symbol, int runLengthCode, ref long buffer, ref int bitCount, ReadOnlySpan<byte> input, ref int inOffset, int inputEnd, Span<ushort> output, ref int outOffset)
         {
             if (symbol == runLengthCode)
             {
