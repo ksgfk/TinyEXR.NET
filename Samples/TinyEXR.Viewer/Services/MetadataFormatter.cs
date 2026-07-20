@@ -1,7 +1,8 @@
+using System.Buffers.Binary;
 using System.Globalization;
 using System.Text;
-using TinyEXR;
 using TinyEXR.Viewer.Models;
+using V3 = TinyEXR.V3;
 
 namespace TinyEXR.Viewer.Services;
 
@@ -23,18 +24,18 @@ internal sealed class MetadataFormatter
             Entry("Path", document.FilePath),
             Entry("Document", document.Kind.ToString()),
             Entry("Status", document.StatusMessage),
-            Entry("Version", document.Version.Version.ToString()),
+            Entry("Version", document.Version.FileVersion.ToString()),
             Entry("Multipart", document.Version.Multipart.ToString()),
             Entry("Non-image", document.Version.NonImage.ToString()),
             Entry("Tiled Flag", document.Version.Tiled.ToString()),
-            Entry("Long Names", document.Version.LongName.ToString()),
+            Entry("Long Names", document.Version.LongNames.ToString()),
         };
 
         if (selectedPart is not null)
         {
-            ExrHeader header = selectedPart.Header;
+            V3.Header header = selectedPart.Header;
             entries.Add(Entry("Selected Part", selectedPart.DisplayName));
-            entries.Add(Entry("Part Type", header.PartType ?? (header.Tiles is null ? "scanlineimage" : "tiledimage")));
+            entries.Add(Entry("Part Type", header.PartType.ToString()));
             entries.Add(Entry("Compression", header.Compression.ToString()));
             entries.Add(Entry("Line Order", header.LineOrder.ToString()));
             entries.Add(Entry("Data Window", FormatBox(header.DataWindow)));
@@ -43,7 +44,8 @@ internal sealed class MetadataFormatter
             entries.Add(Entry("Screen Center", $"{header.ScreenWindowCenter.X:0.###}, {header.ScreenWindowCenter.Y:0.###}"));
             entries.Add(Entry("Screen Width", header.ScreenWindowWidth.ToString("0.###")));
             entries.Add(Entry("Deep", header.IsDeep.ToString()));
-            entries.Add(Entry("Multipart Header", header.IsMultipart.ToString()));
+            entries.Add(Entry("Decoded", selectedPart.HasMaterializedData.ToString()));
+            entries.Add(Entry("Decode Status", selectedPart.DecodeStatus));
 
             if (header.Tiles is not null)
             {
@@ -99,27 +101,31 @@ internal sealed class MetadataFormatter
             return Array.Empty<ChannelInfoItem>();
         }
 
-        if (part.Image is not null && selectedLevel is not null &&
-            (uint)selectedLevel.LevelIndex < (uint)part.Image.Levels.Count)
+        if (part.Part is not null && selectedLevel is not null &&
+            (uint)selectedLevel.LevelIndex < (uint)part.Part.Levels.Count)
         {
-            ExrImageLevel level = part.Image.Levels[selectedLevel.LevelIndex];
-            return level.Channels.Select(static channel => new ChannelInfoItem
+            V3.PartLevel level = part.Part.Levels[selectedLevel.LevelIndex];
+            return level.Channels.Select((buffer, index) =>
             {
-                Name = channel.Channel.Name,
-                DataType = channel.DataType.ToString(),
-                Sampling = $"{channel.Channel.SamplingX} x {channel.Channel.SamplingY}",
-                Storage = $"Stored={channel.Channel.Type}, Requested={channel.Channel.RequestedPixelType}",
-                Notes = $"Linear={channel.Channel.Linear}, Bytes={channel.Data.Length}",
+                V3.Channel channel = part.Header.Channels[index];
+                return new ChannelInfoItem
+                {
+                    Name = channel.Name,
+                    DataType = buffer.PixelType.ToString(),
+                    Sampling = $"{channel.XSampling} x {channel.YSampling}",
+                    Storage = level is V3.DeepLevel ? "Deep samples" : "Planar native samples",
+                    Notes = $"PerceptuallyLinear={channel.PerceptuallyLinear}, Bytes={buffer.ByteLength}",
+                };
             }).ToArray();
         }
 
         return part.Header.Channels.Select(static channel => new ChannelInfoItem
         {
             Name = channel.Name,
-            DataType = "(not loaded)",
-            Sampling = $"{channel.SamplingX} x {channel.SamplingY}",
-            Storage = $"Stored={channel.Type}, Requested={channel.RequestedPixelType}",
-            Notes = $"Linear={channel.Linear}",
+            DataType = channel.PixelType.ToString(),
+            Sampling = $"{channel.XSampling} x {channel.YSampling}",
+            Storage = "Not materialized",
+            Notes = $"PerceptuallyLinear={channel.PerceptuallyLinear}",
         }).ToArray();
     }
 
@@ -130,7 +136,7 @@ internal sealed class MetadataFormatter
             return Array.Empty<AttributeInfoItem>();
         }
 
-        return part.Header.CustomAttributes.Select(static attribute => new AttributeInfoItem
+        return part.Header.Attributes.Select(static attribute => new AttributeInfoItem
         {
             Name = attribute.Name,
             TypeName = attribute.TypeName,
@@ -138,21 +144,22 @@ internal sealed class MetadataFormatter
         }).ToArray();
     }
 
-    public IReadOnlyList<KeyValueItem> BuildDeepEntries(ExrDeepDocument? deepDocument)
+    public IReadOnlyList<KeyValueItem> BuildDeepEntries(ExrPartDocument? part)
     {
-        if (deepDocument is null)
+        if (part?.DeepStatistics is not DeepStatistics statistics)
         {
             return Array.Empty<KeyValueItem>();
         }
 
         return
         [
-            Entry("Dimensions", $"{deepDocument.Image.Width} x {deepDocument.Image.Height}"),
-            Entry("Channels", string.Join(", ", deepDocument.Image.Channels.Select(static channel => channel.Name))),
-            Entry("Rows", deepDocument.Image.OffsetTable.Length.ToString()),
-            Entry("Non-empty Pixels", deepDocument.Statistics.NonEmptyPixels.ToString()),
-            Entry("Max Samples / Pixel", deepDocument.Statistics.MaxSamplesPerPixel.ToString()),
-            Entry("Total Samples", deepDocument.Statistics.TotalSamples.ToString()),
+            Entry("Dimensions", $"{part.Header.DataWindow.Width} x {part.Header.DataWindow.Height}"),
+            Entry("Channels", string.Join(", ", part.Header.Channels.Select(static channel => channel.Name))),
+            Entry("Materialized Levels", statistics.LevelCount.ToString()),
+            Entry("Pixel Locations", statistics.PixelLocations.ToString()),
+            Entry("Non-empty Pixels", statistics.NonEmptyPixels.ToString()),
+            Entry("Max Samples / Pixel", statistics.MaxSamplesPerPixel.ToString()),
+            Entry("Total Samples", statistics.TotalSamples.ToString()),
         ];
     }
 
@@ -168,7 +175,11 @@ internal sealed class MetadataFormatter
             $"Channels={part.Header.Channels.Count}",
             $"Compression={part.Header.Compression}",
             $"DataWindow={part.Header.DataWindow.Width}x{part.Header.DataWindow.Height}",
-            part.CanPreview ? "Previewable" : "Metadata only",
+            part.CanPreview
+                ? "Previewable"
+                : part.HasMaterializedData
+                    ? "Deep data loaded"
+                    : $"Not decoded: {part.DecodeStatus}",
         ];
 
         if (part.Header.Tiles is not null)
@@ -185,38 +196,47 @@ internal sealed class MetadataFormatter
         return string.Join(" | ", segments);
     }
 
-    private static string FormatAttribute(ExrAttribute attribute)
+    private static string FormatAttribute(V3.HeaderAttribute attribute)
     {
+        ReadOnlySpan<byte> data = attribute.Data;
         if (string.Equals(attribute.TypeName, "string", StringComparison.Ordinal))
         {
-            return attribute.ReadString();
+            int byteCount = data.Length;
+            if (byteCount > 0 && data[byteCount - 1] == 0)
+            {
+                byteCount--;
+            }
+
+            return Encoding.UTF8.GetString(data.Slice(0, byteCount));
         }
 
         if (string.Equals(attribute.TypeName, "int", StringComparison.Ordinal) &&
-            attribute.Value.Length >= sizeof(int))
+            data.Length >= sizeof(int))
         {
-            return attribute.ReadInt().ToString();
+            return BinaryPrimitives.ReadInt32LittleEndian(data).ToString(CultureInfo.InvariantCulture);
         }
 
         if (string.Equals(attribute.TypeName, "float", StringComparison.Ordinal) &&
-            attribute.Value.Length >= sizeof(float))
+            data.Length >= sizeof(float))
         {
-            return attribute.ReadFloat().ToString("G9", CultureInfo.InvariantCulture);
+            float value = BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(data));
+            return value.ToString("G9", CultureInfo.InvariantCulture);
         }
 
         if (string.Equals(attribute.TypeName, "double", StringComparison.Ordinal) &&
-            attribute.Value.Length >= sizeof(double))
+            data.Length >= sizeof(double))
         {
-            return attribute.ReadDouble().ToString("G17", CultureInfo.InvariantCulture);
+            double value = BitConverter.Int64BitsToDouble(BinaryPrimitives.ReadInt64LittleEndian(data));
+            return value.ToString("G17", CultureInfo.InvariantCulture);
         }
 
-        if (attribute.Value.Length == 0)
+        if (data.Length == 0)
         {
             return "(empty)";
         }
 
         const int maxBytes = 32;
-        int count = Math.Min(attribute.Value.Length, maxBytes);
+        int count = Math.Min(data.Length, maxBytes);
         StringBuilder builder = new();
         for (int i = 0; i < count; i++)
         {
@@ -225,10 +245,10 @@ internal sealed class MetadataFormatter
                 builder.Append(' ');
             }
 
-            builder.Append(attribute.Value[i].ToString("X2"));
+            builder.Append(data[i].ToString("X2"));
         }
 
-        if (attribute.Value.Length > maxBytes)
+        if (data.Length > maxBytes)
         {
             builder.Append(" ...");
         }
@@ -236,7 +256,7 @@ internal sealed class MetadataFormatter
         return builder.ToString();
     }
 
-    private static string FormatBox(ExrBox2i box)
+    private static string FormatBox(V3.Box2i box)
     {
         return $"[{box.MinX}, {box.MinY}] - [{box.MaxX}, {box.MaxY}] ({box.Width} x {box.Height})";
     }

@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using TinyEXR.V3.Codecs;
 
 namespace TinyEXR.PortV1
 {
@@ -553,6 +554,35 @@ namespace TinyEXR.PortV1
             }
         }
 
+        internal static ResultCode TryEncodeDeepPayload(
+            CompressionType compression,
+            byte[] raw,
+            EncodeWorkspace? workspace,
+            out byte[] payload)
+        {
+            if (raw == null)
+            {
+                payload = Array.Empty<byte>();
+                return ResultCode.InvalidArgument;
+            }
+
+            switch (compression)
+            {
+                case CompressionType.None:
+                    payload = raw;
+                    return ResultCode.Success;
+                case CompressionType.RLE:
+                    payload = CompressRle(raw);
+                    return ResultCode.Success;
+                case CompressionType.ZIPS:
+                case CompressionType.ZIP:
+                    return TryCompressZip(raw, workspace, out payload);
+                default:
+                    payload = Array.Empty<byte>();
+                    return ResultCode.UnsupportedFeature;
+            }
+        }
+
         internal static ResultCode TryDecodeDeepPayload(
             CompressionType compression,
             byte[] payload,
@@ -809,68 +839,19 @@ namespace TinyEXR.PortV1
 
         private static void ApplyExrPredictorAndReorder(ReadOnlySpan<byte> raw, Span<byte> tmp)
         {
-            int half = (raw.Length + 1) / 2;
-            int targetA = 0;
-            int targetB = half;
-            for (int i = 0; i < raw.Length; i += 2)
-            {
-                tmp[targetA++] = raw[i];
-                if (i + 1 < raw.Length)
-                {
-                    tmp[targetB++] = raw[i + 1];
-                }
-            }
-
-            int previous = tmp.Length == 0 ? 0 : tmp[0];
-            for (int i = 1; i < tmp.Length; i++)
-            {
-                int current = tmp[i];
-                tmp[i] = unchecked((byte)(current - previous + 384));
-                previous = current;
-            }
+            ExrPredictor.Apply(raw, tmp);
         }
 
         private static byte[] UndoExrPredictorAndReorder(byte[] tmp, int expectedSize)
         {
-            for (int i = 1; i < tmp.Length; i++)
-            {
-                tmp[i] = unchecked((byte)(tmp[i - 1] + tmp[i] - 128));
-            }
-
             byte[] raw = new byte[expectedSize];
-            int half = (expectedSize + 1) / 2;
-            int sourceA = 0;
-            int sourceB = half;
-            for (int i = 0; i < expectedSize; i += 2)
-            {
-                raw[i] = tmp[sourceA++];
-                if (i + 1 < expectedSize)
-                {
-                    raw[i + 1] = tmp[sourceB++];
-                }
-            }
-
+            ExrPredictor.Undo(tmp, expectedSize, raw);
             return raw;
         }
 
         private static void UndoExrPredictorAndReorder(byte[] tmp, int expectedSize, byte[] raw)
         {
-            for (int i = 1; i < expectedSize; i++)
-            {
-                tmp[i] = unchecked((byte)(tmp[i - 1] + tmp[i] - 128));
-            }
-
-            int half = (expectedSize + 1) / 2;
-            int sourceA = 0;
-            int sourceB = half;
-            for (int i = 0; i < expectedSize; i += 2)
-            {
-                raw[i] = tmp[sourceA++];
-                if (i + 1 < expectedSize)
-                {
-                    raw[i + 1] = tmp[sourceB++];
-                }
-            }
+            ExrPredictor.Undo(tmp, expectedSize, raw);
         }
 
         private static ResultCode TryCompressZip(ReadOnlySpan<byte> raw, EncodeWorkspace? workspace, out byte[] payload)

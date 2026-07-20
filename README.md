@@ -12,34 +12,68 @@ The target frameworks are `net8.0`, `netstandard2.1`
 
 ## Dependencies
 
-The `net8.0` target has no additional runtime dependencies.
+Both targets use [ZstdSharp.Port](https://github.com/oleg-st/ZstdSharp) for TinyEXR v3-compatible ZSTD encoding. The decoder remains an independent managed implementation in this repository.
 
-The `netstandard2.1` target depends on [SharpZipLib](https://github.com/icsharpcode/SharpZipLib).
+The `netstandard2.1` target additionally depends on [SharpZipLib](https://github.com/icsharpcode/SharpZipLib).
 
 ## Features
 
 - [x] full NativeAOT support!
 - [x] Single-part EXR read/write for scanline images.
 - [x] Single-part EXR read/write for tiled images, including one-level tiles and multi-resolution mipmap/ripmap layouts.
-- [x] Multipart image EXR parse/load/save for image parts.
-- [x] Deep single-part scanline EXR load through `LoadDeepEXR`.
-- [x] Regular image compression support for `NONE`, `RLE`, `ZIP`, `ZIPS`, `PIZ`, `PXR24`, `B44`, and `B44A`.
-- [x] Deep scanline compression support for `NONE`, `RLE`, `ZIPS`, and `ZIP`.
+- [x] Multipart image EXR parse/load/save for flat image parts, including single-entry multipart containers.
+- [x] Deep single-part scanline and one-level tiled EXR load through `LoadDeepEXR`.
+- [x] Regular image compression support for `NONE`, `RLE`, `ZIP`, `ZIPS`, `PIZ`, `PXR24`, `B44`, `B44A`, `HTJ2K32`, `HTJ2K256`, and `ZSTD`.
+- [x] V3 deep compression support for `NONE`, `RLE`, `ZIPS`, `ZIP`, and `ZSTD`.
 - [x] Layer- and multiview-aware helpers such as `EXRLayers` and `LoadEXRWithLayer`, including RGBA expansion for subsampled channels in the convenience load path.
 - [x] Managed header/image models that preserve EXR metadata needed by tools and inspectors, including data/display windows, tile descriptions, custom attributes, channel sampling, line order, and long names.
-- [ ] Full image decode for mixed multipart files that include deep or non-image parts. Current behavior is metadata-only for those parts.
+- [x] Stateful `TinyEXR.V3` reader/writer APIs for multipart, mip/rip, flat/deep, partial block reads, bounded-memory streaming writes, synchronous/asynchronous data sources, cancellation, and `WouldBlock` resume.
+- [x] V3 ZSTD flat/deep decode and encode, including entropy-compressed frames and canonical raw fallback when compression does not reduce the payload.
+- [x] V3 HTJ2K32/HTJ2K256 flat decode and genuine encode through a safe managed JPEG 2000 Part 15 implementation.
+- [x] Safe SIMD paths for pixel conversion, RGB color matrices, and ZIP/RLE byte reorder and prediction, with scalar parity fallbacks.
+- [x] V3 spectral wavelength cubes and CPU image utilities: typed pixel conversion, whole-image and streaming resize, tone mapping, color/transfer transforms, `.cube` 3D LUTs, planar/interleaved bridges, and luminance-chroma reconstruction.
+- [x] V3 whole-part decode for mixed flat/deep multipart files. The v1-compatible flat multipart facade returns `UnsupportedFeature` when a part is deep.
 
 ## Usage
 
-`TinyEXR.NET` keeps its public API almost identical to `tinyexr` v1, so most functions and data structures can be mapped directly from the original library. The main differences are a small number of C#-oriented interfaces designed to avoid raw pointer-based usage and provide a more natural managed API surface.
+The `TinyEXR` namespace keeps the public facade close to tinyexr v1. The
+`TinyEXR.V3` namespace exposes the new stateful object, partial-I/O, deep, and
+streaming model introduced by tinyexr v3. See
+[TinyEXR v3 API notes](docs/tinyexr-v3.md) for the upstream differences, managed
+type mapping, migration status, and codec support matrix.
 
-Example:
+V1-compatible facade:
 
 ```csharp
 ResultCode load = Exr.LoadEXR(inputPath, out float[] rgba, out int width, out int height);
 if (load != ResultCode.Success)
 {
     throw new InvalidOperationException($"LoadEXR failed: {load}");
+}
+```
+
+Direct v3 API:
+
+```csharp
+using TinyEXR.V3;
+
+ReaderResult<Image> load = ExrFile.LoadFromFile(inputPath);
+if (!load.IsSuccess || load.Value is not Image image)
+{
+    throw new InvalidOperationException($"EXR load failed: {load.Status}", load.Error);
+}
+
+Part firstPart = image.Parts[0];
+PartLevel baseLevel = firstPart.GetLevel(0, 0);
+
+Console.WriteLine(
+    $"{firstPart.Header.PartType}: {baseLevel.Width}x{baseLevel.Height}, " +
+    $"{baseLevel.Channels.Count} channels");
+
+WriterResult save = ExrFile.SaveToFile(image, outputPath, Compression.ZSTD);
+if (!save.IsSuccess)
+{
+    throw new InvalidOperationException($"EXR save failed: {save.Status}", save.Error);
 }
 ```
 
@@ -104,7 +138,9 @@ For new development, prefer the mainline `v1.0+` branch. Use the `v0.3.x` mainte
 
 ## Known Limitation
 
-Mixed multipart files that include deep or non-image parts are currently metadata-only for those parts; full image decode is supported for image parts.
+The V3 reader materializes mixed flat/deep multipart files. The v1-compatible `LoadEXRMultipartImage*` model can represent only flat `ExrImage` parts, so it returns `UnsupportedFeature` when any part is deep; use `TinyEXR.V3.ExrReader` for those files. Likewise, v1 `ExrDeepImage` has no mip/rip level dimension, so `LoadDeepEXR*` accepts one-level deep tiles and rejects multilevel deep tiles.
+
+The V3 reader and writer decode and genuinely encode flat HTJ2K32/HTJ2K256 payloads. Compressed deep HTJ2K data and compressed DWAA/DWAB remain intentionally unsupported, matching upstream v3 policy.
 
 ## License
 

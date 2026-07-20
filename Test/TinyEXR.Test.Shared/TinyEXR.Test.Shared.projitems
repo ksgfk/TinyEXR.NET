@@ -19,5 +19,17 @@
     <Compile Include="$(MSBuildThisFileDirectory)StandardAttributeTests.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)SubsampledChannelTests.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)TestInfrastructure.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)V1FacadeV3CoreTests.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)V3ModelTests.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)V3SimdTests.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)V3SpectralTests.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)V3UtilityTests.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)V3DataSourceTests.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)V3FormatTests.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)V3HighLevelTests.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)V3Htj2kTests.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)V3ReaderTests.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)V3WriterTests.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)V3ZstdFrameTests.cs" />
   </ItemGroup>
 </Project>

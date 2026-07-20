@@ -24,20 +24,16 @@
     <SignAssembly>$(SignAssemblyKey)</SignAssembly>
   </PropertyGroup>
 
-  <Target Name="EnsureStrongNameKeyForRelease"
-          BeforeTargets="CoreCompile"
-          Condition="'$(Configuration)' == 'Release' and '$(SignAssemblyKey)' == 'true' and !Exists('$(StrongNameKeyFile)')">
+  <Target Name="EnsureStrongNameKeyForRelease" BeforeTargets="CoreCompile" Condition="'$(Configuration)' == 'Release' and '$(SignAssemblyKey)' == 'true' and !Exists('$(StrongNameKeyFile)')">
     <Error Text="Release build requires a strong-name key file. Set StrongNameKeyFile to a valid .snk path. Current value: '$(AssemblyOriginatorKeyFile)'." />
   </Target>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\TinyEXR.NET\TinyEXR.NET.csproj"
-                      SetTargetFramework="TargetFramework=netstandard2.1"
-					  SkipGetTargetFrameworkProperties="true" />
+    <ProjectReference Include="..\..\TinyEXR.NET\TinyEXR.NET.csproj" SetTargetFramework="TargetFramework=netstandard2.1" SkipGetTargetFrameworkProperties="true" />
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="MSTest" Version="4.0.2" />
+    <PackageReference Include="MSTest" Version="4.3.2" />
     <PackageReference Include="SharpZipLib" Version="1.4.2" />
   </ItemGroup>
 

@@ -1,4 +1,4 @@
-using TinyEXR;
+using V3 = TinyEXR.V3;
 
 namespace TinyEXR.Viewer.Models;
 
@@ -15,60 +15,71 @@ public sealed class ExrViewerDocument
 {
     public required string FilePath { get; init; }
 
-    public required ExrVersion Version { get; init; }
+    public required ExrVersionInfo Version { get; init; }
 
     public required ExrDocumentKind Kind { get; init; }
 
     public string StatusMessage { get; init; } = string.Empty;
 
     public IReadOnlyList<ExrPartDocument> Parts { get; init; } = Array.Empty<ExrPartDocument>();
+}
 
-    public ExrDeepDocument? DeepDocument { get; init; }
+public sealed class ExrVersionInfo
+{
+    public required uint RawValue { get; init; }
+
+    public required int FileVersion { get; init; }
+
+    public required bool Tiled { get; init; }
+
+    public required bool LongNames { get; init; }
+
+    public required bool NonImage { get; init; }
+
+    public required bool Multipart { get; init; }
 }
 
 public sealed class ExrPartDocument
 {
     public required int Index { get; init; }
 
-    public required ExrHeader Header { get; init; }
+    public required V3.Header Header { get; init; }
 
-    public ExrImage? Image { get; init; }
+    public V3.Part? Part { get; init; }
+
+    public string DecodeStatus { get; init; } = "Not decoded";
+
+    public DeepStatistics? DeepStatistics { get; init; }
 
     public required bool HasRootLayer { get; init; }
 
     public IReadOnlyList<string> NamedLayers { get; init; } = Array.Empty<string>();
 
-    public bool CanPreview => Image is not null;
+    public bool CanPreview => Part is not null && !Header.IsDeep;
+
+    public bool HasMaterializedData => Part is not null;
 
     public string DisplayName
     {
         get
         {
-            string name = string.IsNullOrWhiteSpace(Header.Name) ? $"part[{Index}]" : Header.Name!;
-            string partType = string.IsNullOrWhiteSpace(Header.PartType)
-                ? (Header.Tiles is null ? "scanlineimage" : "tiledimage")
-                : Header.PartType!;
-            return $"#{Index} {name} ({partType})";
+            string name = string.IsNullOrWhiteSpace(Header.Name) ? $"part[{Index}]" : Header.Name;
+            return $"#{Index} {name} ({Header.PartType})";
         }
     }
 }
 
-public sealed class ExrDeepDocument
-{
-    public required ExrHeader Header { get; init; }
-
-    public required ExrDeepImage Image { get; init; }
-
-    public required DeepStatistics Statistics { get; init; }
-}
-
 public sealed class DeepStatistics
 {
-    public int NonEmptyPixels { get; init; }
+    public int LevelCount { get; init; }
+
+    public long PixelLocations { get; init; }
+
+    public long NonEmptyPixels { get; init; }
 
     public int MaxSamplesPerPixel { get; init; }
 
-    public long TotalSamples { get; init; }
+    public ulong TotalSamples { get; init; }
 }
 
 public sealed class PreviewBuffer

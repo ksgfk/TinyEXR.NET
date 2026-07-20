@@ -130,6 +130,16 @@ namespace TinyEXR
 
         public static ResultCode ParseEXRMultipartHeaderFromMemory(ReadOnlySpan<byte> data, out ExrVersion version, out ExrMultipartHeader headers)
         {
+            if (V1FacadeAdapter.TryParseMultipartHeaders(
+                data,
+                out ResultCode adapterResult,
+                out version,
+                out ExrHeader[] adapterHeaders))
+            {
+                headers = new ExrMultipartHeader(adapterHeaders);
+                return adapterResult;
+            }
+
             ResultCode result = ExrImplementation.TryReadMultipartHeaders(data, out version, out ExrHeader[] parsedHeaders);
             headers = new ExrMultipartHeader(parsedHeaders);
             return result;
@@ -137,6 +147,16 @@ namespace TinyEXR
 
         public static ResultCode ParseEXRMultipartHeaderFromStream(Stream stream, out ExrVersion version, out ExrMultipartHeader headers)
         {
+            if (V1FacadeAdapter.TryParseMultipartHeaders(
+                stream,
+                out ResultCode adapterResult,
+                out version,
+                out ExrHeader[] adapterHeaders))
+            {
+                headers = new ExrMultipartHeader(adapterHeaders);
+                return adapterResult;
+            }
+
             ResultCode result = ExrImplementation.TryReadMultipartHeaders(stream, out version, out ExrHeader[] parsedHeaders);
             headers = new ExrMultipartHeader(parsedHeaders);
             return result;
@@ -164,6 +184,11 @@ namespace TinyEXR
                 return ResultCode.InvalidArgument;
             }
 
+            if (V1FacadeAdapter.TryReadFlatImage(data, header, out ResultCode result, out image))
+            {
+                return result;
+            }
+
             return ExrImplementation.TryReadImage(data, header, out image);
         }
 
@@ -173,6 +198,11 @@ namespace TinyEXR
             {
                 image = new ExrImage(0, 0, Array.Empty<ExrImageChannel>());
                 return ResultCode.InvalidArgument;
+            }
+
+            if (V1FacadeAdapter.TryReadFlatImage(stream, header, out ResultCode result, out image))
+            {
+                return result;
             }
 
             return ExrImplementation.TryReadImage(stream, header, out image);
@@ -200,6 +230,16 @@ namespace TinyEXR
                 return ResultCode.InvalidArgument;
             }
 
+            if (V1FacadeAdapter.TryReadMultipartImages(
+                data,
+                headers.Headers.ToArray(),
+                out ResultCode adapterResult,
+                out ExrImage[] adapterImages))
+            {
+                images = new ExrMultipartImage(adapterImages);
+                return adapterResult;
+            }
+
             ResultCode result = ExrImplementation.TryReadMultipartImages(data, headers.Headers.ToArray(), out ExrImage[] decodedImages);
             images = new ExrMultipartImage(decodedImages);
             return result;
@@ -211,6 +251,16 @@ namespace TinyEXR
             {
                 images = new ExrMultipartImage(Array.Empty<ExrImage>());
                 return ResultCode.InvalidArgument;
+            }
+
+            if (V1FacadeAdapter.TryReadMultipartImages(
+                stream,
+                headers.Headers.ToArray(),
+                out ResultCode adapterResult,
+                out ExrImage[] adapterImages))
+            {
+                images = new ExrMultipartImage(adapterImages);
+                return adapterResult;
             }
 
             ResultCode result = ExrImplementation.TryReadMultipartImages(stream, headers.Headers.ToArray(), out ExrImage[] decodedImages);
@@ -246,6 +296,15 @@ namespace TinyEXR
             if (images == null || headers == null)
             {
                 return ResultCode.InvalidArgument;
+            }
+
+            if (V1FacadeAdapter.TryWriteMultipartImages(
+                images.Images.ToArray(),
+                headers.Headers.ToArray(),
+                out ResultCode result,
+                out encoded))
+            {
+                return result;
             }
 
             return ExrImplementation.TryWriteMultipartImages(images.Images.ToArray(), headers.Headers.ToArray(), out encoded);
@@ -326,11 +385,21 @@ namespace TinyEXR
 
         internal static ResultCode TryReadHeader(ReadOnlySpan<byte> data, out ExrVersion version, out ExrHeader header)
         {
+            if (V1FacadeAdapter.TryParseSingleHeader(data, out ResultCode result, out version, out header))
+            {
+                return result;
+            }
+
             return ExrImplementation.TryReadHeader(data, out version, out header);
         }
 
         internal static ResultCode TryReadHeader(Stream stream, out ExrVersion version, out ExrHeader header)
         {
+            if (V1FacadeAdapter.TryParseSingleHeader(stream, out ResultCode result, out version, out header))
+            {
+                return result;
+            }
+
             return ExrImplementation.TryReadHeader(stream, out version, out header);
         }
 
@@ -369,11 +438,21 @@ namespace TinyEXR
 
         internal static ResultCode TryReadImage(ReadOnlySpan<byte> data, out ExrHeader header, out ExrImage image)
         {
+            if (V1FacadeAdapter.TryReadFlatImage(data, out ResultCode result, out header, out image))
+            {
+                return result;
+            }
+
             return ExrImplementation.TryReadImage(data, out header, out image);
         }
 
         internal static ResultCode TryReadImage(Stream stream, out ExrHeader header, out ExrImage image)
         {
+            if (V1FacadeAdapter.TryReadFlatImage(stream, out ResultCode result, out header, out image))
+            {
+                return result;
+            }
+
             return ExrImplementation.TryReadImage(stream, out header, out image);
         }
 
@@ -394,11 +473,21 @@ namespace TinyEXR
 
         internal static ResultCode TryReadDeepImage(ReadOnlySpan<byte> data, out ExrHeader header, out ExrDeepImage image)
         {
+            if (V1FacadeAdapter.TryReadDeepImage(data, out ResultCode result, out header, out image))
+            {
+                return result;
+            }
+
             return ExrImplementation.TryReadDeepImage(data, out header, out image);
         }
 
         internal static ResultCode TryReadDeepImage(Stream stream, out ExrHeader header, out ExrDeepImage image)
         {
+            if (V1FacadeAdapter.TryReadDeepImage(stream, out ResultCode result, out header, out image))
+            {
+                return result;
+            }
+
             return ExrImplementation.TryReadDeepImage(stream, out header, out image);
         }
 
@@ -418,11 +507,21 @@ namespace TinyEXR
 
         internal static ResultCode TryReadLayers(ReadOnlySpan<byte> data, out string[] layers)
         {
+            if (V1FacadeAdapter.TryReadLayers(data, out ResultCode result, out layers))
+            {
+                return result;
+            }
+
             return ExrImplementation.TryReadLayers(data, out layers);
         }
 
         internal static ResultCode TryReadLayers(Stream stream, out string[] layers)
         {
+            if (V1FacadeAdapter.TryReadLayers(stream, out ResultCode result, out layers))
+            {
+                return result;
+            }
+
             return ExrImplementation.TryReadLayers(stream, out layers);
         }
 
@@ -454,6 +553,17 @@ namespace TinyEXR
 
         internal static ResultCode TryReadRgba(ReadOnlySpan<byte> data, string? layerName, out float[] rgba, out int width, out int height)
         {
+            if (V1FacadeAdapter.TryReadRgba(
+                data,
+                layerName,
+                out ResultCode result,
+                out rgba,
+                out width,
+                out height))
+            {
+                return result;
+            }
+
             return ExrImplementation.TryReadRgba(data, layerName, out rgba, out width, out height);
         }
 
@@ -464,6 +574,17 @@ namespace TinyEXR
 
         internal static ResultCode TryReadRgba(Stream stream, string? layerName, out float[] rgba, out int width, out int height)
         {
+            if (V1FacadeAdapter.TryReadRgba(
+                stream,
+                layerName,
+                out ResultCode result,
+                out rgba,
+                out width,
+                out height))
+            {
+                return result;
+            }
+
             return ExrImplementation.TryReadRgba(stream, layerName, out rgba, out width, out height);
         }
 
@@ -474,6 +595,11 @@ namespace TinyEXR
 
         internal static ResultCode TryWriteImage(ExrImage image, ExrHeader? header, out byte[] encoded)
         {
+            if (V1FacadeAdapter.TryWriteFlatImage(image, header, out ResultCode result, out encoded))
+            {
+                return result;
+            }
+
             return ExrImplementation.TryWriteImage(image, header, out encoded);
         }
 

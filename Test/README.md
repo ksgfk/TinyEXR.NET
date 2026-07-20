@@ -85,6 +85,21 @@ pwsh .\Scripts\prepare-openexr-images.ps1
 
 The script pins the data repository to a specific commit so test inputs stay stable.
 
+The suite uses three complementary kinds of test input:
+
+- Pinned EXR files from `openexr-images` and `TinyEXR.Native/tinyexr` for
+  decoder, metadata, multipart, multi-resolution, deep, HTJ2K, damaged-file,
+  and round-trip compatibility tests.
+- Valid EXR files generated in memory by the managed writer for writer,
+  facade, ZSTD, deep, multipart, streaming, and asynchronous scenarios.
+- Focused byte buffers and mock data sources for frame parsing, malformed
+  input, limits, cancellation, `WouldBlock`, SIMD parity, and image-processing
+  algorithms where a standalone EXR file would not improve the assertion.
+
+Passing the suite therefore does not mean that every feature has a dedicated
+static `.exr` fixture. Runtime-generated files and lower-level vectors are used
+where they provide more precise coverage.
+
 ## How To Run
 
 Prepare the test data first:
@@ -106,6 +121,33 @@ dotnet test --project .\Test\TinyEXR.NetStandardFallback.Test\TinyEXR.NetStandar
 ```
 
 If both need to run, it is better to execute them explicitly instead of only running the solution. That makes failures easier to localize and makes it clearer whether the regression is in the default implementation or the fallback branch.
+
+## Known Coverage Gaps
+
+- There is no independently generated static ZSTD fixture matrix covering
+  scanline, tiled, deep, and multipart EXR files. Current ZSTD coverage uses
+  managed-writer output plus frame-level golden and malformed vectors. This is
+  strong format coverage, but it does not independently rule out a symmetric
+  managed encoder/decoder error.
+- Managed HTJ2K and ZSTD encoder output has been checked manually with the
+  upstream TinyEXR v3 C reader, but that cross-implementation check is not yet
+  an automated MSTest or CI job. An integration job should build the upstream
+  `parse_harness` and `compare_exr` tools, decode managed output, and compare it
+  with an uncompressed reference.
+- ARM64 SIMD implementations are not executed by the normal x64 test hosts.
+  The suite verifies scalar parity and dispatch behavior available on the
+  current architecture, but an ARM64 runner is required to execute the ARM64
+  intrinsics themselves.
+- The repository has no numeric coverage gate and no maintained public
+  API-to-test traceability matrix. The suite covers the main supported behavior
+  and regression surface, but a passing run is not proof that every public
+  overload, platform branch, or hostile-input path has been exercised.
+- Not every feature should require a standalone image fixture. Object-model
+  validation, streaming state machines, error mapping, SIMD kernels, color
+  transforms, resize filters, tone mapping, and LUT evaluation are primarily
+  algorithmic and are intentionally tested with focused buffers. What remains
+  missing is independent file-level coverage where interoperability matters,
+  especially for newly encoded compression formats.
 
 ## Known Tradeoffs
 

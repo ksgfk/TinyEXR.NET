@@ -7,19 +7,19 @@
     <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
     <RootNamespace>TinyEXR</RootNamespace>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
-    <AssemblyVersion>1.0.1</AssemblyVersion>
-    <FileVersion>1.0.1</FileVersion>
+    <AssemblyVersion>1.1.0</AssemblyVersion>
+    <FileVersion>1.1.0</FileVersion>
     <RepositoryType>git</RepositoryType>
-    <Description>TinyEXR.NET is a pure managed C# implementation of tinyexr v1 APIs</Description>
+    <Description>TinyEXR.NET is a pure managed C# implementation of the tinyexr v1 facade and v3 streaming APIs</Description>
     <Company>ksgfk</Company>
     <Authors>ksgfk</Authors>
     <Copyright>Copyright (c) 2023-2026 ksgfk</Copyright>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <RepositoryUrl>https://github.com/ksgfk/TinyEXR.NET</RepositoryUrl>
     <PackageTags>OpenEXR,HDR</PackageTags>
-    <PackageReleaseNotes>First stable v1.0 release. TinyEXR.NET is now a pure managed C# implementation of the tinyexr-compatible API, with NativeAOT support, net8.0/netstandard2.1 targets, scanline/tiled/multipart/deep EXR coverage, compression support, expanded tests, benchmarks, and a viewer sample.</PackageReleaseNotes>
+    <PackageReleaseNotes>Adds a pure managed TinyEXR v3 API with immutable image and header models, whole and partial reads, synchronous and asynchronous streaming I/O, multipart and mipmap/ripmap support, flat and deep image read/write, HTJ2K32/HTJ2K256 and ZSTD encoding/decoding, safe SIMD acceleration, spectral and image-processing utilities, and migration of compatible v1 facade paths onto the v3 core. Retains NativeAOT, net8.0, and netstandard2.1 support.</PackageReleaseNotes>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <Version>1.0.0</Version>
+    <Version>1.1.0</Version>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
@@ -61,6 +61,7 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.SourceLink.GitHub" Version="10.0.202" PrivateAssets="All" />
+    <PackageReference Include="ZstdSharp.Port" Version="0.8.8" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.1'">

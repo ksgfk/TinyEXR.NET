@@ -1,6 +1,7 @@
 using Avalonia.Media.Imaging;
 using TinyEXR.Viewer.Models;
 using TinyEXR.Viewer.Services;
+using V3 = TinyEXR.V3;
 
 namespace TinyEXR.Viewer.ViewModels;
 
@@ -308,7 +309,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         ExrPartDocument? part = GetSelectedPartDocument();
 
         LayerEntries = _metadataFormatter.BuildLayerEntries(part);
-        DeepEntries = _metadataFormatter.BuildDeepEntries(_document?.DeepDocument);
+        DeepEntries = _metadataFormatter.BuildDeepEntries(part);
 
         _suppressSelectionRefresh = true;
         LayerOptions = BuildLayerOptions(part);
@@ -325,13 +326,18 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     {
         RefreshMetadata();
         ExrPartDocument? part = GetSelectedPartDocument();
-        if (part?.Image is null)
+        if (part is null || !part.CanPreview)
         {
+            Interlocked.Increment(ref _previewRevision);
             _currentPreviewBuffer = null;
             PreviewBitmap = null;
-            PreviewMessage = part is null
-                ? "Open an EXR file to begin."
-                : "Preview is unavailable for the selected part. Only metadata is shown.";
+            PreviewMessage = part switch
+            {
+                null => "Open an EXR file to begin.",
+                { HasMaterializedData: true, Header.IsDeep: true } =>
+                    "Deep data is loaded for inspection, but a 2D preview is unavailable.",
+                _ => $"Preview is unavailable for this part: {part.DecodeStatus}.",
+            };
             EmptyPreviewMessage = PreviewMessage;
             return;
         }
@@ -382,15 +388,16 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
 
     private static IReadOnlyList<LevelOption> BuildLevelOptions(ExrPartDocument? part)
     {
-        if (part?.Image is null)
+        if (part?.Part is null)
         {
             return Array.Empty<LevelOption>();
         }
 
-        return part.Image.Levels.Select((level, index) => new LevelOption
+        return part.Part.Levels.Select((level, index) => new LevelOption
         {
             LevelIndex = index,
-            Label = $"L({level.LevelX}, {level.LevelY}) {level.Width} x {level.Height}",
+            Label = $"L({level.LevelX}, {level.LevelY}) {level.Width} x {level.Height} " +
+                (level is V3.DeepLevel ? "[deep]" : "[flat]"),
         }).ToArray();
     }
 

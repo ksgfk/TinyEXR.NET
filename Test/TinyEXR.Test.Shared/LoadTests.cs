@@ -483,7 +483,7 @@ public sealed class LoadTests
     [TestMethod(DisplayName = "[TinyEXR.NET Test] deepscanline.exr|LoadDeep")]
     public void Case_deepscanline_exr_LoadDeep()
     {
-        string path = Path.Combine(TestPaths.NativeTinyExrRoot, "deepscanline.exr");
+        string path = TestPaths.DeepScanline;
 
         Assert.AreEqual(ResultCode.Success, Exr.ParseEXRVersionFromFile(path, out ExrVersion version));
         Assert.IsFalse(version.Tiled);
@@ -568,7 +568,7 @@ public sealed class LoadTests
             Assert.AreEqual(expectedMultipartImages.Images.Count, streamImages.Images.Count);
         }
 
-        string deepPath = Path.Combine(TestPaths.NativeTinyExrRoot, "deepscanline.exr");
+        string deepPath = TestPaths.DeepScanline;
         Assert.AreEqual(ResultCode.Success, Exr.LoadDeepEXR(deepPath, out ExrHeader expectedDeepHeader, out ExrDeepImage expectedDeepImage));
         using (FileStream deepStream = File.OpenRead(deepPath))
         {

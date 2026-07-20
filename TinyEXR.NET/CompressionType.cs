@@ -12,5 +12,8 @@ namespace TinyEXR
         B44A = 7,
         DWAA = 8,
         DWAB = 9,
+        HTJ2K256 = 10,
+        HTJ2K32 = 11,
+        ZSTD = 12,
     }
 }

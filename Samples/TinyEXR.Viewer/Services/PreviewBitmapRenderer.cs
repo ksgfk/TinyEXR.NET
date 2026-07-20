@@ -3,8 +3,8 @@ using System.Runtime.InteropServices;
 using Avalonia;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
-using TinyEXR;
 using TinyEXR.Viewer.Models;
+using V3 = TinyEXR.V3;
 
 namespace TinyEXR.Viewer.Services;
 
@@ -12,53 +12,79 @@ internal static class PreviewBitmapRenderer
 {
     public static (PreviewBuffer? Buffer, string Message) ComposePreview(ExrPartDocument part, int levelIndex, string? layerName)
     {
-        if (part.Image is null)
+        if (part.Part is null)
         {
             return (null, "Preview is unavailable for the selected part.");
         }
 
-        if ((uint)levelIndex >= (uint)part.Image.Levels.Count)
+        if ((uint)levelIndex >= (uint)part.Part.Levels.Count)
         {
             return (null, "The selected level is out of range.");
         }
 
-        ExrImageLevel level = part.Image.Levels[levelIndex];
-        IReadOnlyList<LayerChannelMatch> matches = ExrLayerHelper.MatchLayer(level.Channels, layerName);
+        V3.PartLevel selectedLevel = part.Part.Levels[levelIndex];
+        if (selectedLevel is not V3.FlatLevel level)
+        {
+            return (null, "Deep levels are loaded for inspection, but a 2D preview is unavailable.");
+        }
+
+        if (level.Width > int.MaxValue || level.Height > int.MaxValue)
+        {
+            return (null, "The selected level is too large to preview.");
+        }
+
+        long pixelCount = checked(level.Width * level.Height);
+        if (pixelCount > int.MaxValue / 4)
+        {
+            return (null, "The selected level is too large to preview.");
+        }
+
+        int width = (int)level.Width;
+        int height = (int)level.Height;
+        IReadOnlyList<LayerChannelMatch> matches = ExrLayerHelper.MatchLayer(
+            part.Header.Channels,
+            level,
+            layerName);
         if (matches.Count == 0)
         {
             return (null, "The selected layer contains no channels in this level.");
         }
 
-        float[] linearRgba = new float[checked(level.Width * level.Height * 4)];
+        float[] linearRgba = new float[checked((int)pixelCount * 4)];
         if (matches.Count == 1)
         {
-            FillSingleChannelPreview(matches[0].Channel, level.Width, level.Height, linearRgba);
-            return (new PreviewBuffer { Width = level.Width, Height = level.Height, LinearRgba = linearRgba }, "Single-channel layer previewed as grayscale.");
+            if (matches[0].Buffer.SampleCount == 0)
+            {
+                return (null, $"Channel '{matches[0].Description.Name}' has no samples in this level.");
+            }
+
+            FillSingleChannelPreview(matches[0], level.Region, width, height, linearRgba);
+            return (new PreviewBuffer { Width = width, Height = height, LinearRgba = linearRgba }, "Single-channel layer previewed as grayscale.");
         }
 
-        ExrImageChannel? r = null;
-        ExrImageChannel? g = null;
-        ExrImageChannel? b = null;
-        ExrImageChannel? a = null;
+        LayerChannelMatch? r = null;
+        LayerChannelMatch? g = null;
+        LayerChannelMatch? b = null;
+        LayerChannelMatch? a = null;
 
         for (int i = 0; i < matches.Count; i++)
         {
             LayerChannelMatch match = matches[i];
             if (string.Equals(match.Name, "R", StringComparison.Ordinal))
             {
-                r = match.Channel;
+                r = match;
             }
             else if (string.Equals(match.Name, "G", StringComparison.Ordinal))
             {
-                g = match.Channel;
+                g = match;
             }
             else if (string.Equals(match.Name, "B", StringComparison.Ordinal))
             {
-                b = match.Channel;
+                b = match;
             }
             else if (string.Equals(match.Name, "A", StringComparison.Ordinal))
             {
-                a = match.Channel;
+                a = match;
             }
         }
 
@@ -67,8 +93,14 @@ internal static class PreviewBitmapRenderer
             return (null, "The selected layer is not previewable because it does not expose RGB channels.");
         }
 
-        FillRgbaPreview(r, g, b, a, level.Width, level.Height, linearRgba);
-        return (new PreviewBuffer { Width = level.Width, Height = level.Height, LinearRgba = linearRgba }, "Preview updated.");
+        if (r.Buffer.SampleCount == 0 || g.Buffer.SampleCount == 0 || b.Buffer.SampleCount == 0 ||
+            (a is not null && a.Buffer.SampleCount == 0))
+        {
+            return (null, "At least one preview channel has no samples in this level.");
+        }
+
+        FillRgbaPreview(r, g, b, a, level.Region, width, height, linearRgba);
+        return (new PreviewBuffer { Width = width, Height = height, LinearRgba = linearRgba }, "Preview updated.");
     }
 
     public static WriteableBitmap RenderBitmap(PreviewBuffer buffer, double exposure)
@@ -103,13 +135,18 @@ internal static class PreviewBitmapRenderer
         return bitmap;
     }
 
-    private static void FillSingleChannelPreview(ExrImageChannel channel, int width, int height, Span<float> linearRgba)
+    private static void FillSingleChannelPreview(
+        LayerChannelMatch channel,
+        V3.Box2i region,
+        int width,
+        int height,
+        Span<float> linearRgba)
     {
         for (int y = 0; y < height; y++)
         {
             for (int x = 0; x < width; x++)
             {
-                float value = ReadChannelSampleAsFloat(channel, width, x, y);
+                float value = ReadChannelSampleAsFloat(channel, region, x, y);
                 int offset = (y * width + x) * 4;
                 linearRgba[offset] = value;
                 linearRgba[offset + 1] = value;
@@ -120,10 +157,11 @@ internal static class PreviewBitmapRenderer
     }
 
     private static void FillRgbaPreview(
-        ExrImageChannel r,
-        ExrImageChannel g,
-        ExrImageChannel b,
-        ExrImageChannel? a,
+        LayerChannelMatch r,
+        LayerChannelMatch g,
+        LayerChannelMatch b,
+        LayerChannelMatch? a,
+        V3.Box2i region,
         int width,
         int height,
         Span<float> linearRgba)
@@ -133,65 +171,77 @@ internal static class PreviewBitmapRenderer
             for (int x = 0; x < width; x++)
             {
                 int offset = (y * width + x) * 4;
-                linearRgba[offset] = ReadChannelSampleAsFloat(r, width, x, y);
-                linearRgba[offset + 1] = ReadChannelSampleAsFloat(g, width, x, y);
-                linearRgba[offset + 2] = ReadChannelSampleAsFloat(b, width, x, y);
-                linearRgba[offset + 3] = a is null ? 1.0f : ReadChannelSampleAsFloat(a, width, x, y);
+                linearRgba[offset] = ReadChannelSampleAsFloat(r, region, x, y);
+                linearRgba[offset + 1] = ReadChannelSampleAsFloat(g, region, x, y);
+                linearRgba[offset + 2] = ReadChannelSampleAsFloat(b, region, x, y);
+                linearRgba[offset + 3] = a is null ? 1.0f : ReadChannelSampleAsFloat(a, region, x, y);
             }
         }
     }
 
-    private static float ReadChannelSampleAsFloat(ExrImageChannel channel, int imageWidth, int x, int y)
+    private static float ReadChannelSampleAsFloat(
+        LayerChannelMatch channel,
+        V3.Box2i region,
+        int x,
+        int y)
     {
-        int sampleWidth = CountSamplePositions(0, imageWidth, channel.Channel.SamplingX);
-        int sampleX = CountSamplePositions(0, x + 1, channel.Channel.SamplingX) - 1;
-        int sampleY = CountSamplePositions(0, y + 1, channel.Channel.SamplingY) - 1;
-        int sampleIndex = checked(sampleY * sampleWidth + sampleX);
-        return ReadSampleAsFloat(channel.Data, channel.DataType, sampleIndex);
+        V3.Channel description = channel.Description;
+        long firstSampleX = FloorDivide((long)region.MinX - 1L, description.XSampling) + 1L;
+        long lastSampleX = FloorDivide(region.MaxX, description.XSampling);
+        long firstSampleY = FloorDivide((long)region.MinY - 1L, description.YSampling) + 1L;
+        long lastSampleY = FloorDivide(region.MaxY, description.YSampling);
+        if (firstSampleX > lastSampleX || firstSampleY > lastSampleY)
+        {
+            throw new InvalidOperationException($"Channel '{description.Name}' has no samples in this level.");
+        }
+
+        long absoluteX = (long)region.MinX + x;
+        long absoluteY = (long)region.MinY + y;
+        long sampledX = Math.Clamp(
+            FloorDivide(absoluteX, description.XSampling),
+            firstSampleX,
+            lastSampleX);
+        long sampledY = Math.Clamp(
+            FloorDivide(absoluteY, description.YSampling),
+            firstSampleY,
+            lastSampleY);
+        long sampleWidth = lastSampleX - firstSampleX + 1L;
+        int sampleIndex = checked((int)(
+            (sampledY - firstSampleY) * sampleWidth + sampledX - firstSampleX));
+        return ReadSampleAsFloat(channel.Buffer.Data, channel.Buffer.PixelType, sampleIndex);
     }
 
-    private static int CountSamplePositions(int start, int size, int sampling)
+    private static long FloorDivide(long value, int divisor)
     {
-        if (size <= 0)
+        long quotient = value / divisor;
+        if (value % divisor < 0)
         {
-            return 0;
+            quotient--;
         }
 
-        int remainder = start % sampling;
-        if (remainder < 0)
-        {
-            remainder += sampling;
-        }
-
-        int firstOffset = remainder == 0 ? 0 : sampling - remainder;
-        if (firstOffset >= size)
-        {
-            return 0;
-        }
-
-        return ((size - 1 - firstOffset) / sampling) + 1;
+        return quotient;
     }
 
-    private static float ReadSampleAsFloat(byte[] data, ExrPixelType pixelType, int index)
+    private static float ReadSampleAsFloat(ReadOnlySpan<byte> data, V3.PixelType pixelType, int index)
     {
         int offset = checked(index * GetTypeSize(pixelType));
-        ReadOnlySpan<byte> bytes = data.AsSpan(offset);
+        ReadOnlySpan<byte> bytes = data.Slice(offset);
         return pixelType switch
         {
-            ExrPixelType.UInt => BinaryPrimitives.ReadUInt32LittleEndian(bytes),
-            ExrPixelType.Half => (float)BitConverter.UInt16BitsToHalf(BinaryPrimitives.ReadUInt16LittleEndian(bytes)),
-            ExrPixelType.Float => BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(bytes)),
+            V3.PixelType.UInt => BinaryPrimitives.ReadUInt32LittleEndian(bytes),
+            V3.PixelType.Half => (float)BitConverter.UInt16BitsToHalf(BinaryPrimitives.ReadUInt16LittleEndian(bytes)),
+            V3.PixelType.Float => BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(bytes)),
             _ => 0.0f,
         };
     }
 
-    private static int GetTypeSize(ExrPixelType pixelType)
+    private static int GetTypeSize(V3.PixelType pixelType)
     {
         return pixelType switch
         {
-            ExrPixelType.Half => 2,
-            ExrPixelType.UInt => 4,
-            ExrPixelType.Float => 4,
+            V3.PixelType.Half => 2,
+            V3.PixelType.UInt => 4,
+            V3.PixelType.Float => 4,
             _ => 0,
         };
     }

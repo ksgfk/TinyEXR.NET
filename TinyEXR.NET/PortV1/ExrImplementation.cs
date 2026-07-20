@@ -700,7 +700,7 @@ namespace TinyEXR.PortV1
             return TryBuildRgbaFromImage(header, image, layerName, out rgba, out width, out height);
         }
 
-        private static ResultCode TryBuildRgbaFromImage(ExrHeader header, ExrImage image, string? layerName, out float[] rgba, out int width, out int height)
+        internal static ResultCode TryBuildRgbaFromImage(ExrHeader header, ExrImage image, string? layerName, out float[] rgba, out int width, out int height)
         {
             rgba = Array.Empty<float>();
             width = 0;
@@ -3242,7 +3242,7 @@ namespace TinyEXR.PortV1
             return offsets;
         }
 
-        private static List<string> GetLayers(ExrHeader header)
+        internal static List<string> GetLayers(ExrHeader header)
         {
             List<string> layers = new List<string>();
             foreach (ExrChannel channel in header.Channels)

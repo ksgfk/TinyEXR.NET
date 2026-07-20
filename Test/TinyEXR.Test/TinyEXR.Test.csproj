@@ -24,9 +24,7 @@
     <SignAssembly>$(SignAssemblyKey)</SignAssembly>
   </PropertyGroup>
 
-  <Target Name="EnsureStrongNameKeyForRelease"
-          BeforeTargets="CoreCompile"
-          Condition="'$(Configuration)' == 'Release' and '$(SignAssemblyKey)' == 'true' and !Exists('$(StrongNameKeyFile)')">
+  <Target Name="EnsureStrongNameKeyForRelease" BeforeTargets="CoreCompile" Condition="'$(Configuration)' == 'Release' and '$(SignAssemblyKey)' == 'true' and !Exists('$(StrongNameKeyFile)')">
     <Error Text="Release build requires a strong-name key file. Set StrongNameKeyFile to a valid .snk path. Current value: '$(AssemblyOriginatorKeyFile)'." />
   </Target>
 
@@ -35,7 +33,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="MSTest" Version="4.0.2" />
+    <PackageReference Include="MSTest" Version="4.3.2" />
   </ItemGroup>
 
   <ItemGroup>
