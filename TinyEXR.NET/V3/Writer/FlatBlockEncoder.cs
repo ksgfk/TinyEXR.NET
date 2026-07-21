@@ -95,7 +95,7 @@ namespace TinyEXR.V3
                 orderedSources[i] = source;
             }
 
-            byte[] raw = new byte[rawLength];
+            byte[] raw = workspace.GetRaw(rawLength);
             int rawOffset = 0;
             for (long y = info.Region.MinY; y <= info.Region.MaxY; y++)
             {

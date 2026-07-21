@@ -652,7 +652,7 @@ namespace TinyEXR.V3
                     throw new InvalidOperationException("The flat block extraction produced an inconsistent byte count.");
                 }
 
-                result[channelIndex] = new ChannelBuffer(channel.Name, channel.PixelType, destination);
+                result[channelIndex] = ChannelBuffer.Adopt(channel.Name, channel.PixelType, destination);
             }
 
             return result;

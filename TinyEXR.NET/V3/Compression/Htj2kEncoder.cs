@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.Buffers.Binary;
 using System.Collections.Generic;
 
@@ -89,155 +90,198 @@ namespace TinyEXR.V3.Codecs
             }
 
             Plane[] planes = DeinterleaveBlock(header, region, source);
-            ForwardNonlinearTransforms(header, planes);
-            if (useColorTransform)
+            try
             {
-                ApplyForwardColorTransform(planes, componentToFile);
-            }
-
-            for (int component = 0; component < planes.Length; component++)
-            {
-                Forward53TwoDimensional(
-                    planes[component].Data,
-                    planes[component].Width,
-                    planes[component].Height,
-                    Htj2kDecompositionCount);
-            }
-
-            ByteAccumulator output = new ByteAccumulator(checked(source.Length + 4096));
-            WriteHtHeader(output, header, componentToFile);
-            output.WriteUInt16BigEndian(MarkerSoc);
-            WriteSiz(output, header, width, height, componentToFile);
-            WriteCap(output);
-            WriteCod(output, useColorTransform);
-            WriteQcd(output, kmax);
-            WriteNltMarkers(output, header, componentToFile);
-
-            int sotStart = output.Count;
-            output.WriteUInt16BigEndian(MarkerSot);
-            output.WriteUInt16BigEndian(10);
-            output.WriteUInt16BigEndian(0);
-            int psotOffset = output.Count;
-            output.WriteUInt32BigEndian(0);
-            output.WriteByte(0);
-            output.WriteByte(1);
-            output.WriteUInt16BigEndian(MarkerSod);
-
-            HtBlockEncoder blockEncoder = new HtBlockEncoder(EncoderTableData);
-            for (uint resolution = 0; resolution <= Htj2kDecompositionCount; resolution++)
-            {
-                for (int component = 0; component < componentToFile.Length; component++)
+                ForwardNonlinearTransforms(header, planes);
+                if (useColorTransform)
                 {
-                    Plane plane = planes[componentToFile[component]];
-                    WritePacketForComponentResolution(
-                        output,
-                        plane,
-                        new Size(plane.Width, plane.Height),
-                        resolution,
-                        kmax,
-                        blockEncoder);
+                    ApplyForwardColorTransform(planes, componentToFile);
                 }
-            }
 
-            output.PatchUInt32BigEndian(psotOffset, checked((uint)(output.Count - sotStart)));
-            output.WriteUInt16BigEndian(MarkerEoc);
-            return output.ToArray();
+                int temporaryLength = 0;
+                uint maximumWidth = 0;
+                foreach (Plane plane in planes)
+                {
+                    temporaryLength = Math.Max(temporaryLength, plane.ElementCount);
+                    maximumWidth = Math.Max(maximumWidth, plane.Width);
+                }
+
+                long[] temporary = ArrayPool<long>.Shared.Rent(temporaryLength);
+                long[] lowRow = ArrayPool<long>.Shared.Rent(checked((int)((maximumWidth + 1) / 2)));
+                long[] highRow = ArrayPool<long>.Shared.Rent(checked((int)(maximumWidth / 2)));
+                try
+                {
+                    for (int component = 0; component < planes.Length; component++)
+                    {
+                        Forward53TwoDimensional(
+                            planes[component].Data,
+                            planes[component].Width,
+                            planes[component].Height,
+                            Htj2kDecompositionCount,
+                            temporary,
+                            lowRow,
+                            highRow);
+                    }
+                }
+                finally
+                {
+                    ArrayPool<long>.Shared.Return(highRow);
+                    ArrayPool<long>.Shared.Return(lowRow);
+                    ArrayPool<long>.Shared.Return(temporary);
+                }
+
+                using ByteAccumulator output = new ByteAccumulator(
+                    Math.Min(checked(source.Length + 4096), 64 * 1024));
+                WriteHtHeader(output, header, componentToFile);
+                output.WriteUInt16BigEndian(MarkerSoc);
+                WriteSiz(output, header, width, height, componentToFile);
+                WriteCap(output);
+                WriteCod(output, useColorTransform);
+                WriteQcd(output, kmax);
+                WriteNltMarkers(output, header, componentToFile);
+
+                int sotStart = output.Count;
+                output.WriteUInt16BigEndian(MarkerSot);
+                output.WriteUInt16BigEndian(10);
+                output.WriteUInt16BigEndian(0);
+                int psotOffset = output.Count;
+                output.WriteUInt32BigEndian(0);
+                output.WriteByte(0);
+                output.WriteByte(1);
+                output.WriteUInt16BigEndian(MarkerSod);
+
+                HtBlockEncoder blockEncoder = new HtBlockEncoder(EncoderTableData);
+                for (uint resolution = 0; resolution <= Htj2kDecompositionCount; resolution++)
+                {
+                    for (int component = 0; component < componentToFile.Length; component++)
+                    {
+                        Plane plane = planes[componentToFile[component]];
+                        WritePacketForComponentResolution(
+                            output,
+                            plane,
+                            new Size(plane.Width, plane.Height),
+                            resolution,
+                            kmax,
+                            blockEncoder);
+                    }
+                }
+
+                output.PatchUInt32BigEndian(psotOffset, checked((uint)(output.Count - sotStart)));
+                output.WriteUInt16BigEndian(MarkerEoc);
+                return output.ToArray();
+            }
+            finally
+            {
+                ReturnPlanes(planes);
+            }
         }
 
         private static Plane[] DeinterleaveBlock(Header header, Box2i region, byte[] source)
         {
             Plane[] planes = new Plane[header.Channels.Count];
-            for (int channelIndex = 0; channelIndex < header.Channels.Count; channelIndex++)
-            {
-                Channel channel = header.Channels[channelIndex];
-                long width = ModelValidation.CountSampleLocations(
-                    region.MinX,
-                    region.MaxX,
-                    channel.XSampling);
-                long height = ModelValidation.CountSampleLocations(
-                    region.MinY,
-                    region.MaxY,
-                    channel.YSampling);
-                EncodeRequire(width > 0 && height > 0 && width <= int.MaxValue && height <= int.MaxValue,
-                    Htj2kEncodeStatus.Unsupported,
-                    $"Channel '{channel.Name}' has unsupported HTJ2K component dimensions.");
-                long count = checked(width * height);
-                EncodeRequire(count <= int.MaxValue,
-                    Htj2kEncodeStatus.Unsupported,
-                    $"Channel '{channel.Name}' exceeds managed HTJ2K component storage.");
-                planes[channelIndex] = new Plane(
-                    checked((uint)width),
-                    checked((uint)height),
-                    new long[checked((int)count)]);
-            }
-
-            int offset = 0;
-            uint[] rows = new uint[planes.Length];
-            for (long y = region.MinY; y <= region.MaxY; y++)
+            bool completed = false;
+            try
             {
                 for (int channelIndex = 0; channelIndex < header.Channels.Count; channelIndex++)
                 {
                     Channel channel = header.Channels[channelIndex];
-                    if (y % channel.YSampling != 0)
-                    {
-                        continue;
-                    }
+                    long width = ModelValidation.CountSampleLocations(
+                        region.MinX,
+                        region.MaxX,
+                        channel.XSampling);
+                    long height = ModelValidation.CountSampleLocations(
+                        region.MinY,
+                        region.MaxY,
+                        channel.YSampling);
+                    EncodeRequire(width > 0 && height > 0 && width <= int.MaxValue && height <= int.MaxValue,
+                        Htj2kEncodeStatus.Unsupported,
+                        $"Channel '{channel.Name}' has unsupported HTJ2K component dimensions.");
+                    long count = checked(width * height);
+                    EncodeRequire(count <= int.MaxValue,
+                        Htj2kEncodeStatus.Unsupported,
+                        $"Channel '{channel.Name}' exceeds managed HTJ2K component storage.");
+                    planes[channelIndex] = new Plane(
+                        checked((uint)width),
+                        checked((uint)height),
+                        ArrayPool<long>.Shared.Rent(checked((int)count)));
+                }
 
-                    Plane plane = planes[channelIndex];
-                    EncodeRequire(rows[channelIndex] < plane.Height,
-                        Htj2kEncodeStatus.InvalidArgument,
-                        "The canonical EXR block contains too many sampled rows.");
-                    int destinationOffset = checked((int)(rows[channelIndex] * plane.Width));
-                    for (uint x = 0; x < plane.Width; x++)
+                int offset = 0;
+                uint[] rows = new uint[planes.Length];
+                for (long y = region.MinY; y <= region.MaxY; y++)
+                {
+                    for (int channelIndex = 0; channelIndex < header.Channels.Count; channelIndex++)
                     {
-                        switch (channel.PixelType)
+                        Channel channel = header.Channels[channelIndex];
+                        if (y % channel.YSampling != 0)
                         {
-                            case PixelType.Half:
-                                EncodeRequire(offset <= source.Length - 2,
-                                    Htj2kEncodeStatus.InvalidArgument,
-                                    "The canonical EXR block is truncated.");
-                                planes[channelIndex].Data[destinationOffset + x] =
-                                    BinaryPrimitives.ReadInt16LittleEndian(source.AsSpan(offset, 2));
-                                offset += 2;
-                                break;
-                            case PixelType.UInt:
-                                EncodeRequire(offset <= source.Length - 4,
-                                    Htj2kEncodeStatus.InvalidArgument,
-                                    "The canonical EXR block is truncated.");
-                                planes[channelIndex].Data[destinationOffset + x] =
-                                    BinaryPrimitives.ReadUInt32LittleEndian(source.AsSpan(offset, 4));
-                                offset += 4;
-                                break;
-                            case PixelType.Float:
-                                EncodeRequire(offset <= source.Length - 4,
-                                    Htj2kEncodeStatus.InvalidArgument,
-                                    "The canonical EXR block is truncated.");
-                                planes[channelIndex].Data[destinationOffset + x] =
-                                    BinaryPrimitives.ReadInt32LittleEndian(source.AsSpan(offset, 4));
-                                offset += 4;
-                                break;
-                            default:
-                                throw new Htj2kEncodeException(
-                                    Htj2kEncodeStatus.Unsupported,
-                                    $"EXR pixel type '{channel.PixelType}' is not supported by HTJ2K.");
+                            continue;
                         }
-                    }
 
-                    rows[channelIndex]++;
+                        Plane plane = planes[channelIndex];
+                        EncodeRequire(rows[channelIndex] < plane.Height,
+                            Htj2kEncodeStatus.InvalidArgument,
+                            "The canonical EXR block contains too many sampled rows.");
+                        int destinationOffset = checked((int)(rows[channelIndex] * plane.Width));
+                        for (uint x = 0; x < plane.Width; x++)
+                        {
+                            switch (channel.PixelType)
+                            {
+                                case PixelType.Half:
+                                    EncodeRequire(offset <= source.Length - 2,
+                                        Htj2kEncodeStatus.InvalidArgument,
+                                        "The canonical EXR block is truncated.");
+                                    planes[channelIndex].Data[destinationOffset + x] =
+                                        BinaryPrimitives.ReadInt16LittleEndian(source.AsSpan(offset, 2));
+                                    offset += 2;
+                                    break;
+                                case PixelType.UInt:
+                                    EncodeRequire(offset <= source.Length - 4,
+                                        Htj2kEncodeStatus.InvalidArgument,
+                                        "The canonical EXR block is truncated.");
+                                    planes[channelIndex].Data[destinationOffset + x] =
+                                        BinaryPrimitives.ReadUInt32LittleEndian(source.AsSpan(offset, 4));
+                                    offset += 4;
+                                    break;
+                                case PixelType.Float:
+                                    EncodeRequire(offset <= source.Length - 4,
+                                        Htj2kEncodeStatus.InvalidArgument,
+                                        "The canonical EXR block is truncated.");
+                                    planes[channelIndex].Data[destinationOffset + x] =
+                                        BinaryPrimitives.ReadInt32LittleEndian(source.AsSpan(offset, 4));
+                                    offset += 4;
+                                    break;
+                                default:
+                                    throw new Htj2kEncodeException(
+                                        Htj2kEncodeStatus.Unsupported,
+                                        $"EXR pixel type '{channel.PixelType}' is not supported by HTJ2K.");
+                            }
+                        }
+
+                        rows[channelIndex]++;
+                    }
+                }
+
+                EncodeRequire(offset == source.Length,
+                    Htj2kEncodeStatus.InvalidArgument,
+                    "The canonical EXR block length does not match its channel geometry.");
+                for (int component = 0; component < planes.Length; component++)
+                {
+                    EncodeRequire(rows[component] == planes[component].Height,
+                        Htj2kEncodeStatus.InvalidArgument,
+                        "The canonical EXR block contains too few sampled rows.");
+                }
+
+                completed = true;
+                return planes;
+            }
+            finally
+            {
+                if (!completed)
+                {
+                    ReturnPlanes(planes);
                 }
             }
-
-            EncodeRequire(offset == source.Length,
-                Htj2kEncodeStatus.InvalidArgument,
-                "The canonical EXR block length does not match its channel geometry.");
-            for (int component = 0; component < planes.Length; component++)
-            {
-                EncodeRequire(rows[component] == planes[component].Height,
-                    Htj2kEncodeStatus.InvalidArgument,
-                    "The canonical EXR block contains too few sampled rows.");
-            }
-
-            return planes;
         }
 
         private static void ForwardNonlinearTransforms(Header header, Plane[] planes)
@@ -253,7 +297,7 @@ namespace TinyEXR.V3.Codecs
                 int bitDepth = channel.PixelType == PixelType.Half ? 16 : 32;
                 long bias = (1L << (bitDepth - 1)) + 1;
                 long[] data = planes[component].Data;
-                for (int i = 0; i < data.Length; i++)
+                for (int i = 0; i < planes[component].ElementCount; i++)
                 {
                     if (data[i] < 0)
                     {
@@ -273,7 +317,7 @@ namespace TinyEXR.V3.Codecs
                 Htj2kEncodeStatus.InvalidArgument,
                 "The HTJ2K RGB components have inconsistent dimensions.");
 
-            for (int i = 0; i < red.Data.Length; i++)
+            for (int i = 0; i < red.ElementCount; i++)
             {
                 long redValue = red.Data[i];
                 long greenValue = green.Data[i];
@@ -284,7 +328,14 @@ namespace TinyEXR.V3.Codecs
             }
         }
 
-        private static void Forward53TwoDimensional(long[] data, uint width, uint height, uint levels)
+        private static void Forward53TwoDimensional(
+            long[] data,
+            uint width,
+            uint height,
+            uint levels,
+            long[] temporary,
+            long[] lowRow,
+            long[] highRow)
         {
             EncodeRequire(levels <= 32,
                 Htj2kEncodeStatus.InvalidArgument,
@@ -297,7 +348,9 @@ namespace TinyEXR.V3.Codecs
                 uint highWidth = currentWidth / 2;
                 uint lowHeight = (currentHeight + 1) / 2;
                 uint highHeight = currentHeight / 2;
-                long[] temporary = new long[checked((int)(currentWidth * currentHeight))];
+                EncodeRequire((long)currentWidth * currentHeight <= temporary.Length,
+                    Htj2kEncodeStatus.Corrupt,
+                    "The HTJ2K forward wavelet workspace is too small.");
 
                 for (uint high = 0; high < highHeight; high++)
                 {
@@ -338,8 +391,9 @@ namespace TinyEXR.V3.Codecs
                     }
                 }
 
-                long[] lowRow = new long[lowWidth];
-                long[] highRow = new long[highWidth];
+                EncodeRequire(lowWidth <= lowRow.Length && highWidth <= highRow.Length,
+                    Htj2kEncodeStatus.Corrupt,
+                    "The HTJ2K forward wavelet row workspace is too small.");
                 for (uint row = 0; row < currentHeight; row++)
                 {
                     int inputOffset = checked((int)(row * currentWidth));
@@ -350,8 +404,8 @@ namespace TinyEXR.V3.Codecs
                         lowRow,
                         highRow);
                     int outputOffset = checked((int)(row * width));
-                    Array.Copy(lowRow, 0, data, outputOffset, lowRow.Length);
-                    Array.Copy(highRow, 0, data, outputOffset + lowRow.Length, highRow.Length);
+                    Array.Copy(lowRow, 0, data, outputOffset, checked((int)lowWidth));
+                    Array.Copy(highRow, 0, data, outputOffset + checked((int)lowWidth), checked((int)highWidth));
                 }
             }
         }
@@ -365,7 +419,7 @@ namespace TinyEXR.V3.Codecs
         {
             uint lowCount = (count + 1) / 2;
             uint highCount = count / 2;
-            EncodeRequire(low.Length == lowCount && high.Length == highCount,
+            EncodeRequire(low.Length >= lowCount && high.Length >= highCount,
                 Htj2kEncodeStatus.Corrupt,
                 "The HTJ2K wavelet row has inconsistent low/high dimensions.");
             for (uint i = 0; i < highCount; i++)
@@ -796,13 +850,13 @@ namespace TinyEXR.V3.Codecs
             }
         }
 
-        private sealed class ByteAccumulator
+        private sealed class ByteAccumulator : IDisposable
         {
             private byte[] _data;
 
             public ByteAccumulator(int initialCapacity)
             {
-                _data = new byte[Math.Max(initialCapacity, 256)];
+                _data = ArrayPool<byte>.Shared.Rent(Math.Max(initialCapacity, 256));
             }
 
             public int Count { get; private set; }
@@ -863,7 +917,19 @@ namespace TinyEXR.V3.Codecs
                     capacity = checked(capacity * 2);
                 }
 
-                Array.Resize(ref _data, capacity);
+                byte[] replacement = ArrayPool<byte>.Shared.Rent(capacity);
+                Array.Copy(_data, replacement, Count);
+                ArrayPool<byte>.Shared.Return(_data);
+                _data = replacement;
+            }
+
+            public void Dispose()
+            {
+                if (_data.Length != 0)
+                {
+                    ArrayPool<byte>.Shared.Return(_data);
+                    _data = Array.Empty<byte>();
+                }
             }
         }
 
@@ -1090,6 +1156,12 @@ namespace TinyEXR.V3.Codecs
             private readonly byte[] _magnitudeBuffer = new byte[65536];
             private readonly byte[] _melBuffer = new byte[192];
             private readonly byte[] _vlcBuffer = new byte[3072 - 192];
+            private readonly byte[] _exponentLine = new byte[513];
+            private readonly byte[] _contextLine = new byte[513];
+            private readonly int[] _exponentMax = new int[2];
+            private readonly int[] _exponents = new int[8];
+            private readonly int[] _significance = new int[2];
+            private readonly ulong[] _samples = new ulong[8];
 
             public HtBlockEncoder(EncoderTables tables)
             {
@@ -1119,16 +1191,18 @@ namespace TinyEXR.V3.Codecs
                 MagSignWriter magnitude = new MagSignWriter(_magnitudeBuffer);
                 MelWriter mel = new MelWriter(_melBuffer);
                 VlcWriter vlc = new VlcWriter(_vlcBuffer);
-                byte[] exponentLine = new byte[513];
-                byte[] contextLine = new byte[513];
+                byte[] exponentLine = _exponentLine;
+                byte[] contextLine = _contextLine;
+                Array.Clear(exponentLine, 0, exponentLine.Length);
+                Array.Clear(contextLine, 0, contextLine.Length);
                 int exponentPosition = 0;
                 int contextPosition = 0;
                 int firstContext = 0;
 
-                int[] exponentMax = new int[2];
-                int[] exponents = new int[8];
-                int[] significance = new int[2];
-                ulong[] samples = new ulong[8];
+                int[] exponentMax = _exponentMax;
+                int[] exponents = _exponents;
+                int[] significance = _significance;
+                ulong[] samples = _samples;
                 for (uint x = 0; x < width; x += 4)
                 {
                     Array.Clear(exponentMax, 0, exponentMax.Length);

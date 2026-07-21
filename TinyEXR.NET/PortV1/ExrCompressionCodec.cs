@@ -246,10 +246,21 @@ namespace TinyEXR.PortV1
         internal sealed class EncodeWorkspace
         {
             private byte[] _work = Array.Empty<byte>();
+            private byte[] _raw = Array.Empty<byte>();
 
             internal byte[] GetWork(int length)
             {
                 return ExrCompressionCodec.EnsureByteArray(ref _work, length);
+            }
+
+            internal byte[] GetRaw(int length)
+            {
+                if (_raw.Length != length)
+                {
+                    _raw = new byte[length];
+                }
+
+                return _raw;
             }
         }
 

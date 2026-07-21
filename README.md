@@ -93,29 +93,30 @@ See `Test/README.md` for the current test layout and execution details.
 
 ## Benchmark
 
-The repository includes memory-only benchmarks for the main read/write paths. Sample files are loaded during setup, so the timed results reflect decode/encode work on in-memory buffers rather than filesystem IO.
+The current compression benchmark compares TinyEXR.NET v3, the complete
+vendored TinyEXR v3 C library, and OpenEXR 3.4.13 on the same deterministic
+1920x1080 RGBA HALF image. The 2026-07-21 run used BenchmarkDotNet's normal
+`DefaultJob` and clang-cl 22.1.3 native builds. Every timed operation includes
+result allocation and complete in-memory encode/decode, while preparation,
+validation, and result release are excluded.
 
-Updated on `2026-05-03`. C# results use BenchmarkDotNet `Mean`; C++ baseline results use the Google Benchmark `CPU` column.
+Representative means are `encode ms / decode ms`:
 
-* CPU: `13th Gen Intel Core i7-13700K 3.40GHz`
-* OS: `Windows 11 25H2 10.0.26200.8246`
-* .NET SDK/runtime: `10.0.203` / `10.0.7`
-* C# benchmark: `BenchmarkDotNet 0.15.8`, default job, workstation GC
-* C++ compiler: `MSVC 19.50.35730`, `Visual Studio 2026 18.5.2`
+| Compression | TinyEXR.NET v3 | TinyEXR v3 C | OpenEXR 3.4.13 |
+| --- | ---: | ---: | ---: |
+| ZIPS | 16.75 / 9.29 | 24.36 / 9.41 | 35.36 / 7.93 |
+| ZIP | 11.11 / 9.73 | 19.02 / 6.38 | 21.88 / 4.55 |
+| PIZ | 53.49 / 39.66 | 47.76 / 24.27 | 41.43 / 14.92 |
+| PXR24 | 14.25 / 14.84 | 16.42 / 7.51 | 18.37 / 5.16 |
+| HTJ2K256 | 105.44 / 102.34 | 47.43 / 33.71 | 29.39 / 23.61 |
+| HTJ2K32 | 111.64 / 102.51 | 38.64 / 24.55 | 52.69 / 40.03 |
+| ZSTD | 6.05 / 12.88 | 8.62 / 4.57 | - |
 
-| Method | Sample | C# mean | C# allocated | C++ baseline | Managed / baseline |
-| --- | --- | ---: | ---: | ---: | ---: |
-| `LoadEXRFromMemory` | `desk_scanline` | `40.05 ms` | `15.73 MB` | `38.65 ms` | `1.04x` |
-| `SaveEXRToMemory` | `desk_scanline` | `108.77 ms` | `46.56 MB` | `164.06 ms` | `0.66x` |
-| `LoadEXRImageFromMemory` | `desk_scanline` | `23.43 ms` | `7.15 MB` | `28.65 ms` | `0.82x` |
-| `SaveEXRImageToMemory` | `desk_scanline` | `43.48 ms` | `80.90 MB` | `41.36 ms` | `1.05x` |
-| `LoadEXRImageFromMemory` | `kapaa_multires` | `42.94 ms` | `21.27 MB` | `55.40 ms` | `0.78x` |
-| `SaveEXRImageToMemory` | `kapaa_multires` | `169.49 ms` | `53.54 MB` | `213.54 ms` | `0.79x` |
-| `LoadEXRMultipartImageFromMemory` | `beachball_multipart_0001` | `82.74 ms` | `30.65 MB` | `127.60 ms` | `0.65x` |
-| `SaveEXRMultipartImageToMemory` | `beachball_multipart_0001` | `213.06 ms` | `78.32 MB` | `223.96 ms` | `0.95x` |
-| `LoadDeepImageFromMemory` | `balls_deep_scanline` | `14.19 ms` | `5.47 MB` | `N/A` | `N/A` |
-
-See `Benchmark/README.md` for more details.
+Managed ZIPS, ZIP, PXR24, and ZSTD encode outperform TinyEXR v3 C in this
+workload; native implementations remain substantially faster for B44 and
+HTJ2K decode. See [`Benchmark/README.md`](Benchmark/README.md) for the complete
+68-row timing, throughput, allocation, encoded-size, build, fairness, and MSVC
+compatibility report.
 
 ## Versioning
 

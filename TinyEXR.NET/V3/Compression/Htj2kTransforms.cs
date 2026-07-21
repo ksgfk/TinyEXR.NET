@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.Buffers.Binary;
 
 namespace TinyEXR.V3.Codecs
@@ -8,17 +9,40 @@ namespace TinyEXR.V3.Codecs
         private static Plane[] AllocatePlanes(Profile profile)
         {
             Plane[] planes = new Plane[profile.ComponentCount];
+            try
+            {
+                for (int component = 0; component < planes.Length; component++)
+                {
+                    Size size = ComponentSize(profile, component);
+                    Require(size.Width <= int.MaxValue && size.Height <= int.MaxValue,
+                        "A JPEG 2000 component exceeds managed dimensions.");
+                    long elementCount = checked((long)size.Width * size.Height);
+                    Require(elementCount <= int.MaxValue, "A JPEG 2000 component exceeds managed storage.");
+                    int count = (int)elementCount;
+                    long[] data = ArrayPool<long>.Shared.Rent(count);
+                    Array.Clear(data, 0, count);
+                    planes[component] = new Plane(size.Width, size.Height, data);
+                }
+
+                return planes;
+            }
+            catch
+            {
+                ReturnPlanes(planes);
+                throw;
+            }
+        }
+
+        private static void ReturnPlanes(Plane[] planes)
+        {
             for (int component = 0; component < planes.Length; component++)
             {
-                Size size = ComponentSize(profile, component);
-                Require(size.Width <= int.MaxValue && size.Height <= int.MaxValue,
-                    "A JPEG 2000 component exceeds managed dimensions.");
-                long elementCount = checked((long)size.Width * size.Height);
-                Require(elementCount <= int.MaxValue, "A JPEG 2000 component exceeds managed storage.");
-                planes[component] = new Plane(size.Width, size.Height, new long[(int)elementCount]);
+                Plane? plane = planes[component];
+                if (plane != null)
+                {
+                    ArrayPool<long>.Shared.Return(plane.Data);
+                }
             }
-
-            return planes;
         }
 
         private static void ScatterCodeBlock(
@@ -59,8 +83,8 @@ namespace TinyEXR.V3.Codecs
                 columnOffset + codeBlock.X <= plane.Width &&
                 codeBlock.Width <= plane.Width - (columnOffset + codeBlock.X),
                 "An HT codeblock extends outside its component plane.");
-            Require(coefficients.Length == checked((int)(codeBlock.Width * codeBlock.Height)),
-                "An HT codeblock coefficient count is inconsistent.");
+            Require(coefficients.Length >= checked((int)(codeBlock.Width * codeBlock.Height)),
+                "An HT codeblock coefficient allocation is too small.");
 
             for (uint y = 0; y < codeBlock.Height; y++)
             {
@@ -73,9 +97,28 @@ namespace TinyEXR.V3.Codecs
 
         private static void PostprocessPlanes(Profile profile, Plane[] planes)
         {
+            int temporaryLength = 0;
             foreach (Plane plane in planes)
             {
-                Inverse53TwoDimensional(plane.Data, plane.Width, plane.Height, profile.NumDecompositions);
+                temporaryLength = Math.Max(temporaryLength, plane.ElementCount);
+            }
+
+            long[] temporary = ArrayPool<long>.Shared.Rent(temporaryLength);
+            try
+            {
+                foreach (Plane plane in planes)
+                {
+                    Inverse53TwoDimensional(
+                        plane.Data,
+                        plane.Width,
+                        plane.Height,
+                        profile.NumDecompositions,
+                        temporary);
+                }
+            }
+            finally
+            {
+                ArrayPool<long>.Shared.Return(temporary);
             }
 
             if (profile.MultipleComponentTransform != 0)
@@ -84,7 +127,7 @@ namespace TinyEXR.V3.Codecs
                     planes[0].Width == planes[1].Width && planes[0].Width == planes[2].Width &&
                     planes[0].Height == planes[1].Height && planes[0].Height == planes[2].Height,
                     "The JPEG 2000 reversible color transform components have different dimensions.");
-                for (int i = 0; i < planes[0].Data.Length; i++)
+                for (int i = 0; i < planes[0].ElementCount; i++)
                 {
                     long luminance = planes[0].Data[i];
                     long blueDifference = planes[1].Data[i];
@@ -109,7 +152,7 @@ namespace TinyEXR.V3.Codecs
                 Require(bitDepth >= 1 && bitDepth <= 32, "A JPEG 2000 NLT precision is invalid.");
                 long bias = (1L << (bitDepth - 1)) + 1;
                 long[] data = planes[component].Data;
-                for (int i = 0; i < data.Length; i++)
+                for (int i = 0; i < planes[component].ElementCount; i++)
                 {
                     if (data[i] < 0)
                     {
@@ -119,7 +162,12 @@ namespace TinyEXR.V3.Codecs
             }
         }
 
-        private static void Inverse53TwoDimensional(long[] data, uint width, uint height, uint levels)
+        private static void Inverse53TwoDimensional(
+            long[] data,
+            uint width,
+            uint height,
+            uint levels,
+            long[] temporary)
         {
             Require(levels <= 32, "The JPEG 2000 wavelet level count is invalid.");
             if (width == 0 || height == 0 || levels == 0)
@@ -137,7 +185,8 @@ namespace TinyEXR.V3.Codecs
                 uint highWidth = reconstructedWidth / 2;
                 uint lowHeight = (reconstructedHeight + 1) / 2;
                 uint highHeight = reconstructedHeight / 2;
-                long[] temporary = new long[checked((int)(reconstructedWidth * reconstructedHeight))];
+                Require((long)reconstructedWidth * reconstructedHeight <= temporary.Length,
+                    "A JPEG 2000 inverse wavelet workspace is too small.");
 
                 for (uint y = 0; y < reconstructedHeight; y++)
                 {
@@ -251,7 +300,7 @@ namespace TinyEXR.V3.Codecs
             Profile profile,
             ushort[] channelMap,
             Plane[] planes,
-            byte[] destination)
+            Span<byte> destination)
         {
             int[] componentForChannel = new int[context.Channels.Count];
             Array.Fill(componentForChannel, -1);
@@ -296,28 +345,31 @@ namespace TinyEXR.V3.Codecs
             Require(offset == destination.Length, "The HTJ2K decoder produced an inconsistent canonical byte count.");
         }
 
-        private static void StoreSample(byte[] destination, ref int offset, PixelType pixelType, long value)
+        private static void StoreSample(Span<byte> destination, ref int offset, PixelType pixelType, long value)
         {
             switch (pixelType)
             {
                 case PixelType.Half:
-                    Require(value >= short.MinValue && value <= ushort.MaxValue && offset <= destination.Length - 2,
-                        $"An HTJ2K HALF sample ({value}) is outside its native range.");
+                    if (value < short.MinValue || value > ushort.MaxValue || offset > destination.Length - 2)
+                    {
+                        Require(false, $"An HTJ2K HALF sample ({value}) is outside its native range.");
+                    }
+
                     BinaryPrimitives.WriteUInt16LittleEndian(
-                        destination.AsSpan(offset, 2),
+                        destination.Slice(offset, 2),
                         unchecked((ushort)(short)value));
                     offset += 2;
                     break;
                 case PixelType.UInt:
                     Require(value >= 0 && value <= uint.MaxValue && offset <= destination.Length - 4,
                         "An HTJ2K UINT sample is outside its native range.");
-                    BinaryPrimitives.WriteUInt32LittleEndian(destination.AsSpan(offset, 4), (uint)value);
+                    BinaryPrimitives.WriteUInt32LittleEndian(destination.Slice(offset, 4), (uint)value);
                     offset += 4;
                     break;
                 case PixelType.Float:
                     Require(value >= int.MinValue && value <= int.MaxValue && offset <= destination.Length - 4,
                         "An HTJ2K FLOAT sample is outside its native range.");
-                    BinaryPrimitives.WriteInt32LittleEndian(destination.AsSpan(offset, 4), (int)value);
+                    BinaryPrimitives.WriteInt32LittleEndian(destination.Slice(offset, 4), (int)value);
                     offset += 4;
                     break;
                 default:
@@ -333,6 +385,8 @@ namespace TinyEXR.V3.Codecs
                 Width = width;
                 Height = height;
                 Data = data;
+                ElementCount = checked((int)((long)width * height));
+                Require(data.Length >= ElementCount, "A JPEG 2000 plane allocation is too small.");
             }
 
             public uint Width { get; }
@@ -340,6 +394,8 @@ namespace TinyEXR.V3.Codecs
             public uint Height { get; }
 
             public long[] Data { get; }
+
+            public int ElementCount { get; }
         }
     }
 }

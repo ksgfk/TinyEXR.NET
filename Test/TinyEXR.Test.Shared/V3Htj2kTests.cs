@@ -194,8 +194,10 @@ public sealed class V3Htj2kTests
         Assert.AreEqual(V3.ExrResult.Success, corrupted.ParseHeader().Status);
         V3.BlockInfo block = corrupted.GetBlockInfo(0, 0);
         byte[] destination = new byte[checked((int)block.UncompressedByteCount!.Value)];
+        Array.Fill(destination, (byte)0xa5);
         V3.ReaderResult result = corrupted.DecodeBlock(0, 0, destination);
         Assert.AreEqual(V3.ExrResult.Corrupt, result.Status);
+        Assert.IsTrue(destination.AsSpan().IndexOfAnyExcept((byte)0xa5) < 0);
     }
 
     private static void AssertDecoded(string path, IReadOnlyDictionary<string, byte[]> expectedChannels)

@@ -46,6 +46,21 @@ namespace TinyEXR.V3.Codecs
             byte[] destination,
             out string? error)
         {
+            if (destination == null)
+            {
+                throw new ArgumentNullException(nameof(destination));
+            }
+
+            return Decode(header, region, source, destination.AsSpan(), out error);
+        }
+
+        internal static Htj2kDecodeStatus Decode(
+            Header header,
+            Box2i region,
+            byte[] source,
+            Span<byte> destination,
+            out string? error)
+        {
             if (header == null)
             {
                 throw new ArgumentNullException(nameof(header));
@@ -54,11 +69,6 @@ namespace TinyEXR.V3.Codecs
             if (source == null)
             {
                 throw new ArgumentNullException(nameof(source));
-            }
-
-            if (destination == null)
-            {
-                throw new ArgumentNullException(nameof(destination));
             }
 
             try
@@ -84,7 +94,7 @@ namespace TinyEXR.V3.Codecs
             }
         }
 
-        private static void DecodeCore(DecodeContext context, byte[] source, byte[] destination)
+        private static void DecodeCore(DecodeContext context, byte[] source, Span<byte> destination)
         {
             int codestreamOffset = ParseHtHeader(context, source, out ushort[] channelMap);
             Require(codestreamOffset < source.Length, "The HTJ2K wrapper has no JPEG 2000 codestream.");
@@ -532,7 +542,7 @@ namespace TinyEXR.V3.Codecs
             Profile profile,
             ushort[] channelMap,
             byte[] source,
-            byte[] destination)
+            Span<byte> destination)
         {
             // The packet parser, HT cleanup/SPP/MRP decoder, inverse 5/3 transform,
             // RCT/NLT, and canonical EXR row packing are implemented below.
@@ -544,28 +554,37 @@ namespace TinyEXR.V3.Codecs
             Profile profile,
             ushort[] channelMap,
             byte[] source,
-            byte[] destination)
+            Span<byte> destination)
         {
             List<CodeBlock> codeBlocks = ParseTilePackets(profile, source);
             Plane[] planes = AllocatePlanes(profile);
-            foreach (CodeBlock codeBlock in codeBlocks)
+            try
             {
-                BandGeometry[] bands = BuildBandGeometries(
-                    profile,
-                    codeBlock.Component,
-                    codeBlock.Resolution,
-                    out _);
-                Require(codeBlock.Band >= 0 && codeBlock.Band < bands.Length && bands[codeBlock.Band].Exists,
-                    "An HT codeblock references a nonexistent subband.");
-                long[] coefficients = DecodeCodeBlock(
-                    source,
-                    codeBlock,
-                    bands[codeBlock.Band].Kmax);
-                ScatterCodeBlock(profile, codeBlock, bands[codeBlock.Band], coefficients, planes[codeBlock.Component]);
-            }
+                CodeBlockDecodeWorkspace workspace = new CodeBlockDecodeWorkspace();
+                foreach (CodeBlock codeBlock in codeBlocks)
+                {
+                    BandGeometry[] bands = BuildBandGeometries(
+                        profile,
+                        codeBlock.Component,
+                        codeBlock.Resolution,
+                        out _);
+                    Require(codeBlock.Band >= 0 && codeBlock.Band < bands.Length && bands[codeBlock.Band].Exists,
+                        "An HT codeblock references a nonexistent subband.");
+                    long[] coefficients = DecodeCodeBlock(
+                        source,
+                        codeBlock,
+                        bands[codeBlock.Band].Kmax,
+                        workspace);
+                    ScatterCodeBlock(profile, codeBlock, bands[codeBlock.Band], coefficients, planes[codeBlock.Component]);
+                }
 
-            PostprocessPlanes(profile, planes);
-            StorePlanes(context, profile, channelMap, planes, destination);
+                PostprocessPlanes(profile, planes);
+                StorePlanes(context, profile, channelMap, planes, destination);
+            }
+            finally
+            {
+                ReturnPlanes(planes);
+            }
         }
 
         private static List<CodeBlock> ParseTilePackets(Profile profile, byte[] source)

@@ -6,7 +6,11 @@ namespace TinyEXR.V3.Codecs
     {
         private static readonly HtTables Tables = HtTables.Create();
 
-        private static long[] DecodeCodeBlock(byte[] source, CodeBlock codeBlock, uint kmax)
+        private static long[] DecodeCodeBlock(
+            byte[] source,
+            CodeBlock codeBlock,
+            uint kmax,
+            CodeBlockDecodeWorkspace workspace)
         {
             uint width = codeBlock.Width;
             uint height = codeBlock.Height;
@@ -33,9 +37,9 @@ namespace TinyEXR.V3.Codecs
             int scratchCount = checked(scratchStride * (int)(((height + 1) >> 1) + 1));
             int bufferCount = checked(scratchStride * (int)Math.Max(height, 4));
 
-            ushort[] scratch = new ushort[scratchCount];
-            ulong[] north = new ulong[516];
-            ulong[] buffer = new ulong[bufferCount];
+            ushort[] scratch = workspace.GetScratch(scratchCount);
+            ulong[] north = workspace.GetNorth();
+            ulong[] buffer = workspace.GetBuffer(bufferCount);
             MelReader mel = new MelReader(source, streams.MelOffset, streams.MelLength);
             VlcReverseReader vlc = VlcReverseReader.CreateCleanup(
                 source,
@@ -46,7 +50,8 @@ namespace TinyEXR.V3.Codecs
                 source,
                 streams.MagSgnOffset,
                 streams.MagSgnLength,
-                fillWithOnes: true);
+                fillWithOnes: true,
+                workspace.GetForwardWords(streams.MagSgnLength));
 
             mel.GetRun(out uint run, out bool hasOne);
             run = hasOne ? (run << 1) | 1u : run << 1;
@@ -71,7 +76,8 @@ namespace TinyEXR.V3.Codecs
                     scratchStride,
                     scratchCount,
                     scratch,
-                    buffer);
+                    buffer,
+                    workspace);
                 if (passCount > 2)
                 {
                     DecodeMagnitudeRefinement(
@@ -84,7 +90,7 @@ namespace TinyEXR.V3.Codecs
                 }
             }
 
-            long[] result = new long[checked((int)(width * height))];
+            long[] result = workspace.GetCoefficients(checked((int)(width * height)));
             uint shift = kmax < 63 ? 63 - kmax : 0;
             for (uint y = 0; y < height; y++)
             {
@@ -452,7 +458,8 @@ namespace TinyEXR.V3.Codecs
             int stride,
             int scratchCount,
             ushort[] scratch,
-            ulong[] buffer)
+            ulong[] buffer,
+            CodeBlockDecodeWorkspace workspace)
         {
             uint width = codeBlock.Width;
             uint height = codeBlock.Height;
@@ -492,8 +499,9 @@ namespace TinyEXR.V3.Codecs
                 source,
                 streams.RefinementOffset,
                 streams.RefinementLength,
-                fillWithOnes: false);
-            ushort[] previousRow = new ushort[264];
+                fillWithOnes: false,
+                workspace.GetForwardWords(streams.RefinementLength));
+            ushort[] previousRow = workspace.GetPreviousRow();
 
             for (uint y = 0; y < height; y += 4)
             {
@@ -835,10 +843,17 @@ namespace TinyEXR.V3.Codecs
             private readonly ulong _fill;
             private ulong _cursor;
 
-            public ForwardBitReader(byte[] data, int offset, int length, bool fillWithOnes)
+            public ForwardBitReader(
+                byte[] data,
+                int offset,
+                int length,
+                bool fillWithOnes,
+                ulong[] words)
             {
-                _words = new ulong[length / 8 + 3];
+                Require(words.Length >= length / 8 + 3, "An HT forward bit reader workspace is too small.");
+                _words = words;
                 _realBits = Unstuff(data, offset, length, _words);
+                _words[checked((int)((_realBits + 63) >> 6))] = 0;
                 _fill = fillWithOnes ? ulong.MaxValue : 0;
             }
 
@@ -908,6 +923,77 @@ namespace TinyEXR.V3.Codecs
                 }
 
                 return totalBits;
+            }
+        }
+
+        private sealed class CodeBlockDecodeWorkspace
+        {
+            private ushort[] _scratch = Array.Empty<ushort>();
+            private readonly ulong[] _north = new ulong[516];
+            private ulong[] _buffer = Array.Empty<ulong>();
+            private readonly ushort[] _previousRow = new ushort[264];
+            private ulong[] _forwardWords = Array.Empty<ulong>();
+            private long[] _coefficients = Array.Empty<long>();
+
+            public ushort[] GetScratch(int count)
+            {
+                if (_scratch.Length < count)
+                {
+                    _scratch = new ushort[count];
+                }
+                else
+                {
+                    Array.Clear(_scratch, 0, count);
+                }
+
+                return _scratch;
+            }
+
+            public ulong[] GetNorth()
+            {
+                Array.Clear(_north, 0, _north.Length);
+                return _north;
+            }
+
+            public ulong[] GetBuffer(int count)
+            {
+                if (_buffer.Length < count)
+                {
+                    _buffer = new ulong[count];
+                }
+                else
+                {
+                    Array.Clear(_buffer, 0, count);
+                }
+
+                return _buffer;
+            }
+
+            public ushort[] GetPreviousRow()
+            {
+                Array.Clear(_previousRow, 0, _previousRow.Length);
+                return _previousRow;
+            }
+
+            public ulong[] GetForwardWords(int byteCount)
+            {
+                int count = checked(byteCount / 8 + 3);
+                if (_forwardWords.Length < count)
+                {
+                    _forwardWords = new ulong[count];
+                }
+
+                return _forwardWords;
+            }
+
+            public long[] GetCoefficients(int count)
+            {
+                if (_coefficients.Length < count)
+                {
+                    _coefficients = new long[count];
+                }
+
+                return _coefficients;
             }
         }
 

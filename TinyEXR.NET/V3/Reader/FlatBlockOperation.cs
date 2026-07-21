@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.Buffers.Binary;
 using System.Collections.Generic;
 using TinyEXR.PortV1;
@@ -223,21 +224,31 @@ namespace TinyEXR.V3
             else if (_header.Compression == Compression.HTJ2K256 ||
                 _header.Compression == Compression.HTJ2K32)
             {
-                decoded = new byte[expectedSize];
-                Htj2kDecodeStatus status = Htj2kDecoder.Decode(
-                    _header,
-                    Info.Region,
-                    _payload!,
-                    decoded,
-                    out string? error);
-                if (status == Htj2kDecodeStatus.Unsupported)
+                byte[] rented = ArrayPool<byte>.Shared.Rent(expectedSize);
+                try
                 {
-                    return Unsupported(error ?? "The HTJ2K block uses an unsupported profile feature.");
-                }
+                    Htj2kDecodeStatus status = Htj2kDecoder.Decode(
+                        _header,
+                        Info.Region,
+                        _payload!,
+                        rented.AsSpan(0, expectedSize),
+                        out string? error);
+                    if (status == Htj2kDecodeStatus.Unsupported)
+                    {
+                        return Unsupported(error ?? "The HTJ2K block uses an unsupported profile feature.");
+                    }
 
-                if (status != Htj2kDecodeStatus.Success)
+                    if (status != Htj2kDecodeStatus.Success)
+                    {
+                        return Corrupt(error ?? "The HTJ2K block is invalid.");
+                    }
+
+                    rented.AsSpan(0, expectedSize).CopyTo(destination);
+                    return new ReaderResult(ExrResult.Success, null, null, expectedSize);
+                }
+                finally
                 {
-                    return Corrupt(error ?? "The HTJ2K block is invalid.");
+                    ArrayPool<byte>.Shared.Return(rented);
                 }
             }
             else if (_header.Compression == Compression.DWAA ||
