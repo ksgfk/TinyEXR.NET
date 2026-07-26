@@ -178,16 +178,50 @@ Each cell is `encoded MiB / raw-to-encoded ratio`.
 - Managed RLE decode is 17% slower than TinyEXR v3 C but takes only 61% of
   OpenEXR time. Managed and TinyEXR v3 C ZIPS decode are within 2%.
 
-## Allocation Reduction (pending re-measurement)
+## Managed Codec Optimization (pending three-way re-measurement)
 
-The tables above predate the buffer-ownership work described in
-`docs/tinyexr-v3.md`. That change routed block decode and encode through
+The three-way tables above predate the managed optimization work in this and the
+preceding two commits. Managed-only timings below come from BenchmarkDotNet
+(`--filter "*V3CompressionBenchmarks*"`) on the development machine, which is not
+the report machine, so they are comparable to each other but not to the
+cross-implementation tables above. The `Default` comparison needs a re-run on the
+report machine before those tables are updated.
+
+| Compression | Encode before / after ms | Decode before / after ms |
+| --- | ---: | ---: |
+| RLE | 15.92 / 16.03 | 7.38 / 7.31 |
+| ZIPS | 17.57 / 17.50 | 7.46 / 7.47 |
+| ZIP | 11.03 / 11.03 | 5.33 / 5.42 |
+| PIZ | 38.49 / 38.96 | 28.78 / 26.04 |
+| PXR24 | 15.95 / 15.78 | 12.68 / 6.26 |
+| B44 | 29.33 / 20.37 | 17.13 / 12.52 |
+| B44A | 30.89 / 23.70 | 14.07 / 9.82 |
+| HTJ2K256 | 93.27 / 90.94 | 75.01 / 72.93 |
+| HTJ2K32 | 87.83 / 88.26 | 70.33 / 73.20 |
+
+Three changes drive the deltas. B44/B44A now move interior 4x4 blocks as four
+whole-row copies in both directions, matching the four-`memcpy` structure in
+OpenEXR `internal_b44.c`; boundary blocks and big-endian hosts keep the
+element-wise path. PXR24 decode works off row slices and, on little-endian
+hosts, writes half data through a cast span instead of per-pixel
+`BinaryPrimitives` calls. PIZ decode replaces a per-word Huffman run-length loop
+with a span fill and packs the hot decode table into one `int` per slot, which
+shrinks it from roughly 384 KiB of padded structs to 64 KiB; the index is data
+dependent, so the table now fits far better in cache.
+
+PIZ decode remains the weakest result. The rest of that gap traces to the
+`FastHufDecoder` structure in OpenEXR `internal_huf.c` rather than to tuning of
+the current decoder. Codecs not touched by these changes moved within run-to-run
+noise.
+
+## Allocation Reduction
+
+The buffer-ownership work described in
+`docs/tinyexr-v3.md` routed block decode and encode through
 instance-scoped pools and codec workspaces, removing the per-block buffers that
 previously dominated managed allocation. Measured with
 `--profile-v3-compression <op> <codec> 30`, allocation per operation changed as
-follows. Times on that machine are not comparable to the table above, so only
-the allocation ratio is reported here; the full `Default` comparison needs a
-re-run on the report machine before the tables are updated.
+follows.
 
 | Compression | Encode before / after MiB | Decode before / after MiB |
 | --- | ---: | ---: |

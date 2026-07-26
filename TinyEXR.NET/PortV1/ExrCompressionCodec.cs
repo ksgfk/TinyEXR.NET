@@ -88,6 +88,18 @@ namespace TinyEXR.PortV1
             public int[]? Symbols;
         }
 
+        // The decode fast path only needs (literal, length), so it is packed into a single int per
+        // slot. That keeps the 1 << HufDecBits lookup table at 64 KiB instead of the ~384 KiB the
+        // padded HufDecEntry[] occupies, which matters because the lookup index is data dependent
+        // and effectively random. A zero entry means the slot is empty or needs the long-code list.
+        private const int HufFastLengthBits = 6;
+        private const int HufFastLengthMask = (1 << HufFastLengthBits) - 1;
+
+        private static int PackHufFast(int literal, int length)
+        {
+            return (literal << HufFastLengthBits) | length;
+        }
+
         private static byte[] EnsureByteArray(ref byte[] array, int length)
         {
             if (array.Length < length)
@@ -109,6 +121,7 @@ namespace TinyEXR.PortV1
             private int[] _channelPositions = Array.Empty<int>();
             private long[] _hufCodes = Array.Empty<long>();
             private HufDecEntry[] _hufTable = Array.Empty<HufDecEntry>();
+            private int[] _hufFastTable = Array.Empty<int>();
             private List<int>[] _hufLongSymbols = Array.Empty<List<int>>();
             private ChannelLayout[] _layouts = Array.Empty<ChannelLayout>();
             private PizChannelData[] _pizChannelData = Array.Empty<PizChannelData>();
@@ -163,6 +176,18 @@ namespace TinyEXR.PortV1
                 HufDecEntry[] table = EnsureHufEntryArray(ref _hufTable, HufDecSize);
                 Array.Clear(table, 0, HufDecSize);
                 return table;
+            }
+
+            internal int[] GetHufFastTable()
+            {
+                if (_hufFastTable.Length < HufDecSize)
+                {
+                    _hufFastTable = new int[HufDecSize];
+                    return _hufFastTable;
+                }
+
+                Array.Clear(_hufFastTable, 0, HufDecSize);
+                return _hufFastTable;
             }
 
             internal List<int>[] GetHufLongSymbols()
@@ -2010,15 +2035,19 @@ namespace TinyEXR.PortV1
                         int plane3 = plane2 + width;
                         packedOffset += width * 4;
 
+                        ReadOnlySpan<byte> byte0 = packed.AsSpan(plane0, width);
+                        ReadOnlySpan<byte> byte1 = packed.AsSpan(plane1, width);
+                        ReadOnlySpan<byte> byte2 = packed.AsSpan(plane2, width);
+                        ReadOnlySpan<byte> byte3 = packed.AsSpan(plane3, width);
+                        Span<byte> row = raw.AsSpan(destination, width * 4);
                         uint pixel = 0;
-                        for (int x = 0; x < width; x++)
+                        for (int x = 0; x < byte0.Length; x++)
                         {
-                            uint diff = ((uint)packed[plane0 + x] << 24) |
-                                        ((uint)packed[plane1 + x] << 16) |
-                                        ((uint)packed[plane2 + x] << 8) |
-                                        packed[plane3 + x];
-                            pixel += diff;
-                            BinaryPrimitives.WriteUInt32LittleEndian(raw.AsSpan(destination + x * 4, 4), pixel);
+                            pixel += ((uint)byte0[x] << 24) |
+                                        ((uint)byte1[x] << 16) |
+                                        ((uint)byte2[x] << 8) |
+                                        byte3[x];
+                            BinaryPrimitives.WriteUInt32LittleEndian(row.Slice(x * 4, 4), pixel);
                         }
                     }
                     else if (layout.Type == ExrPixelType.Half)
@@ -2027,12 +2056,33 @@ namespace TinyEXR.PortV1
                         int plane1 = plane0 + width;
                         packedOffset += width * 2;
 
+                        // The two byte planes and the destination row are sliced to their exact
+                        // lengths so the bounds checks leave the per-pixel loop. On a little-endian
+                        // host the row is also written through a reinterpreted span, which avoids a
+                        // BinaryPrimitives call and its endianness test per pixel.
+                        ReadOnlySpan<byte> high = packed.AsSpan(plane0, width);
+                        ReadOnlySpan<byte> low = packed.AsSpan(plane1, width);
                         uint pixel = 0;
-                        for (int x = 0; x < width; x++)
+                        if (BitConverter.IsLittleEndian)
                         {
-                            uint diff = ((uint)packed[plane0 + x] << 8) | packed[plane1 + x];
-                            pixel += diff;
-                            BinaryPrimitives.WriteUInt16LittleEndian(raw.AsSpan(destination + x * 2, 2), (ushort)pixel);
+                            Span<ushort> row = MemoryMarshal.Cast<byte, ushort>(
+                                raw.AsSpan(destination, width * 2));
+                            for (int x = 0; x < row.Length; x++)
+                            {
+                                pixel += ((uint)high[x] << 8) | low[x];
+                                row[x] = (ushort)pixel;
+                            }
+                        }
+                        else
+                        {
+                            Span<byte> row = raw.AsSpan(destination, width * 2);
+                            for (int x = 0; x < high.Length; x++)
+                            {
+                                pixel += ((uint)high[x] << 8) | low[x];
+                                BinaryPrimitives.WriteUInt16LittleEndian(
+                                    row.Slice(x * 2, 2),
+                                    (ushort)pixel);
+                            }
                         }
                     }
                     else
@@ -2042,14 +2092,17 @@ namespace TinyEXR.PortV1
                         int plane2 = plane1 + width;
                         packedOffset += width * 3;
 
+                        ReadOnlySpan<byte> byte0 = packed.AsSpan(plane0, width);
+                        ReadOnlySpan<byte> byte1 = packed.AsSpan(plane1, width);
+                        ReadOnlySpan<byte> byte2 = packed.AsSpan(plane2, width);
+                        Span<byte> row = raw.AsSpan(destination, width * 4);
                         uint pixel = 0;
-                        for (int x = 0; x < width; x++)
+                        for (int x = 0; x < byte0.Length; x++)
                         {
-                            uint diff = ((uint)packed[plane0 + x] << 24) |
-                                        ((uint)packed[plane1 + x] << 16) |
-                                        ((uint)packed[plane2 + x] << 8);
-                            pixel += diff;
-                            BinaryPrimitives.WriteUInt32LittleEndian(raw.AsSpan(destination + x * 4, 4), pixel);
+                            pixel += ((uint)byte0[x] << 24) |
+                                        ((uint)byte1[x] << 16) |
+                                        ((uint)byte2[x] << 8);
+                            BinaryPrimitives.WriteUInt32LittleEndian(row.Slice(x * 4, 4), pixel);
                         }
                     }
                 }
@@ -2095,6 +2148,7 @@ namespace TinyEXR.PortV1
 
             byte[] output = workspace?.GetRleOutput(maximumPayloadSize) ?? new byte[maximumPayloadSize];
             int outputOffset = 0;
+            bool littleEndian = BitConverter.IsLittleEndian;
             Span<byte> blockBytes = stackalloc byte[14];
             Span<ushort> block = stackalloc ushort[16];
             for (int channelIndex = 0; channelIndex < planes.Length; channelIndex++)
@@ -2113,15 +2167,41 @@ namespace TinyEXR.PortV1
                 {
                     for (int bx = 0; bx < (plane.Width + 3) / 4; bx++)
                     {
-                        for (int dy = 0; dy < 4; dy++)
+                        int blockX = bx * 4;
+                        int blockY = by * 4;
+                        if (littleEndian && blockX + 4 <= plane.Width && blockY + 4 <= plane.Height)
                         {
-                            int sourceY = Math.Min(by * 4 + dy, plane.Height - 1);
-                            int rowBase = sourceY * plane.RowBytes;
-                            for (int dx = 0; dx < 4; dx++)
+                            // Interior blocks need no edge clamping, so each row is one bulk copy
+                            // instead of four bounds-checked single-word reads.
+                            for (int dy = 0; dy < 4; dy++)
                             {
-                                int sourceX = Math.Min(bx * 4 + dx, plane.Width - 1);
-                                ushort value = BinaryPrimitives.ReadUInt16LittleEndian(plane.Data.AsSpan(rowBase + sourceX * 2, 2));
-                                block[dy * 4 + dx] = layout.Linear != 0 ? B44ConvertFromLinear(value) : value;
+                                MemoryMarshal
+                                    .Cast<byte, ushort>(plane.Data.AsSpan(
+                                        (blockY + dy) * plane.RowBytes + blockX * 2,
+                                        8))
+                                    .CopyTo(block.Slice(dy * 4, 4));
+                            }
+                        }
+                        else
+                        {
+                            for (int dy = 0; dy < 4; dy++)
+                            {
+                                int sourceY = Math.Min(blockY + dy, plane.Height - 1);
+                                int rowBase = sourceY * plane.RowBytes;
+                                for (int dx = 0; dx < 4; dx++)
+                                {
+                                    int sourceX = Math.Min(blockX + dx, plane.Width - 1);
+                                    block[dy * 4 + dx] = BinaryPrimitives.ReadUInt16LittleEndian(
+                                        plane.Data.AsSpan(rowBase + sourceX * 2, 2));
+                                }
+                            }
+                        }
+
+                        if (layout.Linear != 0)
+                        {
+                            for (int i = 0; i < 16; i++)
+                            {
+                                block[i] = B44ConvertFromLinear(block[i]);
                             }
                         }
 
@@ -2157,6 +2237,7 @@ namespace TinyEXR.PortV1
             }
 
             int sourceOffset = 0;
+            bool littleEndian = BitConverter.IsLittleEndian;
             Span<ushort> block = stackalloc ushort[16];
             for (int channelIndex = 0; channelIndex < planes.Length; channelIndex++)
             {
@@ -2211,24 +2292,41 @@ namespace TinyEXR.PortV1
                             }
                         }
 
-                        for (int dy = 0; dy < 4; dy++)
+                        int blockX = bx * 4;
+                        int blockY = by * 4;
+                        if (littleEndian && blockX + 4 <= plane.Width && blockY + 4 <= plane.Height)
                         {
-                            int destinationY = by * 4 + dy;
-                            if (destinationY >= plane.Height)
+                            // Interior blocks are whole 4x4 tiles, so each row is one bulk copy rather
+                            // than four bounds-checked single-word writes.
+                            for (int dy = 0; dy < 4; dy++)
                             {
-                                continue;
+                                block.Slice(dy * 4, 4).CopyTo(MemoryMarshal.Cast<byte, ushort>(
+                                    plane.Data.AsSpan((blockY + dy) * plane.RowBytes + blockX * 2, 8)));
                             }
-
-                            int rowBase = destinationY * plane.RowBytes;
-                            for (int dx = 0; dx < 4; dx++)
+                        }
+                        else
+                        {
+                            for (int dy = 0; dy < 4; dy++)
                             {
-                                int destinationX = bx * 4 + dx;
-                                if (destinationX >= plane.Width)
+                                int destinationY = blockY + dy;
+                                if (destinationY >= plane.Height)
                                 {
                                     continue;
                                 }
 
-                                BinaryPrimitives.WriteUInt16LittleEndian(plane.Data.AsSpan(rowBase + destinationX * 2, 2), block[dy * 4 + dx]);
+                                int rowBase = destinationY * plane.RowBytes;
+                                for (int dx = 0; dx < 4; dx++)
+                                {
+                                    int destinationX = blockX + dx;
+                                    if (destinationX >= plane.Width)
+                                    {
+                                        continue;
+                                    }
+
+                                    BinaryPrimitives.WriteUInt16LittleEndian(
+                                        plane.Data.AsSpan(rowBase + destinationX * 2, 2),
+                                        block[dy * 4 + dx]);
+                                }
                             }
                         }
                     }
@@ -2916,9 +3014,10 @@ namespace TinyEXR.PortV1
             return true;
         }
 
-        private static bool TryHufBuildDecTable(long[] codes, int im, int iM, out HufDecEntry[] table)
+        private static bool TryHufBuildDecTable(long[] codes, int im, int iM, out HufDecEntry[] table, out int[] fastTable)
         {
             table = new HufDecEntry[HufDecSize];
+            fastTable = new int[HufDecSize];
             List<int>[] longSymbols = new List<int>[HufDecSize];
 
             for (int index = im; index <= iM; index++)
@@ -2953,6 +3052,7 @@ namespace TinyEXR.PortV1
 
                         table[slot + i].Length = (byte)length;
                         table[slot + i].Literal = index;
+                        fastTable[slot + i] = PackHufFast(index, length);
                     }
                 }
             }
@@ -2969,9 +3069,10 @@ namespace TinyEXR.PortV1
             return true;
         }
 
-        private static bool TryHufBuildDecTable(long[] codes, int im, int iM, DecodeWorkspace workspace, out HufDecEntry[] table)
+        private static bool TryHufBuildDecTable(long[] codes, int im, int iM, DecodeWorkspace workspace, out HufDecEntry[] table, out int[] fastTable)
         {
             table = workspace.GetHufTable();
+            fastTable = workspace.GetHufFastTable();
             List<int>[] longSymbols = workspace.GetHufLongSymbols();
 
             for (int index = im; index <= iM; index++)
@@ -3006,6 +3107,7 @@ namespace TinyEXR.PortV1
 
                         table[slot + i].Length = (byte)length;
                         table[slot + i].Literal = index;
+                        fastTable[slot + i] = PackHufFast(index, length);
                     }
                 }
             }
@@ -3133,12 +3235,12 @@ namespace TinyEXR.PortV1
                 return false;
             }
 
-            if (!TryHufBuildDecTable(codes, im, iM, out HufDecEntry[] table))
+            if (!TryHufBuildDecTable(codes, im, iM, out HufDecEntry[] table, out int[] fastTable))
             {
                 return false;
             }
 
-            return TryHufDecode(codes, table, compressed, dataOffset, nBits, iM, raw);
+            return TryHufDecode(codes, table, fastTable, compressed, dataOffset, nBits, iM, raw);
         }
 
         private static bool TryHufUncompress(byte[] compressed, int compressedOffset, int compressedLength, int expectedCount, DecodeWorkspace workspace, ushort[] raw)
@@ -3175,26 +3277,27 @@ namespace TinyEXR.PortV1
                 return false;
             }
 
-            if (!TryHufBuildDecTable(codes, im, iM, workspace, out HufDecEntry[] table))
+            if (!TryHufBuildDecTable(codes, im, iM, workspace, out HufDecEntry[] table, out int[] fastTable))
             {
                 return false;
             }
 
-            return TryHufDecode(codes, table, compressed, dataOffset, nBits, iM, raw.AsSpan(0, expectedCount));
+            return TryHufDecode(codes, table, fastTable, compressed, dataOffset, nBits, iM, raw.AsSpan(0, expectedCount));
         }
 
-        private static bool TryHufDecode(long[] codes, HufDecEntry[] table, ReadOnlySpan<byte> input, int dataOffset, int bitLength, int runLengthCode, ushort[] output)
+        private static bool TryHufDecode(long[] codes, HufDecEntry[] table, int[] fastTable, ReadOnlySpan<byte> input, int dataOffset, int bitLength, int runLengthCode, ushort[] output)
         {
-            return TryHufDecode(codes, table, input, dataOffset, bitLength, runLengthCode, output.AsSpan());
+            return TryHufDecode(codes, table, fastTable, input, dataOffset, bitLength, runLengthCode, output.AsSpan());
         }
 
-        private static bool TryHufDecode(long[] codes, HufDecEntry[] table, ReadOnlySpan<byte> input, int dataOffset, int bitLength, int runLengthCode, Span<ushort> output)
+        private static bool TryHufDecode(long[] codes, HufDecEntry[] table, int[] fastTable, ReadOnlySpan<byte> input, int dataOffset, int bitLength, int runLengthCode, Span<ushort> output)
         {
             long buffer = 0;
             int bitCount = 0;
             int inOffset = dataOffset;
             int inputEnd = dataOffset + ((bitLength + 7) / 8);
             int outOffset = 0;
+            ReadOnlySpan<int> fast = fastTable.AsSpan(0, HufDecSize);
 
             while (inOffset < inputEnd)
             {
@@ -3203,26 +3306,27 @@ namespace TinyEXR.PortV1
 
                 while (bitCount >= HufDecBits)
                 {
-                    HufDecEntry entry = table[(int)((buffer >> (bitCount - HufDecBits)) & HufDecMask)];
-                    if (entry.Length != 0)
+                    int packed = fast[(int)((buffer >> (bitCount - HufDecBits)) & HufDecMask)];
+                    if (packed != 0)
                     {
-                        bitCount -= entry.Length;
-                        if (!TryGetCode(entry.Literal, runLengthCode, ref buffer, ref bitCount, input, ref inOffset, inputEnd, output, ref outOffset))
+                        bitCount -= packed & HufFastLengthMask;
+                        if (!TryGetCode(packed >> HufFastLengthBits, runLengthCode, ref buffer, ref bitCount, input, ref inOffset, inputEnd, output, ref outOffset))
                         {
                             return false;
                         }
                     }
                     else
                     {
-                        if (entry.Symbols == null)
+                        int[]? symbols = table[(int)((buffer >> (bitCount - HufDecBits)) & HufDecMask)].Symbols;
+                        if (symbols == null)
                         {
                             return false;
                         }
 
                         bool matched = false;
-                        for (int i = 0; i < entry.Symbols.Length; i++)
+                        for (int i = 0; i < symbols.Length; i++)
                         {
-                            int symbol = entry.Symbols[i];
+                            int symbol = symbols[i];
                             int length = HufLength(codes[symbol]);
                             while (bitCount < length && inOffset < inputEnd)
                             {
@@ -3258,14 +3362,14 @@ namespace TinyEXR.PortV1
 
             while (bitCount > 0)
             {
-                HufDecEntry entry = table[(int)((buffer << (HufDecBits - bitCount)) & HufDecMask)];
-                if (entry.Length == 0)
+                int packed = fast[(int)((buffer << (HufDecBits - bitCount)) & HufDecMask)];
+                if (packed == 0)
                 {
                     return false;
                 }
 
-                bitCount -= entry.Length;
-                if (!TryGetCode(entry.Literal, runLengthCode, ref buffer, ref bitCount, input, ref inOffset, inputEnd, output, ref outOffset))
+                bitCount -= packed & HufFastLengthMask;
+                if (!TryGetCode(packed >> HufFastLengthBits, runLengthCode, ref buffer, ref bitCount, input, ref inOffset, inputEnd, output, ref outOffset))
                 {
                     return false;
                 }
@@ -3296,11 +3400,9 @@ namespace TinyEXR.PortV1
                     return false;
                 }
 
-                ushort value = output[outOffset - 1];
-                while (count-- > 0)
-                {
-                    output[outOffset++] = value;
-                }
+                // Runs reach 255 symbols, so filling the span beats appending one word at a time.
+                output.Slice(outOffset, count).Fill(output[outOffset - 1]);
+                outOffset += count;
 
                 return true;
             }
