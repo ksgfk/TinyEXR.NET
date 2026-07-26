@@ -1,6 +1,7 @@
 using System;
 using System.Buffers;
 using System.Buffers.Binary;
+using System.Runtime.CompilerServices;
 
 namespace TinyEXR.V3.Codecs
 {
@@ -195,15 +196,21 @@ namespace TinyEXR.V3.Codecs
                     planes[0].Width == planes[1].Width && planes[0].Width == planes[2].Width &&
                     planes[0].Height == planes[1].Height && planes[0].Height == planes[2].Height,
                     "The JPEG 2000 reversible color transform components have different dimensions.");
-                for (int i = 0; i < planes[0].ElementCount; i++)
+                // The three component buffers are resolved to spans once. Indexing planes[n].Data inside
+                // the loop would reload the plane reference and re-check bounds for all six accesses.
+                int elementCount = planes[0].ElementCount;
+                Span<long> first = planes[0].Data.AsSpan(0, elementCount);
+                Span<long> second = planes[1].Data.AsSpan(0, elementCount);
+                Span<long> third = planes[2].Data.AsSpan(0, elementCount);
+                for (int i = 0; i < first.Length; i++)
                 {
-                    long luminance = planes[0].Data[i];
-                    long blueDifference = planes[1].Data[i];
-                    long redDifference = planes[2].Data[i];
-                    long green = luminance - FloorDividePowerOfTwo(blueDifference + redDifference, 2);
-                    planes[0].Data[i] = redDifference + green;
-                    planes[1].Data[i] = green;
-                    planes[2].Data[i] = blueDifference + green;
+                    long luminance = first[i];
+                    long blueDifference = second[i];
+                    long redDifference = third[i];
+                    long green = luminance - ((blueDifference + redDifference) >> 2);
+                    first[i] = redDifference + green;
+                    second[i] = green;
+                    third[i] = blueDifference + green;
                 }
             }
 
@@ -219,8 +226,8 @@ namespace TinyEXR.V3.Codecs
                 int bitDepth = (profile.Ssiz[component] & 0x7f) + 1;
                 Require(bitDepth >= 1 && bitDepth <= 32, "A JPEG 2000 NLT precision is invalid.");
                 long bias = (1L << (bitDepth - 1)) + 1;
-                long[] data = planes[component].Data;
-                for (int i = 0; i < planes[component].ElementCount; i++)
+                Span<long> data = planes[component].Data.AsSpan(0, planes[component].ElementCount);
+                for (int i = 0; i < data.Length; i++)
                 {
                     if (data[i] < 0)
                     {
@@ -277,6 +284,9 @@ namespace TinyEXR.V3.Codecs
                     continue;
                 }
 
+                // Each participating row is sliced to its exact length so the bounds checks are hoisted
+                // out of the column loops instead of being repeated for every access.
+                int rowLength = checked((int)reconstructedWidth);
                 for (uint low = 0; low < lowHeight; low++)
                 {
                     uint leftHigh = low > 0 ? low - 1 : 0;
@@ -285,12 +295,14 @@ namespace TinyEXR.V3.Codecs
                     int leftOffset = checked((int)((lowHeight + leftHigh) * reconstructedWidth));
                     int rightOffset = checked((int)((lowHeight + rightHigh) * reconstructedWidth));
                     int outputOffset = checked((int)(2 * low * width));
-                    for (uint column = 0; column < reconstructedWidth; column++)
+                    Span<long> output = data.AsSpan(outputOffset, rowLength);
+                    ReadOnlySpan<long> lowRow = temporary.AsSpan(lowOffset, rowLength);
+                    ReadOnlySpan<long> left = temporary.AsSpan(leftOffset, rowLength);
+                    ReadOnlySpan<long> right = temporary.AsSpan(rightOffset, rowLength);
+                    for (int column = 0; column < output.Length; column++)
                     {
-                        data[outputOffset + column] = temporary[lowOffset + column] -
-                            FloorDividePowerOfTwo(
-                                temporary[leftOffset + column] + temporary[rightOffset + column] + 2,
-                                2);
+                        output[column] = lowRow[column] -
+                            ((left[column] + right[column] + 2) >> 2);
                     }
                 }
 
@@ -300,12 +312,14 @@ namespace TinyEXR.V3.Codecs
                     int firstEvenOffset = checked((int)(2 * high * width));
                     int secondEvenOffset = checked((int)(2 * (high + 1 < lowHeight ? high + 1 : high) * width));
                     int outputOffset = checked((int)((2 * high + 1) * width));
-                    for (uint column = 0; column < reconstructedWidth; column++)
+                    Span<long> output = data.AsSpan(outputOffset, rowLength);
+                    ReadOnlySpan<long> highRowValues = temporary.AsSpan(highOffset, rowLength);
+                    ReadOnlySpan<long> firstEven = data.AsSpan(firstEvenOffset, rowLength);
+                    ReadOnlySpan<long> secondEven = data.AsSpan(secondEvenOffset, rowLength);
+                    for (int column = 0; column < output.Length; column++)
                     {
-                        data[outputOffset + column] = temporary[highOffset + column] +
-                            FloorDividePowerOfTwo(
-                                data[firstEvenOffset + column] + data[secondEvenOffset + column],
-                                1);
+                        output[column] = highRowValues[column] +
+                            ((firstEven[column] + secondEven[column]) >> 1);
                     }
                 }
             }
@@ -351,16 +365,19 @@ namespace TinyEXR.V3.Codecs
             }
         }
 
+        /// <summary>
+        /// Divides by a power of two, rounding toward negative infinity.
+        /// </summary>
+        /// <remarks>
+        /// This is an arithmetic right shift. Signed division truncates toward zero, so the
+        /// original formulation had to subtract one for negative inexact quotients; shifting
+        /// already floors. The shift is always a small non-negative constant supplied by the
+        /// 5/3 lifting steps and the reversible component transform, so no masking is needed.
+        /// </remarks>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static long FloorDividePowerOfTwo(long value, int shift)
         {
-            long divisor = 1L << shift;
-            long quotient = value / divisor;
-            if (value < 0 && value % divisor != 0)
-            {
-                quotient--;
-            }
-
-            return quotient;
+            return value >> shift;
         }
 
         private static void StorePlanes(

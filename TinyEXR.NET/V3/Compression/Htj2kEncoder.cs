@@ -2,6 +2,8 @@ using System;
 using System.Buffers;
 using System.Buffers.Binary;
 using System.Collections.Generic;
+using System.Numerics;
+using System.Runtime.CompilerServices;
 
 namespace TinyEXR.V3.Codecs
 {
@@ -247,41 +249,55 @@ namespace TinyEXR.V3.Codecs
                             Htj2kEncodeStatus.InvalidArgument,
                             "The canonical EXR block contains too many sampled rows.");
                         int destinationOffset = checked((int)(rows[channelIndex] * plane.Width));
-                        for (uint x = 0; x < plane.Width; x++)
+                        int rowWidth = checked((int)plane.Width);
+
+                        // The pixel type and the truncation check are uniform across a row, so both are
+                        // resolved once here instead of once per sample.
+                        int sampleSize = channel.PixelType switch
                         {
-                            switch (channel.PixelType)
-                            {
-                                case PixelType.Half:
-                                    EncodeRequire(offset <= source.Length - 2,
-                                        Htj2kEncodeStatus.InvalidArgument,
-                                        "The canonical EXR block is truncated.");
-                                    planes[channelIndex].Data[destinationOffset + x] =
-                                        BinaryPrimitives.ReadInt16LittleEndian(source.AsSpan(offset, 2));
-                                    offset += 2;
-                                    break;
-                                case PixelType.UInt:
-                                    EncodeRequire(offset <= source.Length - 4,
-                                        Htj2kEncodeStatus.InvalidArgument,
-                                        "The canonical EXR block is truncated.");
-                                    planes[channelIndex].Data[destinationOffset + x] =
-                                        BinaryPrimitives.ReadUInt32LittleEndian(source.AsSpan(offset, 4));
-                                    offset += 4;
-                                    break;
-                                case PixelType.Float:
-                                    EncodeRequire(offset <= source.Length - 4,
-                                        Htj2kEncodeStatus.InvalidArgument,
-                                        "The canonical EXR block is truncated.");
-                                    planes[channelIndex].Data[destinationOffset + x] =
-                                        BinaryPrimitives.ReadInt32LittleEndian(source.AsSpan(offset, 4));
-                                    offset += 4;
-                                    break;
-                                default:
-                                    throw new Htj2kEncodeException(
-                                        Htj2kEncodeStatus.Unsupported,
-                                        $"EXR pixel type '{channel.PixelType}' is not supported by HTJ2K.");
-                            }
+                            PixelType.Half => 2,
+                            PixelType.UInt => 4,
+                            PixelType.Float => 4,
+                            _ => throw new Htj2kEncodeException(
+                                Htj2kEncodeStatus.Unsupported,
+                                $"EXR pixel type '{channel.PixelType}' is not supported by HTJ2K."),
+                        };
+                        int rowBytes = checked(rowWidth * sampleSize);
+                        EncodeRequire(rowBytes <= source.Length - offset,
+                            Htj2kEncodeStatus.InvalidArgument,
+                            "The canonical EXR block is truncated.");
+
+                        ReadOnlySpan<byte> row = source.AsSpan(offset, rowBytes);
+                        Span<long> destination = plane.Data.AsSpan(destinationOffset, rowWidth);
+                        switch (channel.PixelType)
+                        {
+                            case PixelType.Half:
+                                for (int x = 0; x < rowWidth; x++)
+                                {
+                                    destination[x] = BinaryPrimitives.ReadInt16LittleEndian(
+                                        row.Slice(x * 2, 2));
+                                }
+
+                                break;
+                            case PixelType.UInt:
+                                for (int x = 0; x < rowWidth; x++)
+                                {
+                                    destination[x] = BinaryPrimitives.ReadUInt32LittleEndian(
+                                        row.Slice(x * 4, 4));
+                                }
+
+                                break;
+                            default:
+                                for (int x = 0; x < rowWidth; x++)
+                                {
+                                    destination[x] = BinaryPrimitives.ReadInt32LittleEndian(
+                                        row.Slice(x * 4, 4));
+                                }
+
+                                break;
                         }
 
+                        offset += rowBytes;
                         rows[channelIndex]++;
                     }
                 }
@@ -320,8 +336,8 @@ namespace TinyEXR.V3.Codecs
 
                 int bitDepth = channel.PixelType == PixelType.Half ? 16 : 32;
                 long bias = (1L << (bitDepth - 1)) + 1;
-                long[] data = planes[component].Data;
-                for (int i = 0; i < planes[component].ElementCount; i++)
+                Span<long> data = planes[component].Data.AsSpan(0, planes[component].ElementCount);
+                for (int i = 0; i < data.Length; i++)
                 {
                     if (data[i] < 0)
                     {
@@ -341,14 +357,18 @@ namespace TinyEXR.V3.Codecs
                 Htj2kEncodeStatus.InvalidArgument,
                 "The HTJ2K RGB components have inconsistent dimensions.");
 
-            for (int i = 0; i < red.ElementCount; i++)
+            int elementCount = red.ElementCount;
+            Span<long> redData = red.Data.AsSpan(0, elementCount);
+            Span<long> greenData = green.Data.AsSpan(0, elementCount);
+            Span<long> blueData = blue.Data.AsSpan(0, elementCount);
+            for (int i = 0; i < redData.Length; i++)
             {
-                long redValue = red.Data[i];
-                long greenValue = green.Data[i];
-                long blueValue = blue.Data[i];
-                red.Data[i] = FloorDividePowerOfTwo(redValue + blueValue + 2 * greenValue, 2);
-                green.Data[i] = blueValue - greenValue;
-                blue.Data[i] = redValue - greenValue;
+                long redValue = redData[i];
+                long greenValue = greenData[i];
+                long blueValue = blueData[i];
+                redData[i] = (redValue + blueValue + 2 * greenValue) >> 2;
+                greenData[i] = blueValue - greenValue;
+                blueData[i] = redValue - greenValue;
             }
         }
 
@@ -376,6 +396,7 @@ namespace TinyEXR.V3.Codecs
                     Htj2kEncodeStatus.Corrupt,
                     "The HTJ2K forward wavelet workspace is too small.");
 
+                int rowLength = checked((int)currentWidth);
                 for (uint high = 0; high < highHeight; high++)
                 {
                     int firstEvenOffset = checked((int)(2 * high * width));
@@ -383,12 +404,17 @@ namespace TinyEXR.V3.Codecs
                         2 * (high + 1 < lowHeight ? high + 1 : high) * width));
                     int oddOffset = checked((int)((2 * high + 1) * width));
                     int outputOffset = checked((int)((lowHeight + high) * currentWidth));
-                    for (uint column = 0; column < currentWidth; column++)
+
+                    // Slicing each participating row to its exact length lets the bounds checks be
+                    // hoisted out of the column loop instead of being repeated for all four accesses.
+                    Span<long> output = temporary.AsSpan(outputOffset, rowLength);
+                    ReadOnlySpan<long> odd = data.AsSpan(oddOffset, rowLength);
+                    ReadOnlySpan<long> firstEven = data.AsSpan(firstEvenOffset, rowLength);
+                    ReadOnlySpan<long> secondEven = data.AsSpan(secondEvenOffset, rowLength);
+                    for (int column = 0; column < output.Length; column++)
                     {
-                        temporary[outputOffset + column] = data[oddOffset + column] -
-                            FloorDividePowerOfTwo(
-                                data[firstEvenOffset + column] + data[secondEvenOffset + column],
-                                1);
+                        output[column] = odd[column] -
+                            ((firstEven[column] + secondEven[column]) >> 1);
                     }
                 }
 
@@ -406,12 +432,14 @@ namespace TinyEXR.V3.Codecs
                     uint rightHigh = low < highHeight ? low : highHeight - 1;
                     int leftOffset = checked((int)((lowHeight + leftHigh) * currentWidth));
                     int rightOffset = checked((int)((lowHeight + rightHigh) * currentWidth));
-                    for (uint column = 0; column < currentWidth; column++)
+                    ReadOnlySpan<long> even = data.AsSpan(evenOffset, rowLength);
+                    ReadOnlySpan<long> left = temporary.AsSpan(leftOffset, rowLength);
+                    ReadOnlySpan<long> right = temporary.AsSpan(rightOffset, rowLength);
+                    Span<long> output = temporary.AsSpan(outputOffset, rowLength);
+                    for (int column = 0; column < output.Length; column++)
                     {
-                        temporary[outputOffset + column] = data[evenOffset + column] +
-                            FloorDividePowerOfTwo(
-                                temporary[leftOffset + column] + temporary[rightOffset + column] + 2,
-                                2);
+                        output[column] = even[column] +
+                            ((left[column] + right[column] + 2) >> 2);
                     }
                 }
 
@@ -1184,10 +1212,6 @@ namespace TinyEXR.V3.Codecs
             private readonly byte[] _vlcBuffer = new byte[3072 - 192];
             private readonly byte[] _exponentLine = new byte[513];
             private readonly byte[] _contextLine = new byte[513];
-            private readonly int[] _exponentMax = new int[2];
-            private readonly int[] _exponents = new int[8];
-            private readonly int[] _significance = new int[2];
-            private readonly ulong[] _samples = new ulong[8];
 
             public HtBlockEncoder(EncoderTables tables)
             {
@@ -1211,8 +1235,18 @@ namespace TinyEXR.V3.Codecs
                     "An HTJ2K codeblock has invalid precision.");
 
                 bool use32BitPacking = kmax <= 30;
-                uint shift = (use32BitPacking ? 31u : 63u) - kmax;
-                uint precision = shift;
+                int shift = checked((int)((use32BitPacking ? 31u : 63u) - kmax));
+                int precision = shift;
+                QuadContext quadContext = new QuadContext(
+                    plane.Data,
+                    checked((int)plane.Width),
+                    blockX,
+                    blockY,
+                    width,
+                    height,
+                    shift,
+                    precision,
+                    use32BitPacking);
                 ulong maximumValue = 0;
                 MagSignWriter magnitude = new MagSignWriter(_magnitudeBuffer);
                 MelWriter mel = new MelWriter(_melBuffer);
@@ -1225,27 +1259,23 @@ namespace TinyEXR.V3.Codecs
                 int contextPosition = 0;
                 int firstContext = 0;
 
-                int[] exponentMax = _exponentMax;
-                int[] exponents = _exponents;
-                int[] significance = _significance;
-                ulong[] samples = _samples;
+                // These four scratch spans are reset for every quad pair. Stack slices keep the reset
+                // as an inlined store instead of four Array.Clear calls into heap arrays, which a
+                // 128x32 codeblock would otherwise make about two thousand times.
+                Span<int> exponentMax = stackalloc int[2];
+                Span<int> exponents = stackalloc int[8];
+                Span<int> significance = stackalloc int[2];
+                Span<ulong> samples = stackalloc ulong[8];
                 for (uint x = 0; x < width; x += 4)
                 {
-                    Array.Clear(exponentMax, 0, exponentMax.Length);
-                    Array.Clear(exponents, 0, exponents.Length);
-                    Array.Clear(significance, 0, significance.Length);
-                    Array.Clear(samples, 0, samples.Length);
+                    exponentMax.Clear();
+                    exponents.Clear();
+                    significance.Clear();
+                    samples.Clear();
                     PrepareQuad(
-                        plane,
-                        blockX,
-                        blockY,
+                        quadContext,
                         x,
                         0,
-                        width,
-                        height,
-                        shift,
-                        precision,
-                        use32BitPacking,
                         exponents,
                         0,
                         samples,
@@ -1283,16 +1313,9 @@ namespace TinyEXR.V3.Codecs
                     if (x + 2 < width)
                     {
                         PrepareQuad(
-                            plane,
-                            blockX,
-                            blockY,
+                            quadContext,
                             x + 2,
                             0,
-                            width,
-                            height,
-                            shift,
-                            precision,
-                            use32BitPacking,
                             exponents,
                             4,
                             samples,
@@ -1351,21 +1374,14 @@ namespace TinyEXR.V3.Codecs
 
                     for (uint x = 0; x < width; x += 4)
                     {
-                        Array.Clear(exponentMax, 0, exponentMax.Length);
-                        Array.Clear(exponents, 0, exponents.Length);
-                        Array.Clear(significance, 0, significance.Length);
-                        Array.Clear(samples, 0, samples.Length);
+                        exponentMax.Clear();
+                        exponents.Clear();
+                        significance.Clear();
+                        samples.Clear();
                         PrepareQuad(
-                            plane,
-                            blockX,
-                            blockY,
+                            quadContext,
                             x,
                             y,
-                            width,
-                            height,
-                            shift,
-                            precision,
-                            use32BitPacking,
                             exponents,
                             0,
                             samples,
@@ -1410,16 +1426,9 @@ namespace TinyEXR.V3.Codecs
                         if (x + 2 < width)
                         {
                             PrepareQuad(
-                                plane,
-                                blockX,
-                                blockY,
+                                quadContext,
                                 x + 2,
                                 y,
-                                width,
-                                height,
-                                shift,
-                                precision,
-                                use32BitPacking,
                                 exponents,
                                 4,
                                 samples,
@@ -1534,164 +1543,237 @@ namespace TinyEXR.V3.Codecs
                 return tuple;
             }
 
+            /// <summary>
+            /// The per-codeblock values that every quad and sample packing step shares.
+            /// </summary>
+            /// <remarks>
+            /// Grouping these into one readonly struct keeps the quad and sample signatures short
+            /// enough to stay register-based. Passed by <c>in</c> so no copy is made per call.
+            /// </remarks>
+            private readonly ref struct QuadContext
+            {
+                public QuadContext(
+                    ReadOnlySpan<long> planeData,
+                    int planeWidth,
+                    uint blockX,
+                    uint blockY,
+                    uint width,
+                    uint height,
+                    int shift,
+                    int precision,
+                    bool use32BitPacking)
+                {
+                    PlaneData = planeData;
+                    PlaneWidth = planeWidth;
+                    BlockX = blockX;
+                    BlockY = blockY;
+                    Width = width;
+                    Height = height;
+                    Shift = shift;
+                    Precision = precision;
+                    Use32BitPacking = use32BitPacking;
+                }
+
+                public ReadOnlySpan<long> PlaneData { get; }
+
+                public int PlaneWidth { get; }
+
+                public uint BlockX { get; }
+
+                public uint BlockY { get; }
+
+                public uint Width { get; }
+
+                public uint Height { get; }
+
+                public int Shift { get; }
+
+                public int Precision { get; }
+
+                public bool Use32BitPacking { get; }
+            }
+
+            /// <summary>
+            /// The packed form of one coefficient.
+            /// </summary>
+            private readonly struct PreparedSample
+            {
+                public PreparedSample(int exponent, ulong sample, ulong magnitude, bool isSignificant)
+                {
+                    Exponent = exponent;
+                    Sample = sample;
+                    Magnitude = magnitude;
+                    IsSignificant = isSignificant;
+                }
+
+                public int Exponent { get; }
+
+                public ulong Sample { get; }
+
+                public ulong Magnitude { get; }
+
+                public bool IsSignificant { get; }
+            }
+
+            /// <summary>
+            /// Packs the up to four coefficients of one HT quad.
+            /// </summary>
+            /// <remarks>
+            /// The quad's top-left index is resolved once here rather than recomputing a full
+            /// <c>(blockY + y) * width + blockX + x</c> product per coefficient. The four accumulators
+            /// are kept in locals and written back once, so the per-sample step no longer reads and
+            /// writes them through <c>ref</c> into stack memory on every call.
+            /// </remarks>
             private static void PrepareQuad(
-                Plane plane,
-                uint blockX,
-                uint blockY,
+                in QuadContext context,
                 uint x,
                 uint y,
-                uint width,
-                uint height,
-                uint shift,
-                uint precision,
-                bool use32BitPacking,
-                int[] exponents,
+                Span<int> exponents,
                 int exponentOffset,
-                ulong[] samples,
+                Span<ulong> samples,
                 int sampleOffset,
                 ref int significance,
                 ref int maximumExponent,
                 ref ulong maximumValue)
             {
-                PrepareSample(
-                    plane,
-                    blockX,
-                    blockY,
-                    x,
-                    y,
-                    shift,
-                    precision,
-                    use32BitPacking,
-                    ref significance,
-                    ref maximumExponent,
-                    ref exponents[exponentOffset],
-                    ref samples[sampleOffset],
+                int planeWidth = context.PlaneWidth;
+                int index = checked((int)((context.BlockY + y) * (uint)planeWidth + context.BlockX + x));
+                bool hasLowerRow = y + 1 < context.Height;
+                bool hasRightColumn = x + 1 < context.Width;
+
+                int localSignificance = significance;
+                int localMaximumExponent = maximumExponent;
+                ulong localMaximumValue = maximumValue;
+
+                PreparedSample sample = PrepareSample(context, context.PlaneData[index]);
+                Accumulate(
+                    sample,
                     1,
-                    ref maximumValue);
-                if (y + 1 < height)
+                    ref localSignificance,
+                    ref localMaximumExponent,
+                    ref localMaximumValue);
+                exponents[exponentOffset] = sample.Exponent;
+                samples[sampleOffset] = sample.Sample;
+
+                if (hasLowerRow)
                 {
-                    PrepareSample(
-                        plane,
-                        blockX,
-                        blockY,
-                        x,
-                        y + 1,
-                        shift,
-                        precision,
-                        use32BitPacking,
-                        ref significance,
-                        ref maximumExponent,
-                        ref exponents[exponentOffset + 1],
-                        ref samples[sampleOffset + 1],
+                    sample = PrepareSample(context, context.PlaneData[index + planeWidth]);
+                    Accumulate(
+                        sample,
                         2,
-                        ref maximumValue);
+                        ref localSignificance,
+                        ref localMaximumExponent,
+                        ref localMaximumValue);
+                    exponents[exponentOffset + 1] = sample.Exponent;
+                    samples[sampleOffset + 1] = sample.Sample;
                 }
 
-                if (x + 1 >= width)
+                if (hasRightColumn)
                 {
-                    return;
+                    sample = PrepareSample(context, context.PlaneData[index + 1]);
+                    Accumulate(
+                        sample,
+                        4,
+                        ref localSignificance,
+                        ref localMaximumExponent,
+                        ref localMaximumValue);
+                    exponents[exponentOffset + 2] = sample.Exponent;
+                    samples[sampleOffset + 2] = sample.Sample;
+
+                    if (hasLowerRow)
+                    {
+                        sample = PrepareSample(context, context.PlaneData[index + planeWidth + 1]);
+                        Accumulate(
+                            sample,
+                            8,
+                            ref localSignificance,
+                            ref localMaximumExponent,
+                            ref localMaximumValue);
+                        exponents[exponentOffset + 3] = sample.Exponent;
+                        samples[sampleOffset + 3] = sample.Sample;
+                    }
                 }
 
-                PrepareSample(
-                    plane,
-                    blockX,
-                    blockY,
-                    x + 1,
-                    y,
-                    shift,
-                    precision,
-                    use32BitPacking,
-                    ref significance,
-                    ref maximumExponent,
-                    ref exponents[exponentOffset + 2],
-                    ref samples[sampleOffset + 2],
-                    4,
-                    ref maximumValue);
-                if (y + 1 < height)
-                {
-                    PrepareSample(
-                        plane,
-                        blockX,
-                        blockY,
-                        x + 1,
-                        y + 1,
-                        shift,
-                        precision,
-                        use32BitPacking,
-                        ref significance,
-                        ref maximumExponent,
-                        ref exponents[exponentOffset + 3],
-                        ref samples[sampleOffset + 3],
-                        8,
-                        ref maximumValue);
-                }
+                significance = localSignificance;
+                maximumExponent = localMaximumExponent;
+                maximumValue = localMaximumValue;
             }
 
-            private static void PrepareSample(
-                Plane plane,
-                uint blockX,
-                uint blockY,
-                uint x,
-                uint y,
-                uint shift,
-                uint precision,
-                bool use32BitPacking,
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            private static void Accumulate(
+                PreparedSample sample,
+                int significanceBit,
                 ref int significance,
                 ref int maximumExponent,
-                ref int exponent,
-                ref ulong sample,
-                int significanceBit,
                 ref ulong maximumValue)
             {
-                long signedValue = plane.Data[checked((int)(
-                    (blockY + y) * plane.Width + blockX + x))];
-                ulong magnitude = AbsoluteAsUInt64(signedValue);
-                maximumValue = Math.Max(maximumValue, magnitude);
-                if (use32BitPacking)
+                if (sample.Magnitude > maximumValue)
                 {
-                    uint packed = (signedValue < 0 ? 0x80000000u : 0u) |
-                        unchecked((uint)magnitude << checked((int)shift));
-                    uint value = unchecked(packed + packed);
-                    value >>= checked((int)precision);
-                    value &= ~1u;
-                    if (value == 0)
-                    {
-                        exponent = 0;
-                        sample = 0;
-                        return;
-                    }
-
-                    significance |= significanceBit;
-                    value--;
-                    exponent = checked((int)EncodingBitLength(value));
-                    maximumExponent = Math.Max(maximumExponent, exponent);
-                    value--;
-                    sample = unchecked(value + (packed >> 31));
-                    return;
+                    maximumValue = sample.Magnitude;
                 }
 
-                ulong packed64 = (signedValue < 0 ? 0x8000000000000000UL : 0UL) |
-                    unchecked(magnitude << checked((int)shift));
-                ulong value64 = unchecked(packed64 + packed64);
-                value64 >>= checked((int)precision);
-                value64 &= ~1UL;
-                if (value64 == 0)
+                if (!sample.IsSignificant)
                 {
-                    exponent = 0;
-                    sample = 0;
                     return;
                 }
 
                 significance |= significanceBit;
+                if (sample.Exponent > maximumExponent)
+                {
+                    maximumExponent = sample.Exponent;
+                }
+            }
+
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            private static PreparedSample PrepareSample(in QuadContext context, long signedValue)
+            {
+                int shift = context.Shift;
+                int precision = context.Precision;
+                ulong magnitude = AbsoluteAsUInt64(signedValue);
+                if (context.Use32BitPacking)
+                {
+                    uint packed = (signedValue < 0 ? 0x80000000u : 0u) |
+                        unchecked((uint)magnitude << shift);
+                    uint value = unchecked(packed + packed);
+                    value >>= precision;
+                    value &= ~1u;
+                    if (value == 0)
+                    {
+                        return new PreparedSample(0, 0, magnitude, isSignificant: false);
+                    }
+
+                    value--;
+                    int packedExponent = checked((int)EncodingBitLength(value));
+                    value--;
+                    return new PreparedSample(
+                        packedExponent,
+                        unchecked(value + (packed >> 31)),
+                        magnitude,
+                        isSignificant: true);
+                }
+
+                ulong packed64 = (signedValue < 0 ? 0x8000000000000000UL : 0UL) |
+                    unchecked(magnitude << shift);
+                ulong value64 = unchecked(packed64 + packed64);
+                value64 >>= precision;
+                value64 &= ~1UL;
+                if (value64 == 0)
+                {
+                    return new PreparedSample(0, 0, magnitude, isSignificant: false);
+                }
+
                 value64--;
-                exponent = checked((int)EncodingBitLength(value64));
-                maximumExponent = Math.Max(maximumExponent, exponent);
+                int exponent64 = checked((int)EncodingBitLength(value64));
                 value64--;
-                sample = unchecked(value64 + (packed64 >> 63));
+                return new PreparedSample(
+                    exponent64,
+                    unchecked(value64 + (packed64 >> 63)),
+                    magnitude,
+                    isSignificant: true);
             }
 
             private static int BuildEmbedding(
-                int[] exponents,
+                ReadOnlySpan<int> exponents,
                 int offset,
                 int maximumExponent,
                 int uOffset)
@@ -1757,7 +1839,7 @@ namespace TinyEXR.V3.Codecs
 
             private static void EncodeMagnitudeQuad(
                 MagSignWriter writer,
-                ulong[] samples,
+                ReadOnlySpan<ulong> samples,
                 int offset,
                 int significance,
                 int u,
@@ -1870,12 +1952,30 @@ namespace TinyEXR.V3.Codecs
 
             public int Position { get; private set; }
 
+            /// <summary>
+            /// Appends the low <paramref name="length"/> bits of <paramref name="codeword"/>.
+            /// </summary>
+            /// <remarks>
+            /// Bits are transferred in runs that fill the pending byte rather than one at a time.
+            /// The run width has to be recomputed after every flush because bit stuffing shrinks the
+            /// next byte to seven bits whenever the byte just emitted was 0xff.
+            /// </remarks>
             public void Encode(ulong codeword, int length)
             {
-                for (int bit = 0; bit < length; bit++)
+                int bit = 0;
+                while (bit < length)
                 {
-                    _current |= checked((int)((codeword >> bit) & 1)) << _usedBits;
-                    _usedBits++;
+                    int available = _maximumBits - _usedBits;
+                    int take = length - bit;
+                    if (take > available)
+                    {
+                        take = available;
+                    }
+
+                    int chunk = unchecked((int)((codeword >> bit) & ((1UL << take) - 1)));
+                    _current |= chunk << _usedBits;
+                    _usedBits += take;
+                    bit += take;
                     if (_usedBits == _maximumBits)
                     {
                         Flush();
@@ -2220,28 +2320,22 @@ namespace TinyEXR.V3.Codecs
             public uint Length1 { get; }
         }
 
+        /// <summary>
+        /// Returns the number of significant bits in <paramref name="value"/>, or zero when it is zero.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static uint EncodingBitLength(uint value)
         {
-            uint result = 0;
-            while (value != 0)
-            {
-                value >>= 1;
-                result++;
-            }
-
-            return result;
+            return 32u - CountLeadingZeros(value);
         }
 
+        /// <summary>
+        /// Returns the number of significant bits in <paramref name="value"/>, or zero when it is zero.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static uint EncodingBitLength(ulong value)
         {
-            uint result = 0;
-            while (value != 0)
-            {
-                value >>= 1;
-                result++;
-            }
-
-            return result;
+            return 64u - CountLeadingZeros(value);
         }
 
         private static ulong AbsoluteAsUInt64(long value)

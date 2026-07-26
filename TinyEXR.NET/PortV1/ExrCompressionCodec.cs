@@ -1713,13 +1713,11 @@ namespace TinyEXR.PortV1
                     }
 
                     int rowWords = channelData[channelIndex].Nx * layouts[channelIndex].WordSize;
-                    for (int i = 0; i < rowWords; i++)
-                    {
-                        BinaryPrimitives.WriteUInt16LittleEndian(
-                            raw.AsSpan(rawOffset + i * sizeof(ushort), sizeof(ushort)),
-                            tmpBuffer[channelData[channelIndex].Start + channelPositions[channelIndex]++]);
-                    }
-
+                    StorePizRow(
+                        tmpBuffer.AsSpan(channelData[channelIndex].Start + channelPositions[channelIndex], rowWords),
+                        raw.AsSpan(rawOffset, rowWords * sizeof(ushort)));
+                    channelPositions[channelIndex] += rowWords;
+                
                     rawOffset += rowWords * sizeof(ushort);
                 }
             }
@@ -1851,13 +1849,11 @@ namespace TinyEXR.PortV1
                     }
 
                     int rowWords = channelData[channelIndex].Nx * layouts[channelIndex].WordSize;
-                    for (int i = 0; i < rowWords; i++)
-                    {
-                        BinaryPrimitives.WriteUInt16LittleEndian(
-                            raw.AsSpan(rawOffset + i * sizeof(ushort), sizeof(ushort)),
-                            tmpBuffer[channelData[channelIndex].Start + channelPositions[channelIndex]++]);
-                    }
-
+                    StorePizRow(
+                        tmpBuffer.AsSpan(channelData[channelIndex].Start + channelPositions[channelIndex], rowWords),
+                        raw.AsSpan(rawOffset, rowWords * sizeof(ushort)));
+                    channelPositions[channelIndex] += rowWords;
+                
                     rawOffset += rowWords * sizeof(ushort);
                 }
             }
@@ -2573,6 +2569,30 @@ namespace TinyEXR.PortV1
             for (int i = 0; i < data.Length; i++)
             {
                 data[i] = lut[data[i]];
+            }
+        }
+
+        /// <summary>
+        /// Writes one decoded PIZ channel row back into the canonical little-endian block bytes.
+        /// </summary>
+        /// <remarks>
+        /// This is the inverse of the row load in <see cref="TryCompressPiz"/>. On a little-endian
+        /// host the managed word layout already matches the EXR byte order, so the row is block
+        /// copied rather than written one word at a time.
+        /// </remarks>
+        private static void StorePizRow(ReadOnlySpan<ushort> source, Span<byte> destination)
+        {
+            if (BitConverter.IsLittleEndian)
+            {
+                source.CopyTo(MemoryMarshal.Cast<byte, ushort>(destination));
+                return;
+            }
+
+            for (int i = 0; i < source.Length; i++)
+            {
+                BinaryPrimitives.WriteUInt16LittleEndian(
+                    destination.Slice(i * sizeof(ushort), sizeof(ushort)),
+                    source[i]);
             }
         }
 
@@ -3531,10 +3551,7 @@ namespace TinyEXR.PortV1
             ushort value = (ordered & 0x8000) != 0
                 ? (ushort)(ordered & 0x7fff)
                 : unchecked((ushort)~ordered);
-            for (int i = 0; i < block.Length; i++)
-            {
-                block[i] = value;
-            }
+            block.Fill(value);
         }
     }
 }

@@ -1,4 +1,6 @@
 using System;
+using System.Numerics;
+using System.Runtime.CompilerServices;
 
 namespace TinyEXR.V3.Codecs
 {
@@ -726,19 +728,68 @@ namespace TinyEXR.V3.Codecs
             return ((value + (value >> 4) & 0x0f0f0f0f) * 0x01010101) >> 24;
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static uint LeadingZeroCount(ulong value)
         {
             Require(value != 0, "An HT magnitude neighborhood is empty.");
-            uint count = 0;
-            ulong mask = 1UL << 63;
-            while ((value & mask) == 0)
+            return CountLeadingZeros(value);
+        }
+
+        /// <summary>
+        /// Counts the leading zero bits of a 64-bit value, returning 64 for zero.
+        /// </summary>
+        /// <remarks>
+        /// On <c>net8.0</c> this maps to a hardware bit-scan. The <c>netstandard2.1</c>
+        /// reference assemblies keep <see cref="System.Numerics.BitOperations"/> internal, so that
+        /// target folds the value down to its highest set bit and uses a de Bruijn lookup instead
+        /// of the former bit-at-a-time loop.
+        /// </remarks>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static uint CountLeadingZeros(ulong value)
+        {
+#if NET8_0_OR_GREATER
+            return (uint)BitOperations.LeadingZeroCount(value);
+#else
+            if (value == 0)
             {
-                count++;
-                mask >>= 1;
+                return 64;
             }
 
-            return count;
+            uint high = (uint)(value >> 32);
+            return high != 0 ? CountLeadingZeros(high) : 32u + CountLeadingZeros((uint)value);
+#endif
         }
+
+        /// <summary>
+        /// Counts the leading zero bits of a 32-bit value, returning 32 for zero.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static uint CountLeadingZeros(uint value)
+        {
+#if NET8_0_OR_GREATER
+            return (uint)BitOperations.LeadingZeroCount(value);
+#else
+            if (value == 0)
+            {
+                return 32;
+            }
+
+            value |= value >> 1;
+            value |= value >> 2;
+            value |= value >> 4;
+            value |= value >> 8;
+            value |= value >> 16;
+            return 31u - DeBruijnLog2[(value * 0x07C4ACDDu) >> 27];
+#endif
+        }
+
+#if !NET8_0_OR_GREATER
+        private static readonly byte[] DeBruijnLog2 =
+        {
+            0, 9, 1, 10, 13, 21, 2, 29, 11, 14, 16, 18, 22, 25, 3, 30,
+            8, 12, 20, 28, 15, 17, 24, 7, 19, 27, 23, 6, 26, 5, 4, 31,
+        };
+#endif
 
         private static uint Mask32(int bitCount)
         {
