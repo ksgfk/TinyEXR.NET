@@ -8,9 +8,8 @@ This directory contains three v3 compression benchmark entry points:
 - `baseline/openexr_compression_benchmark`: OpenEXR 3.4.13 with the same image
   and timing boundary.
 
-The former v1 `baseline/src/main.cpp` benchmark has been removed. Generated
-fixtures, dependencies, binaries, and reports remain under `.cache`, `bin`,
-`obj`, `artifacts`, or `BenchmarkDotNet.Artifacts` and are not committed.
+Generated fixtures, dependencies, binaries, and reports live under `.cache`,
+`bin`, `obj`, `artifacts`, or `BenchmarkDotNet.Artifacts` and are not committed.
 
 ## Run
 
@@ -93,7 +92,7 @@ Encode sizes always describe each implementation's own file.
 | DWAA, DWAB | - | - | Encode/decode |
 | HTJ2K256, HTJ2K32 | Encode/decode | Encode/decode | Encode/decode |
 
-## Default Results (2026-07-21)
+## Default Results (2026-07-26)
 
 These are same-machine results, not cross-machine performance claims:
 
@@ -101,7 +100,7 @@ These are same-machine results, not cross-machine performance claims:
 - OS: Windows 11 25H2, build 10.0.26200.8875, x64.
 - Managed: .NET SDK 10.0.302, .NET 10.0.10, BenchmarkDotNet 0.15.8,
   concurrent workstation GC, `DefaultJob`. Workload warmup ranged from 6 to
-  16 iterations and retained measurement samples ranged from 12 to 100.
+  12 iterations and every case retained 15 measurement samples.
 - Native: clang-cl 22.1.3, `/O2 /Ob3 -march=native`, loop/SLP vectorization,
   IPO, Google Benchmark 1.9.5, five repetitions with a 0.5-second minimum.
 - Libraries: TinyEXR `v3.2.0-38-g1b10661`, vendored libdeflate level 4, and
@@ -114,18 +113,18 @@ is binary MiB per operation. Lower time and higher throughput are better.
 
 | Compression | TinyEXR.NET v3 ms / MiB/s | Managed alloc MiB | TinyEXR v3 C ms / MiB/s | OpenEXR ms / MiB/s |
 | --- | ---: | ---: | ---: | ---: |
-| None | 11.20 / 1412.66 | 96.99 | 6.44 / 2456.99 | 6.83 / 2315.25 |
-| RLE | 19.33 / 818.30 | 78.79 | 16.78 / 942.54 | 16.38 / 966.12 |
-| ZIPS | 16.75 / 944.55 | 34.94 | 24.36 / 649.47 | 35.36 / 447.46 |
-| ZIP | 11.11 / 1424.55 | 32.94 | 19.02 / 831.69 | 21.88 / 723.18 |
-| PIZ | 53.49 / 295.78 | 97.55 | 47.76 / 331.22 | 41.43 / 381.91 |
-| PXR24 | 14.25 / 1110.20 | 32.87 | 16.42 / 969.15 | 18.37 / 861.13 |
-| B44 | 40.05 / 394.98 | 96.54 | 16.57 / 954.50 | 16.71 / 947.07 |
-| B44A | 33.76 / 468.62 | 69.65 | 16.06 / 985.06 | 15.55 / 1017.21 |
-| DWAA | - | - | - | 60.89 / 259.84 |
-| DWAB | - | - | - | 45.46 / 348.04 |
-| HTJ2K256 | 105.44 / 150.05 | 26.38 | 47.43 / 333.58 | 29.39 / 538.40 |
-| HTJ2K32 | 111.64 / 141.70 | 27.59 | 38.64 / 409.45 | 52.69 / 300.25 |
+| None | 5.89 / 2686.55 | 33.33 | 6.71 / 2356.26 | 6.82 / 2320.76 |
+| RLE | 16.54 / 956.57 | 21.72 | 17.07 / 926.87 | 16.22 / 975.14 |
+| ZIPS | 17.88 / 884.94 | 33.94 | 24.72 / 639.87 | 37.06 / 427.15 |
+| ZIP | 11.08 / 1427.57 | 33.21 | 19.64 / 805.35 | 22.75 / 695.36 |
+| PIZ | 38.99 / 405.80 | 22.25 | 49.72 / 318.21 | 40.49 / 390.75 |
+| PXR24 | 15.91 / 994.41 | 33.18 | 16.17 / 978.74 | 19.63 / 805.77 |
+| B44 | 29.26 / 540.66 | 25.73 | 16.67 / 949.20 | 16.92 / 935.02 |
+| B44A | 31.04 / 509.67 | 22.89 | 18.41 / 865.73 | 15.91 / 994.54 |
+| DWAA | - | - | - | 63.33 / 249.82 |
+| DWAB | - | - | - | 46.94 / 337.05 |
+| HTJ2K256 | 104.28 / 151.71 | 54.09 | 47.77 / 331.16 | 30.35 / 521.28 |
+| HTJ2K32 | 104.95 / 150.74 | 27.76 | 39.31 / 402.41 | 52.44 / 301.72 |
 
 ### Decode
 
@@ -133,18 +132,18 @@ All shared rows use the TinyEXR.NET-produced bytes described in the size table.
 
 | Compression | TinyEXR.NET v3 ms / MiB/s | Managed alloc MiB | TinyEXR v3 C ms / MiB/s | OpenEXR ms / MiB/s |
 | --- | ---: | ---: | ---: | ---: |
-| None | 5.05 / 3134.17 | 48.11 | 4.26 / 3715.88 | 3.15 / 5017.87 |
-| RLE | 9.26 / 1707.62 | 52.74 | 7.92 / 1996.68 | 15.28 / 1035.15 |
-| ZIPS | 9.29 / 1703.09 | 49.00 | 9.41 / 1680.50 | 7.93 / 1994.40 |
-| ZIP | 9.73 / 1626.72 | 47.96 | 6.38 / 2478.50 | 4.55 / 3478.10 |
-| PIZ | 39.66 / 398.89 | 83.24 | 24.27 / 651.76 | 14.92 / 1060.53 |
-| PXR24 | 14.84 / 1065.81 | 48.01 | 7.51 / 2108.11 | 5.16 / 3066.49 |
-| B44 | 21.76 / 726.99 | 55.01 | 10.03 / 1577.12 | 9.07 / 1744.19 |
-| B44A | 16.99 / 931.14 | 52.29 | 8.57 / 1847.08 | 8.25 / 1917.39 |
-| DWAA | - | - | - | 14.63 / 1081.23 |
-| DWAB | - | - | - | 19.21 / 823.73 |
-| HTJ2K256 | 102.34 / 154.58 | 22.01 | 33.71 / 469.29 | 23.61 / 670.10 |
-| HTJ2K32 | 102.51 / 154.33 | 23.49 | 24.55 / 644.46 | 40.03 / 395.25 |
+| None | 3.46 / 4577.67 | 16.28 | 4.44 / 3566.27 | 3.28 / 4828.24 |
+| RLE | 7.37 / 2146.88 | 16.30 | 8.03 / 1969.28 | 14.74 / 1073.55 |
+| ZIPS | 7.54 / 2097.36 | 16.62 | 9.45 / 1674.98 | 7.70 / 2054.39 |
+| ZIP | 5.45 / 2904.55 | 16.69 | 6.43 / 2460.06 | 4.55 / 3473.82 |
+| PIZ | 28.59 / 553.43 | 18.46 | 24.71 / 640.30 | 15.01 / 1053.96 |
+| PXR24 | 12.69 / 1247.01 | 16.69 | 7.60 / 2082.61 | 5.26 / 3009.88 |
+| B44 | 17.23 / 918.24 | 17.62 | 11.44 / 1419.70 | 9.27 / 1706.89 |
+| B44A | 13.89 / 1138.89 | 17.49 | 8.44 / 1875.35 | 8.54 / 1852.64 |
+| DWAA | - | - | - | 15.38 / 1028.57 |
+| DWAB | - | - | - | 19.47 / 812.46 |
+| HTJ2K256 | 82.23 / 192.40 | 47.28 | 33.53 / 471.83 | 24.07 / 657.37 |
+| HTJ2K32 | 81.37 / 194.43 | 26.03 | 24.45 / 647.10 | 39.86 / 396.88 |
 
 ### Encoded Output
 
@@ -167,90 +166,48 @@ Each cell is `encoded MiB / raw-to-encoded ratio`.
 
 ### Findings
 
-- Managed ZIPS and ZIP encode take 69%/58% of TinyEXR v3 C time and
-  47%/51% of OpenEXR time. Managed PXR24 encode is also faster, taking
-  87% of TinyEXR v3 C time and 78% of OpenEXR time.
-- Managed B44/B44A encode takes 2.42x/2.10x the TinyEXR v3 C time and
-  2.40x/2.17x the OpenEXR time. Decode shows a similar roughly 2x gap.
-- Managed HTJ2K256 encode/decode takes 2.22x/3.04x the TinyEXR v3 C time;
-  HTJ2K32 takes 2.89x/4.18x. Relative to OpenEXR, the corresponding gaps are
-  3.59x/4.33x and 2.12x/2.56x.
-- Managed RLE decode is 17% slower than TinyEXR v3 C but takes only 61% of
-  OpenEXR time. Managed and TinyEXR v3 C ZIPS decode are within 2%.
+- Managed encode is the fastest of the three implementations for ZIP, ZIPS,
+  PIZ, and None. ZIP takes 56% of TinyEXR v3 C time and 49% of OpenEXR time;
+  ZIPS takes 72% and 48%; PIZ takes 78% and 96%; None takes 88% and 86%.
+  PXR24 and RLE encode are within a few percent of both native libraries.
+- Managed decode leads on RLE and ZIPS. RLE takes 92% of TinyEXR v3 C time and
+  50% of OpenEXR time; ZIPS takes 80% and 98%. None and ZIP decode beat
+  TinyEXR v3 C but remain behind OpenEXR.
+- B44/B44A are the largest non-HTJ2K gap: encode takes 1.76x/1.69x the
+  TinyEXR v3 C time and 1.73x/1.95x the OpenEXR time, with decode at
+  1.51x/1.65x and 1.86x/1.63x.
+- PXR24 and PIZ decode trail both native libraries. PXR24 decode takes 1.67x
+  the TinyEXR v3 C time and 2.41x the OpenEXR time; PIZ decode takes 1.16x
+  and 1.90x. The remaining PIZ gap traces to the `FastHufDecoder` structure in
+  OpenEXR `internal_huf.c`.
+- HTJ2K is the weakest area. HTJ2K256 encode/decode takes 2.18x/2.45x the
+  TinyEXR v3 C time and 3.44x/3.42x the OpenEXR time; HTJ2K32 takes 2.67x/3.33x
+  and 2.00x/2.04x.
 
-## Managed Codec Optimization (pending three-way re-measurement)
+## Managed Allocation
 
-The three-way tables above predate the managed optimization work in this and the
-preceding two commits. Managed-only timings below come from BenchmarkDotNet
-(`--filter "*V3CompressionBenchmarks*"`) on the development machine, which is not
-the report machine, so they are comparable to each other but not to the
-cross-implementation tables above. The `Default` comparison needs a re-run on the
-report machine before those tables are updated.
+Block decode and encode run through instance-scoped pools and codec workspaces,
+as described in `docs/tinyexr-v3.md`. Non-HTJ2K decode allocates 16.28 to
+18.46 MiB against the 15.82 MiB materialized payload, so allocation is close to
+the result itself. Encode ranges from 21.72 to 33.94 MiB.
 
-| Compression | Encode before / after ms | Decode before / after ms |
-| --- | ---: | ---: |
-| RLE | 15.92 / 16.03 | 7.38 / 7.31 |
-| ZIPS | 17.57 / 17.50 | 7.46 / 7.47 |
-| ZIP | 11.03 / 11.03 | 5.33 / 5.42 |
-| PIZ | 38.49 / 38.96 | 28.78 / 26.04 |
-| PXR24 | 15.95 / 15.78 | 12.68 / 6.26 |
-| B44 | 29.33 / 20.37 | 17.13 / 12.52 |
-| B44A | 30.89 / 23.70 | 14.07 / 9.82 |
-| HTJ2K256 | 93.27 / 90.94 | 75.01 / 72.93 |
-| HTJ2K32 | 87.83 / 88.26 | 70.33 / 73.20 |
-
-Three changes drive the deltas. B44/B44A now move interior 4x4 blocks as four
-whole-row copies in both directions, matching the four-`memcpy` structure in
-OpenEXR `internal_b44.c`; boundary blocks and big-endian hosts keep the
-element-wise path. PXR24 decode works off row slices and, on little-endian
-hosts, writes half data through a cast span instead of per-pixel
-`BinaryPrimitives` calls. PIZ decode replaces a per-word Huffman run-length loop
-with a span fill and packs the hot decode table into one `int` per slot, which
-shrinks it from roughly 384 KiB of padded structs to 64 KiB; the index is data
-dependent, so the table now fits far better in cache.
-
-PIZ decode remains the weakest result. The rest of that gap traces to the
-`FastHufDecoder` structure in OpenEXR `internal_huf.c` rather than to tuning of
-the current decoder. Codecs not touched by these changes moved within run-to-run
-noise.
-
-## Allocation Reduction
-
-The buffer-ownership work described in
-`docs/tinyexr-v3.md` routed block decode and encode through
-instance-scoped pools and codec workspaces, removing the per-block buffers that
-previously dominated managed allocation. Measured with
-`--profile-v3-compression <op> <codec> 30`, allocation per operation changed as
-follows.
-
-| Compression | Encode before / after MiB | Decode before / after MiB |
-| --- | ---: | ---: |
-| None | 97.0 / 33.3 | 48.1 / 16.3 |
-| RLE | 78.8 / 21.7 | 52.7 / 16.3 |
-| ZIPS | 34.9 / 33.9 | 49.0 / 16.6 |
-| ZIP | 32.9 / 33.2 | 48.0 / 16.7 |
-| PIZ | 97.6 / 22.3 | 83.3 / 18.5 |
-| PXR24 | 32.9 / 33.2 | 48.0 / 16.7 |
-| B44 | 96.5 / 25.7 | 55.0 / 17.6 |
-| B44A | 69.7 / 22.9 | 52.3 / 17.5 |
-
-Flat decode now allocates close to the 15.82 MiB materialized payload itself.
-ZIP, ZIPS, and PXR24 encode were already workspace-backed and are unchanged.
 HTJ2K is bounded by its scalar entropy and transform code rather than by
 allocation, and its per-operation pool cannot amortize across separate calls the
-way a process-wide pool would, so its allocation is roughly unchanged.
+way a process-wide pool would. It allocates 54.09/47.28 MiB for HTJ2K256
+encode/decode and 27.76/26.03 MiB for HTJ2K32.
+
+Per-operation allocation can also be measured directly with
+`--profile-v3-compression <op> <codec> 30`.
 
 ## Verification
 
-The report run completed all 68 expected rows without failures. Additional
-verification on the same revision:
+The report run completed all 64 expected comparison rows without failures: 20
+managed, 20 TinyEXR v3 C, and 24 OpenEXR. Additional verification on the same
+revision:
 
-- clang-cl built the complete v3 target and both benchmark executables with no
-  warnings after the final harness cleanup.
-- TinyEXR native smoke: 22/22 encode/decode cases passed.
-- OpenEXR native smoke: 24/24 encode/decode cases passed.
-- Default managed test host: 274/274 passed.
-- `netstandard2.1` fallback host: 274/274 passed.
+- clang-cl built the complete v3 target and both benchmark executables.
+- Default managed test host: 248/248 passed.
+- `netstandard2.1` fallback host: 248/248 passed.
 - Full solution build: 0 warnings, 0 errors.
 
 Direct native clang-cl commands for Visual Studio 2026 are:

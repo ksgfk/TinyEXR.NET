@@ -92,7 +92,7 @@ See `Test/README.md` for the current test layout and execution details.
 
 The current compression benchmark compares TinyEXR.NET v3, the complete
 vendored TinyEXR v3 C library, and OpenEXR 3.4.13 on the same deterministic
-1920x1080 RGBA HALF image. The 2026-07-21 run used BenchmarkDotNet's normal
+1920x1080 RGBA HALF image. The 2026-07-26 run used BenchmarkDotNet's normal
 `DefaultJob` and clang-cl 22.1.3 native builds. Every timed operation includes
 result allocation and complete in-memory encode/decode, while preparation,
 validation, and result release are excluded.
@@ -101,18 +101,22 @@ Representative means are `encode ms / decode ms`:
 
 | Compression | TinyEXR.NET v3 | TinyEXR v3 C | OpenEXR 3.4.13 |
 | --- | ---: | ---: | ---: |
-| ZIPS | 16.75 / 9.29 | 24.36 / 9.41 | 35.36 / 7.93 |
-| ZIP | 11.11 / 9.73 | 19.02 / 6.38 | 21.88 / 4.55 |
-| PIZ | 53.49 / 39.66 | 47.76 / 24.27 | 41.43 / 14.92 |
-| PXR24 | 14.25 / 14.84 | 16.42 / 7.51 | 18.37 / 5.16 |
-| HTJ2K256 | 105.44 / 102.34 | 47.43 / 33.71 | 29.39 / 23.61 |
-| HTJ2K32 | 111.64 / 102.51 | 38.64 / 24.55 | 52.69 / 40.03 |
+| None | 5.89 / 3.46 | 6.71 / 4.44 | 6.82 / 3.28 |
+| RLE | 16.54 / 7.37 | 17.07 / 8.03 | 16.22 / 14.74 |
+| ZIPS | 17.88 / 7.54 | 24.72 / 9.45 | 37.06 / 7.70 |
+| ZIP | 11.08 / 5.45 | 19.64 / 6.43 | 22.75 / 4.55 |
+| PIZ | 38.99 / 28.59 | 49.72 / 24.71 | 40.49 / 15.01 |
+| PXR24 | 15.91 / 12.69 | 16.17 / 7.60 | 19.63 / 5.26 |
+| HTJ2K256 | 104.28 / 82.23 | 47.77 / 33.53 | 30.35 / 24.07 |
+| HTJ2K32 | 104.95 / 81.37 | 39.31 / 24.45 | 52.44 / 39.86 |
 
-Managed ZIPS, ZIP, and PXR24 encode outperform TinyEXR v3 C in this
-workload; native implementations remain substantially faster for B44 and
-HTJ2K decode. See [`Benchmark/README.md`](Benchmark/README.md) for the complete
-timing, throughput, allocation, encoded-size, build, fairness, and MSVC
-compatibility report.
+Managed encode is the fastest of the three implementations for `NONE`, `ZIP`,
+`ZIPS`, and `PIZ`, with `RLE` and `PXR24` close to both native libraries.
+Managed decode leads on `RLE` and `ZIPS`. The native libraries remain
+substantially faster for `B44`/`B44A` and for HTJ2K in both directions.
+See [`Benchmark/README.md`](Benchmark/README.md) for the complete timing,
+throughput, allocation, encoded-size, build, fairness, and MSVC compatibility
+report.
 
 ## Versioning
 
