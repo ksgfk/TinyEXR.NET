@@ -6,7 +6,75 @@ namespace TinyEXR.V3.Codecs
 {
     internal static partial class Htj2kDecoder
     {
-        private static Plane[] AllocatePlanes(Profile profile)
+        /// <summary>
+        /// A private array pool for one HTJ2K encode or decode operation.
+        /// </summary>
+        /// <remarks>
+        /// TinyEXR.NET never uses <see cref="ArrayPool{T}.Shared"/>. Each HTJ2K operation creates its own pool with
+        /// <see cref="ArrayPool{T}.Create()"/> and drops it when the operation ends, so the codec neither retains
+        /// buffers in process-wide state nor competes with host application code for shared pool buckets.
+        /// </remarks>
+        internal sealed class Htj2kBufferPool : IDisposable
+        {
+            // ArrayPool<T>.Create() defaults to a 1 MiB maximum array length, which is far below a single HTJ2K
+            // coefficient plane, so oversized rentals would bypass the pool entirely. These limits cover a full
+            // 256-row block of a large image.
+            private const int MaximumInt64Length = 1 << 26;
+            private const int MaximumByteLength = 1 << 28;
+
+            // One block holds every component plane plus the transform scratch buffer live at the same time, and
+            // they commonly land in the same size class. Retaining too few per bucket would drop a buffer on every
+            // block and defeat the pool, so allow comfortably more than the largest supported channel count.
+            private const int MaximumArraysPerBucket = 24;
+
+            private ArrayPool<long>? _int64Pool =
+                ArrayPool<long>.Create(MaximumInt64Length, MaximumArraysPerBucket);
+            private ArrayPool<byte>? _bytePool =
+                ArrayPool<byte>.Create(MaximumByteLength, MaximumArraysPerBucket);
+
+            public long[] RentInt64(int minimumLength)
+            {
+                ArrayPool<long> pool = _int64Pool ??
+                    throw new ObjectDisposedException(nameof(Htj2kBufferPool));
+                return minimumLength == 0 ? Array.Empty<long>() : pool.Rent(minimumLength);
+            }
+
+            public void ReturnInt64(long[]? array)
+            {
+                if (array == null || array.Length == 0)
+                {
+                    return;
+                }
+
+                _int64Pool?.Return(array);
+            }
+
+            public byte[] RentBytes(int minimumLength)
+            {
+                ArrayPool<byte> pool = _bytePool ??
+                    throw new ObjectDisposedException(nameof(Htj2kBufferPool));
+                return minimumLength == 0 ? Array.Empty<byte>() : pool.Rent(minimumLength);
+            }
+
+            public void ReturnBytes(byte[]? array)
+            {
+                if (array == null || array.Length == 0)
+                {
+                    return;
+                }
+
+                _bytePool?.Return(array);
+            }
+
+            public void Dispose()
+            {
+                // Drop both pools so every retained array becomes collectable immediately.
+                _int64Pool = null;
+                _bytePool = null;
+            }
+        }
+
+        private static Plane[] AllocatePlanes(Profile profile, Htj2kBufferPool pool)
         {
             Plane[] planes = new Plane[profile.ComponentCount];
             try
@@ -19,7 +87,7 @@ namespace TinyEXR.V3.Codecs
                     long elementCount = checked((long)size.Width * size.Height);
                     Require(elementCount <= int.MaxValue, "A JPEG 2000 component exceeds managed storage.");
                     int count = (int)elementCount;
-                    long[] data = ArrayPool<long>.Shared.Rent(count);
+                    long[] data = pool.RentInt64(count);
                     Array.Clear(data, 0, count);
                     planes[component] = new Plane(size.Width, size.Height, data);
                 }
@@ -28,19 +96,19 @@ namespace TinyEXR.V3.Codecs
             }
             catch
             {
-                ReturnPlanes(planes);
+                ReturnPlanes(planes, pool);
                 throw;
             }
         }
 
-        private static void ReturnPlanes(Plane[] planes)
+        private static void ReturnPlanes(Plane[] planes, Htj2kBufferPool pool)
         {
             for (int component = 0; component < planes.Length; component++)
             {
                 Plane? plane = planes[component];
                 if (plane != null)
                 {
-                    ArrayPool<long>.Shared.Return(plane.Data);
+                    pool.ReturnInt64(plane.Data);
                 }
             }
         }
@@ -95,7 +163,7 @@ namespace TinyEXR.V3.Codecs
             }
         }
 
-        private static void PostprocessPlanes(Profile profile, Plane[] planes)
+        private static void PostprocessPlanes(Profile profile, Plane[] planes, Htj2kBufferPool pool)
         {
             int temporaryLength = 0;
             foreach (Plane plane in planes)
@@ -103,7 +171,7 @@ namespace TinyEXR.V3.Codecs
                 temporaryLength = Math.Max(temporaryLength, plane.ElementCount);
             }
 
-            long[] temporary = ArrayPool<long>.Shared.Rent(temporaryLength);
+            long[] temporary = pool.RentInt64(temporaryLength);
             try
             {
                 foreach (Plane plane in planes)
@@ -118,7 +186,7 @@ namespace TinyEXR.V3.Codecs
             }
             finally
             {
-                ArrayPool<long>.Shared.Return(temporary);
+                pool.ReturnInt64(temporary);
             }
 
             if (profile.MultipleComponentTransform != 0)

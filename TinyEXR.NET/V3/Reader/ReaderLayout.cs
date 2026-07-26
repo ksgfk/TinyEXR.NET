@@ -47,11 +47,28 @@ namespace TinyEXR.V3
             HasNameAttribute = hasNameAttribute;
             HasTypeAttribute = hasTypeAttribute;
             RawAttributes = rawAttributes ?? throw new ArgumentNullException(nameof(rawAttributes));
+
+            // The PortV1 codecs describe channels with their own type. Build the projection once per part
+            // instead of once per block; a 1080p ZIP part decodes 68 blocks from the same channel list.
+            CodecChannels = new List<ExrChannel>(header.Channels.Count);
+            for (int i = 0; i < header.Channels.Count; i++)
+            {
+                Channel channel = header.Channels[i];
+                CodecChannels.Add(new ExrChannel(
+                    channel.Name,
+                    (ExrPixelType)(int)channel.PixelType,
+                    channel.XSampling,
+                    channel.YSampling,
+                    channel.PerceptuallyLinear ? (byte)1 : (byte)0));
+            }
         }
 
         public int PartIndex { get; }
 
         public Header Header { get; }
+
+        /// <summary>The per-part PortV1 channel projection shared by every block decode.</summary>
+        public List<ExrChannel> CodecChannels { get; }
 
         public ulong[] Offsets { get; }
 

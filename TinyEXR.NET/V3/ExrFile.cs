@@ -277,7 +277,9 @@ namespace TinyEXR.V3
             Compression? compression,
             WriterOptions? options)
         {
-            using MemoryStream stream = new MemoryStream();
+            // Size the buffer from the uncompressed payload so the stream never has to grow-and-copy. Compressed
+            // output is smaller than this, and a raw fallback block is exactly the payload size plus headers.
+            using MemoryStream stream = new MemoryStream(EstimateEncodedCapacity(image));
             WriterOptions effectiveOptions = options ?? new WriterOptions();
             WriterResult result = SaveToStreamCore(
                 image,
@@ -288,6 +290,43 @@ namespace TinyEXR.V3
                     leaveOpen: true,
                     forceMultipart: effectiveOptions.ForceMultipart));
             return new WriterResult<byte[]>(result, result.IsSuccess ? stream.ToArray() : null);
+        }
+
+        /// <summary>
+        /// Estimates an in-memory capacity that comfortably holds the encoded file, so a memory save performs a
+        /// single allocation instead of repeated growth copies. Overshooting is harmless; the result is trimmed.
+        /// </summary>
+        private static int EstimateEncodedCapacity(Image image)
+        {
+            const int MinimumCapacity = 8 * 1024;
+            const int MaximumCapacity = 256 * 1024 * 1024;
+
+            long total = MinimumCapacity;
+            try
+            {
+                for (int partIndex = 0; partIndex < image.Parts.Count; partIndex++)
+                {
+                    Part part = image.Parts[partIndex];
+                    for (int levelIndex = 0; levelIndex < part.Levels.Count; levelIndex++)
+                    {
+                        if (part.Levels[levelIndex] is FlatLevel flat)
+                        {
+                            for (int channelIndex = 0; channelIndex < flat.Channels.Count; channelIndex++)
+                            {
+                                total = checked(total + flat.Channels[channelIndex].ByteLength);
+                            }
+                        }
+                    }
+                }
+            }
+            catch (OverflowException)
+            {
+                return MaximumCapacity;
+            }
+
+            // Leave room for chunk headers, the file header, and the offset table.
+            total = checked(total + (total / 64));
+            return total > MaximumCapacity ? MaximumCapacity : (int)total;
         }
 
         private static WriterResult SaveToStreamCore(
@@ -413,10 +452,12 @@ namespace TinyEXR.V3
                 {
                     Part part = image.Parts[partIndex];
                     Header header = headers[partIndex];
+                    // One scratch set per part; every block of the part reuses its channel staging buffers.
+                    BlockStagingBuffers staging = new BlockStagingBuffers(header.Channels.Count);
                     for (int blockIndex = 0; blockIndex < writer.GetNumBlocks(partIndex); blockIndex++)
                     {
                         BlockInfo info = writer.GetBlockInfo(partIndex, blockIndex);
-                        result = WriteBlock(writer, partIndex, part, header, info);
+                        result = WriteBlock(writer, partIndex, part, header, info, staging);
                         if (!result.IsSuccess)
                         {
                             return result;
@@ -451,6 +492,8 @@ namespace TinyEXR.V3
                 {
                     Part part = image.Parts[partIndex];
                     Header header = headers[partIndex];
+                    // One scratch set per part; every block of the part reuses its channel staging buffers.
+                    BlockStagingBuffers staging = new BlockStagingBuffers(header.Channels.Count);
                     for (int blockIndex = 0; blockIndex < writer.GetNumBlocks(partIndex); blockIndex++)
                     {
                         BlockInfo info = writer.GetBlockInfo(partIndex, blockIndex);
@@ -460,6 +503,7 @@ namespace TinyEXR.V3
                             part,
                             header,
                             info,
+                            staging,
                             cancellationToken).ConfigureAwait(false);
                         if (!result.IsSuccess)
                         {
@@ -515,12 +559,49 @@ namespace TinyEXR.V3
                 header.Attributes);
         }
 
+        /// <summary>
+        /// Reusable per-part staging buffers for flat block extraction. A scanline part writes one block per
+        /// 1..32 rows, so allocating fresh channel buffers per block dominates encode allocation without this.
+        /// </summary>
+        private sealed class BlockStagingBuffers
+        {
+            private readonly byte[][] _channels;
+
+            public BlockStagingBuffers(int channelCount)
+            {
+                _channels = new byte[channelCount][];
+                Buffers = new ChannelBuffer[channelCount];
+                for (int i = 0; i < channelCount; i++)
+                {
+                    _channels[i] = Array.Empty<byte>();
+                }
+            }
+
+            /// <summary>The per-block channel buffer array handed to the writer.</summary>
+            public ChannelBuffer[] Buffers { get; }
+
+            /// <summary>Returns a channel staging buffer of exactly <paramref name="length"/> bytes.</summary>
+            public byte[] Get(int index, int length)
+            {
+                byte[] buffer = _channels[index];
+                if (buffer.Length != length)
+                {
+                    // ChannelBuffer validates against the exact byte count, so the buffer must match exactly.
+                    buffer = new byte[length];
+                    _channels[index] = buffer;
+                }
+
+                return buffer;
+            }
+        }
+
         private static WriterResult WriteBlock(
             ExrWriter writer,
             int partIndex,
             Part part,
             Header header,
-            BlockInfo info)
+            BlockInfo info,
+            BlockStagingBuffers staging)
         {
             PartLevel level = part.GetLevel(info.LevelX, info.LevelY);
             if (header.IsDeep)
@@ -539,7 +620,7 @@ namespace TinyEXR.V3
                     : writer.WriteDeepScanlineBlock(partIndex, info.Region.MinY, counts, channels);
             }
 
-            ChannelBuffer[] flatChannels = ExtractFlatBlock((FlatLevel)level, header, info.Region);
+            ChannelBuffer[] flatChannels = ExtractFlatBlock((FlatLevel)level, header, info.Region, staging);
             return info.IsTiled
                 ? writer.WriteTile(
                     partIndex,
@@ -557,6 +638,7 @@ namespace TinyEXR.V3
             Part part,
             Header header,
             BlockInfo info,
+            BlockStagingBuffers staging,
             CancellationToken cancellationToken)
         {
             PartLevel level = part.GetLevel(info.LevelX, info.LevelY);
@@ -582,7 +664,7 @@ namespace TinyEXR.V3
                         cancellationToken).ConfigureAwait(false);
             }
 
-            ChannelBuffer[] flatChannels = ExtractFlatBlock((FlatLevel)level, header, info.Region);
+            ChannelBuffer[] flatChannels = ExtractFlatBlock((FlatLevel)level, header, info.Region, staging);
             return info.IsTiled
                 ? await writer.WriteTileAsync(
                     partIndex,
@@ -602,9 +684,10 @@ namespace TinyEXR.V3
         private static ChannelBuffer[] ExtractFlatBlock(
             FlatLevel level,
             Header header,
-            Box2i region)
+            Box2i region,
+            BlockStagingBuffers staging)
         {
-            ChannelBuffer[] result = new ChannelBuffer[header.Channels.Count];
+            ChannelBuffer[] result = staging.Buffers;
             for (int channelIndex = 0; channelIndex < header.Channels.Count; channelIndex++)
             {
                 Channel channel = header.Channels[channelIndex];
@@ -622,7 +705,9 @@ namespace TinyEXR.V3
                     region.MinY,
                     region.MaxY,
                     channel.YSampling));
-                byte[] destination = new byte[checked(blockRowSamples * blockRows * elementSize)];
+                byte[] destination = staging.Get(
+                    channelIndex,
+                    checked(blockRowSamples * blockRows * elementSize));
                 int firstColumn = CountSampleLocationsBefore(
                     level.Region.MinX,
                     region.MinX,

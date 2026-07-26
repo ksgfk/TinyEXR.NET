@@ -70,6 +70,23 @@ namespace TinyEXR.V3
         public List<ExrChannel> CodecChannels { get; }
 
         public int MaximumSamplesPerPixel { get; set; }
+
+        private ChannelBuffer[]? _orderedSources;
+        private int[]? _sourceOffsets;
+
+        /// <summary>Returns the reusable ordered-channel scratch array for one block encode.</summary>
+        public ChannelBuffer[] RentOrderedSources()
+        {
+            return _orderedSources ??= new ChannelBuffer[Header.Channels.Count];
+        }
+
+        /// <summary>Returns the reusable per-channel row cursor array, cleared for one block encode.</summary>
+        public int[] RentSourceOffsets()
+        {
+            int[] offsets = _sourceOffsets ??= new int[Header.Channels.Count];
+            Array.Clear(offsets, 0, offsets.Length);
+            return offsets;
+        }
     }
 
     internal sealed class WriterPlanException : Exception

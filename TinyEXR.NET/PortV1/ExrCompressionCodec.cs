@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Runtime.InteropServices;
 using TinyEXR.V3.Codecs;
 
 namespace TinyEXR.PortV1
@@ -52,11 +53,17 @@ namespace TinyEXR.PortV1
         private readonly struct ChannelPlane
         {
             public ChannelPlane(ChannelLayout layout, int width, int height, byte[] data)
+                : this(layout, width, height, data, data.Length)
+            {
+            }
+
+            public ChannelPlane(ChannelLayout layout, int width, int height, byte[] data, int byteCount)
             {
                 Layout = layout;
                 Width = width;
                 Height = height;
                 Data = data;
+                ByteCount = byteCount;
             }
 
             public ChannelLayout Layout { get; }
@@ -65,7 +72,11 @@ namespace TinyEXR.PortV1
 
             public int Height { get; }
 
+            /// <summary>The plane backing store, which may be a pooled buffer with spare capacity.</summary>
             public byte[] Data { get; }
+
+            /// <summary>The plane's logical byte count, which can be shorter than <see cref="Data"/>.</summary>
+            public int ByteCount { get; }
 
             public int RowBytes => checked(Width * Layout.SampleSize);
         }
@@ -87,7 +98,7 @@ namespace TinyEXR.PortV1
             return array;
         }
 
-        internal sealed class DecodeWorkspace
+        internal sealed class DecodeWorkspace : IPlaneBufferProvider
         {
             private byte[] _payload = Array.Empty<byte>();
             private byte[] _raw = Array.Empty<byte>();
@@ -101,6 +112,7 @@ namespace TinyEXR.PortV1
             private List<int>[] _hufLongSymbols = Array.Empty<List<int>>();
             private ChannelLayout[] _layouts = Array.Empty<ChannelLayout>();
             private PizChannelData[] _pizChannelData = Array.Empty<PizChannelData>();
+            private byte[][] _planeBuffers = Array.Empty<byte[]>();
 
             public byte[] GetPayload(int length)
             {
@@ -201,6 +213,15 @@ namespace TinyEXR.PortV1
                 return _pizChannelData;
             }
 
+            /// <summary>
+            /// Returns the reusable per-channel plane buffer for <paramref name="index"/>. B44 and B44A decode one
+            /// deinterleaved plane per channel; pooling them keeps a multi-block decode allocation free.
+            /// </summary>
+            public byte[] GetPlaneBuffer(int index, int length)
+            {
+                return EnsurePlaneBuffer(ref _planeBuffers, index, length);
+            }
+
             private static ushort[] EnsureUShortArray(ref ushort[] array, int length)
             {
                 if (array.Length < length)
@@ -243,14 +264,158 @@ namespace TinyEXR.PortV1
 
         }
 
-        internal sealed class EncodeWorkspace
+        internal sealed class EncodeWorkspace : IPlaneBufferProvider
         {
             private byte[] _work = Array.Empty<byte>();
             private byte[] _raw = Array.Empty<byte>();
+            private byte[] _rle = Array.Empty<byte>();
+            private byte[][] _planeBuffers = Array.Empty<byte[]>();
+            private byte[] _bitmap = Array.Empty<byte>();
+            private ushort[] _ushortWork = Array.Empty<ushort>();
+            private ushort[] _ushortLut = Array.Empty<ushort>();
+            private int[] _channelPositions = Array.Empty<int>();
+            private PizChannelData[] _pizChannelData = Array.Empty<PizChannelData>();
+            private long[] _hufFrequencies = Array.Empty<long>();
+            private long[] _hufCodes = Array.Empty<long>();
+            private int[] _hufHeap = Array.Empty<int>();
+            private int[] _hufLinks = Array.Empty<int>();
+            private BitWriter? _hufTableWriter;
+            private BitWriter? _hufDataWriter;
+
+            /// <summary>The reusable PIZ bitmap, cleared for one block encode.</summary>
+            internal byte[] GetBitmap()
+            {
+                byte[] bitmap = ExrCompressionCodec.EnsureByteArray(ref _bitmap, BitmapSize);
+                Array.Clear(bitmap, 0, BitmapSize);
+                return bitmap;
+            }
+
+            /// <summary>The reusable PIZ word staging buffer.</summary>
+            internal ushort[] GetUShortWork(int length)
+            {
+                if (_ushortWork.Length < length)
+                {
+                    _ushortWork = new ushort[length];
+                }
+
+                return _ushortWork;
+            }
+
+            /// <summary>The reusable 64 KiB-entry PIZ forward lookup table, cleared for one block encode.</summary>
+            internal ushort[] GetUShortLut()
+            {
+                if (_ushortLut.Length < UShortRange)
+                {
+                    _ushortLut = new ushort[UShortRange];
+                }
+
+                Array.Clear(_ushortLut, 0, UShortRange);
+                return _ushortLut;
+            }
+
+            /// <summary>The reusable per-channel PIZ row cursor array, cleared for one block encode.</summary>
+            internal int[] GetChannelPositions(int length)
+            {
+                if (_channelPositions.Length < length)
+                {
+                    _channelPositions = new int[length];
+                }
+
+                Array.Clear(_channelPositions, 0, length);
+                return _channelPositions;
+            }
+
+            /// <summary>The reusable PIZ per-channel geometry array.</summary>
+            internal PizChannelData[] GetPizChannelData(int length)
+            {
+                if (_pizChannelData.Length != length)
+                {
+                    _pizChannelData = new PizChannelData[length];
+                }
+
+                return _pizChannelData;
+            }
+
+            /// <summary>The reusable Huffman symbol frequency table, cleared for one block encode.</summary>
+            internal long[] GetHufFrequencies()
+            {
+                if (_hufFrequencies.Length < HufEncSize)
+                {
+                    _hufFrequencies = new long[HufEncSize];
+                }
+
+                Array.Clear(_hufFrequencies, 0, HufEncSize);
+                return _hufFrequencies;
+            }
+
+            /// <summary>The reusable Huffman code table, cleared for one block encode.</summary>
+            internal long[] GetHufCodes()
+            {
+                if (_hufCodes.Length < HufEncSize)
+                {
+                    _hufCodes = new long[HufEncSize];
+                }
+
+                Array.Clear(_hufCodes, 0, HufEncSize);
+                return _hufCodes;
+            }
+
+            /// <summary>The reusable Huffman heap scratch array.</summary>
+            internal int[] GetHufHeap()
+            {
+                if (_hufHeap.Length < HufEncSize)
+                {
+                    _hufHeap = new int[HufEncSize];
+                }
+
+                return _hufHeap;
+            }
+
+            /// <summary>The reusable Huffman link scratch array.</summary>
+            internal int[] GetHufLinks()
+            {
+                if (_hufLinks.Length < HufEncSize)
+                {
+                    _hufLinks = new int[HufEncSize];
+                }
+
+                return _hufLinks;
+            }
+
+            /// <summary>The two reusable Huffman bit writers, reset for one block encode.</summary>
+            internal BitWriter GetHufTableWriter()
+            {
+                (_hufTableWriter ??= new BitWriter()).Reset();
+                return _hufTableWriter;
+            }
+
+            internal BitWriter GetHufDataWriter()
+            {
+                (_hufDataWriter ??= new BitWriter()).Reset();
+                return _hufDataWriter;
+            }
+
+            /// <summary>
+            /// Returns the reusable per-channel plane buffer for <paramref name="index"/>. B44 and B44A encode one
+            /// deinterleaved plane per channel; reusing them keeps a multi-block encode allocation free.
+            /// </summary>
+            public byte[] GetPlaneBuffer(int index, int length)
+            {
+                return EnsurePlaneBuffer(ref _planeBuffers, index, length);
+            }
 
             internal byte[] GetWork(int length)
             {
                 return ExrCompressionCodec.EnsureByteArray(ref _work, length);
+            }
+
+            /// <summary>
+            /// The reusable codec output staging buffer, used by the RLE and B44 encoders whose output size is only
+            /// known once encoding finishes.
+            /// </summary>
+            internal byte[] GetRleOutput(int length)
+            {
+                return ExrCompressionCodec.EnsureByteArray(ref _rle, length);
             }
 
             internal byte[] GetRaw(int length)
@@ -264,14 +429,29 @@ namespace TinyEXR.PortV1
             }
         }
 
-        private sealed class BitWriter
+        internal sealed class BitWriter
         {
-            private readonly List<byte> _bytes = new List<byte>();
+            private byte[] _bytes = new byte[256];
+            private int _byteCount;
             private ulong _buffer;
             private int _bitCount;
             private int _totalBits;
 
             public int TotalBits => _totalBits;
+
+            /// <summary>The written bytes so far. Only the first <see cref="ByteCount"/> entries are meaningful.</summary>
+            public byte[] Buffer => _bytes;
+
+            public int ByteCount => _byteCount;
+
+            /// <summary>Clears the writer for reuse without releasing its buffer.</summary>
+            public void Reset()
+            {
+                _byteCount = 0;
+                _buffer = 0;
+                _bitCount = 0;
+                _totalBits = 0;
+            }
 
             public void WriteBits(int bitCount, ulong bits)
             {
@@ -282,20 +462,39 @@ namespace TinyEXR.PortV1
 
                 while (_bitCount >= 8)
                 {
-                    _bytes.Add((byte)(_buffer >> (_bitCount - 8)));
+                    Append((byte)(_buffer >> (_bitCount - 8)));
                     _bitCount -= 8;
                 }
             }
 
-            public byte[] ToArray()
+            /// <summary>Flushes any partial byte and returns the total byte count.</summary>
+            public int Flush()
             {
                 if (_bitCount > 0)
                 {
-                    _bytes.Add((byte)(_buffer << (8 - _bitCount)));
+                    Append((byte)(_buffer << (8 - _bitCount)));
                     _bitCount = 0;
                 }
 
-                return _bytes.ToArray();
+                return _byteCount;
+            }
+
+            public byte[] ToArray()
+            {
+                Flush();
+                return _bytes.AsSpan(0, _byteCount).ToArray();
+            }
+
+            private void Append(byte value)
+            {
+                if (_byteCount == _bytes.Length)
+                {
+                    byte[] grown = new byte[checked(_bytes.Length * 2)];
+                    Array.Copy(_bytes, grown, _byteCount);
+                    _bytes = grown;
+                }
+
+                _bytes[_byteCount++] = value;
             }
         }
 
@@ -358,7 +557,45 @@ namespace TinyEXR.PortV1
             EncodeWorkspace? workspace,
             out byte[] payload)
         {
+            ResultCode result = TryEncodePayload(
+                compression,
+                channels,
+                startX,
+                startY,
+                width,
+                height,
+                raw,
+                workspace,
+                out payload,
+                out int payloadLength);
+
+            // This overload contracts an exact-length payload, so trim any workspace staging buffer.
+            if (result == ResultCode.Success && payloadLength != payload.Length)
+            {
+                payload = payload.AsSpan(0, payloadLength).ToArray();
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Encodes one block payload. <paramref name="payload"/> may be a workspace buffer with spare capacity, so
+        /// callers must honour <paramref name="payloadLength"/> rather than the array length.
+        /// </summary>
+        public static ResultCode TryEncodePayload(
+            CompressionType compression,
+            IList<ExrChannel> channels,
+            int startX,
+            int startY,
+            int width,
+            int height,
+            byte[] raw,
+            EncodeWorkspace? workspace,
+            out byte[] payload,
+            out int payloadLength)
+        {
             payload = raw;
+            payloadLength = raw.Length;
 
             if (!TryBuildLayouts(channels, out ChannelLayout[] layouts, out int pixelStride))
             {
@@ -375,28 +612,45 @@ namespace TinyEXR.PortV1
                 return ResultCode.InvalidArgument;
             }
 
+            ResultCode result;
             switch (compression)
             {
                 case CompressionType.None:
                     return ResultCode.Success;
                 case CompressionType.RLE:
-                    payload = CompressRle(raw);
+                    payload = CompressRle(raw, workspace, out payloadLength);
                     return ResultCode.Success;
                 case CompressionType.ZIP:
                 case CompressionType.ZIPS:
-                    return TryCompressZip(raw, workspace, out payload);
+                    result = TryCompressZip(raw, workspace, out payload);
+                    payloadLength = payload.Length;
+                    return result;
                 case CompressionType.PIZ:
-                    return TryCompressPiz(layouts, startX, startY, width, height, raw, out payload);
+                    result = TryCompressPiz(layouts, startX, startY, width, height, raw, workspace, out payload);
+                    payloadLength = payload.Length;
+                    return result;
                 case CompressionType.PXR24:
                     if (HasSubsampledChannels(layouts))
                     {
                         return ResultCode.UnsupportedFeature;
                     }
 
-                    return TryCompressPxr24(layouts, pixelStride, width, height, raw, workspace, out payload);
+                    result = TryCompressPxr24(layouts, pixelStride, width, height, raw, workspace, out payload);
+                    payloadLength = payload.Length;
+                    return result;
                 case CompressionType.B44:
                 case CompressionType.B44A:
-                    return TryCompressB44(layouts, startX, startY, width, height, raw, compression == CompressionType.B44A, out payload);
+                    return TryCompressB44(
+                        layouts,
+                        startX,
+                        startY,
+                        width,
+                        height,
+                        raw,
+                        compression == CompressionType.B44A,
+                        workspace,
+                        out payload,
+                        out payloadLength);
                 default:
                     return ResultCode.UnsupportedFeature;
             }
@@ -453,10 +707,10 @@ namespace TinyEXR.PortV1
                         return ResultCode.UnsupportedFeature;
                     }
 
-                    return TryDecompressPxr24(layouts, pixelStride, width, height, payload, expectedSize, out raw);
+                    return TryDecompressPxr24(layouts, pixelStride, width, height, payload, payload.Length, expectedSize, null, out raw);
                 case CompressionType.B44:
                 case CompressionType.B44A:
-                    return TryDecompressB44(layouts, startX, startY, width, height, payload, expectedSize, out raw);
+                    return TryDecompressB44(layouts, startX, startY, width, height, payload, expectedSize, null, out raw);
                 default:
                     return ResultCode.UnsupportedFeature;
             }
@@ -524,13 +778,13 @@ namespace TinyEXR.PortV1
                         return ResultCode.UnsupportedFeature;
                     }
 
-                    ResultCode pxrResult = TryDecompressPxr24(layouts, pixelStride, width, height, payload.AsSpan(0, payloadLength), expectedSize, out raw);
-                    rawLength = pxrResult == ResultCode.Success ? raw.Length : 0;
+                    ResultCode pxrResult = TryDecompressPxr24(layouts, pixelStride, width, height, payload, payloadLength, expectedSize, workspace, out raw);
+                    rawLength = pxrResult == ResultCode.Success ? expectedSize : 0;
                     return pxrResult;
                 case CompressionType.B44:
                 case CompressionType.B44A:
-                    ResultCode b44Result = TryDecompressB44(layouts, startX, startY, width, height, payload.AsSpan(0, payloadLength), expectedSize, out raw);
-                    rawLength = b44Result == ResultCode.Success ? raw.Length : 0;
+                    ResultCode b44Result = TryDecompressB44(layouts, startX, startY, width, height, payload.AsSpan(0, payloadLength), expectedSize, workspace, out raw);
+                    rawLength = b44Result == ResultCode.Success ? expectedSize : 0;
                     return b44Result;
                 default:
                     return ResultCode.UnsupportedFeature;
@@ -583,7 +837,9 @@ namespace TinyEXR.PortV1
                     payload = raw;
                     return ResultCode.Success;
                 case CompressionType.RLE:
-                    payload = CompressRle(raw);
+                    // Deep callers expect an exact-length payload, so trim the workspace staging buffer.
+                    byte[] rle = CompressRle(raw, workspace, out int rleLength);
+                    payload = rleLength == rle.Length ? rle : rle.AsSpan(0, rleLength).ToArray();
                     return ResultCode.Success;
                 case CompressionType.ZIPS:
                 case CompressionType.ZIP:
@@ -722,7 +978,23 @@ namespace TinyEXR.PortV1
             }
         }
 
-        private static bool TryCreateChannelPlanes(ChannelLayout[] layouts, int startX, int startY, int width, int height, out ChannelPlane[] planes)
+        /// <summary>
+        /// Supplies reusable per-channel plane buffers so codecs that deinterleave into planes stay allocation
+        /// free across blocks. Implemented by both the decode and encode workspaces.
+        /// </summary>
+        internal interface IPlaneBufferProvider
+        {
+            byte[] GetPlaneBuffer(int index, int length);
+        }
+
+        private static bool TryCreateChannelPlanes(
+            ChannelLayout[] layouts,
+            int startX,
+            int startY,
+            int width,
+            int height,
+            IPlaneBufferProvider? workspace,
+            out ChannelPlane[] planes)
         {
             planes = new ChannelPlane[layouts.Length];
 
@@ -733,7 +1005,8 @@ namespace TinyEXR.PortV1
                     int sampledWidth = CountSamplePositions(startX, width, layouts[i].SamplingX);
                     int sampledHeight = CountSamplePositions(startY, height, layouts[i].SamplingY);
                     int byteCount = checked(checked(sampledWidth * sampledHeight) * layouts[i].SampleSize);
-                    planes[i] = new ChannelPlane(layouts[i], sampledWidth, sampledHeight, new byte[byteCount]);
+                    byte[] data = workspace?.GetPlaneBuffer(i, byteCount) ?? new byte[byteCount];
+                    planes[i] = new ChannelPlane(layouts[i], sampledWidth, sampledHeight, data, byteCount);
                 }
 
                 return true;
@@ -745,9 +1018,42 @@ namespace TinyEXR.PortV1
             }
         }
 
-        private static bool TrySplitRawByChannel(ChannelLayout[] layouts, int startX, int startY, int width, int height, byte[] raw, out ChannelPlane[] planes)
+        /// <summary>Shared growth helper for the per-channel plane buffer caches.</summary>
+        private static byte[] EnsurePlaneBuffer(ref byte[][] buffers, int index, int length)
         {
-            if (!TryCreateChannelPlanes(layouts, startX, startY, width, height, out planes))
+            if (buffers.Length <= index)
+            {
+                byte[][] grown = new byte[index + 1][];
+                Array.Copy(buffers, grown, buffers.Length);
+                for (int i = buffers.Length; i < grown.Length; i++)
+                {
+                    grown[i] = Array.Empty<byte>();
+                }
+
+                buffers = grown;
+            }
+
+            byte[] buffer = buffers[index];
+            if (buffer.Length < length)
+            {
+                buffer = new byte[length];
+                buffers[index] = buffer;
+            }
+
+            return buffer;
+        }
+
+        private static bool TrySplitRawByChannel(
+            ChannelLayout[] layouts,
+            int startX,
+            int startY,
+            int width,
+            int height,
+            byte[] raw,
+            EncodeWorkspace? workspace,
+            out ChannelPlane[] planes)
+        {
+            if (!TryCreateChannelPlanes(layouts, startX, startY, width, height, workspace, out planes))
             {
                 return false;
             }
@@ -765,7 +1071,7 @@ namespace TinyEXR.PortV1
                     }
 
                     int rowBytes = planes[i].RowBytes;
-                    if (rawOffset + rowBytes > raw.Length || planeOffsets[i] + rowBytes > planes[i].Data.Length)
+                    if (rawOffset + rowBytes > raw.Length || planeOffsets[i] + rowBytes > planes[i].ByteCount)
                     {
                         planes = Array.Empty<ChannelPlane>();
                         return false;
@@ -785,7 +1091,7 @@ namespace TinyEXR.PortV1
 
             for (int i = 0; i < planes.Length; i++)
             {
-                if (planeOffsets[i] != planes[i].Data.Length)
+                if (planeOffsets[i] != planes[i].ByteCount)
                 {
                     planes = Array.Empty<ChannelPlane>();
                     return false;
@@ -795,9 +1101,15 @@ namespace TinyEXR.PortV1
             return true;
         }
 
-        private static bool TryAssembleRawFromChannelPlanes(ChannelPlane[] planes, int startY, int height, int expectedSize, out byte[] raw)
+        private static bool TryAssembleRawFromChannelPlanes(
+            ChannelPlane[] planes,
+            int startY,
+            int height,
+            int expectedSize,
+            DecodeWorkspace? workspace,
+            out byte[] raw)
         {
-            raw = new byte[expectedSize];
+            raw = workspace?.GetRaw(expectedSize) ?? new byte[expectedSize];
             int[] planeOffsets = new int[planes.Length];
             int rawOffset = 0;
             for (int y = 0; y < height; y++)
@@ -811,7 +1123,7 @@ namespace TinyEXR.PortV1
                     }
 
                     int rowBytes = planes[i].RowBytes;
-                    if (planeOffsets[i] + rowBytes > planes[i].Data.Length || rawOffset + rowBytes > raw.Length)
+                    if (planeOffsets[i] + rowBytes > planes[i].ByteCount || rawOffset + rowBytes > expectedSize)
                     {
                         raw = Array.Empty<byte>();
                         return false;
@@ -823,7 +1135,7 @@ namespace TinyEXR.PortV1
                 }
             }
 
-            if (rawOffset != raw.Length)
+            if (rawOffset != expectedSize)
             {
                 raw = Array.Empty<byte>();
                 return false;
@@ -831,7 +1143,7 @@ namespace TinyEXR.PortV1
 
             for (int i = 0; i < planes.Length; i++)
             {
-                if (planeOffsets[i] != planes[i].Data.Length)
+                if (planeOffsets[i] != planes[i].ByteCount)
                 {
                     raw = Array.Empty<byte>();
                     return false;
@@ -962,6 +1274,22 @@ namespace TinyEXR.PortV1
             }
         }
 
+        /// <summary>
+        /// Inflates <paramref name="payloadLength"/> bytes of <paramref name="payload"/> into the first
+        /// <paramref name="expectedSize"/> bytes of <paramref name="destination"/>, which may be oversized.
+        /// </summary>
+        private static bool TryInflateInto(byte[] payload, int payloadLength, byte[] destination, int expectedSize)
+        {
+            try
+            {
+                return ZlibCompat.TryDecompress(payload, payloadLength, destination, expectedSize);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         private static ResultCode TryDecompressZlib(byte[] payload, int expectedSize, out byte[] raw)
         {
             if (payload.Length == expectedSize)
@@ -988,10 +1316,22 @@ namespace TinyEXR.PortV1
             }
         }
 
-        private static byte[] CompressRle(ReadOnlySpan<byte> raw)
+        /// <summary>
+        /// Applies the EXR predictor and run-length encodes the block. The result may be a workspace buffer with
+        /// spare capacity, so callers must honour <paramref name="payloadLength"/>.
+        /// </summary>
+        private static byte[] CompressRle(ReadOnlySpan<byte> raw, EncodeWorkspace? workspace, out int payloadLength)
         {
-            byte[] tmp = ApplyExrPredictorAndReorder(raw);
-            List<byte> output = new List<byte>(Math.Max(1, tmp.Length * 3 / 2));
+            byte[] tmpBuffer = workspace?.GetWork(raw.Length) ?? new byte[raw.Length];
+            Span<byte> tmp = tmpBuffer.AsSpan(0, raw.Length);
+            ApplyExrPredictorAndReorder(raw, tmp);
+
+            // Worst case RLE growth is one control byte per 128-byte literal run, so 2x the input always fits.
+            // Writing into one sized buffer avoids the per-byte bounds and capacity checks of a List<byte>.
+            int capacity = Math.Max(1, checked(raw.Length * 2));
+            byte[] outputBuffer = workspace?.GetRleOutput(capacity) ?? new byte[capacity];
+            Span<byte> output = outputBuffer.AsSpan(0, capacity);
+            int outputOffset = 0;
 
             int runStart = 0;
             int runEnd = 1;
@@ -1004,8 +1344,8 @@ namespace TinyEXR.PortV1
 
                 if (runEnd - runStart >= MinRunLength)
                 {
-                    output.Add((byte)(runEnd - runStart - 1));
-                    output.Add(tmp[runStart]);
+                    output[outputOffset++] = (byte)(runEnd - runStart - 1);
+                    output[outputOffset++] = tmp[runStart];
                     runStart = runEnd;
                 }
                 else
@@ -1018,18 +1358,25 @@ namespace TinyEXR.PortV1
                         runEnd++;
                     }
 
-                    output.Add(unchecked((byte)(runStart - runEnd)));
-                    while (runStart < runEnd)
-                    {
-                        output.Add(tmp[runStart++]);
-                    }
+                    output[outputOffset++] = unchecked((byte)(runStart - runEnd));
+                    int literalCount = runEnd - runStart;
+                    tmp.Slice(runStart, literalCount).CopyTo(output.Slice(outputOffset, literalCount));
+                    outputOffset += literalCount;
+                    runStart = runEnd;
                 }
 
                 runEnd++;
             }
 
-            byte[] compressed = output.ToArray();
-            return compressed.Length >= raw.Length ? raw.ToArray() : compressed;
+            if (outputOffset >= raw.Length)
+            {
+                // The encoded form is no smaller than the raw block; the caller stores the raw fallback instead.
+                payloadLength = raw.Length;
+                return raw.ToArray();
+            }
+
+            payloadLength = outputOffset;
+            return outputBuffer;
         }
 
         private static ResultCode TryDecompressRle(ReadOnlySpan<byte> payload, int expectedSize, out byte[] raw)
@@ -1149,10 +1496,20 @@ namespace TinyEXR.PortV1
             return ResultCode.Success;
         }
 
-        private static ResultCode TryCompressPiz(ChannelLayout[] layouts, int startX, int startY, int width, int height, byte[] raw, out byte[] payload)
+        private static ResultCode TryCompressPiz(
+            ChannelLayout[] layouts,
+            int startX,
+            int startY,
+            int width,
+            int height,
+            byte[] raw,
+            EncodeWorkspace? workspace,
+            out byte[] payload)
         {
-            ushort[] tmpBuffer = new ushort[raw.Length / sizeof(ushort)];
-            PizChannelData[] channelData = new PizChannelData[layouts.Length];
+            int wordCount = raw.Length / sizeof(ushort);
+            ushort[] tmpBuffer = workspace?.GetUShortWork(wordCount) ?? new ushort[wordCount];
+            PizChannelData[] channelData = workspace?.GetPizChannelData(layouts.Length) ??
+                new PizChannelData[layouts.Length];
             int cursor = 0;
             for (int i = 0; i < layouts.Length; i++)
             {
@@ -1162,7 +1519,7 @@ namespace TinyEXR.PortV1
                 cursor += sampledWidth * sampledHeight * layouts[i].WordSize;
             }
 
-            int[] channelPositions = new int[layouts.Length];
+            int[] channelPositions = workspace?.GetChannelPositions(layouts.Length) ?? new int[layouts.Length];
             int rawOffset = 0;
             for (int y = 0; y < height; y++)
             {
@@ -1175,11 +1532,26 @@ namespace TinyEXR.PortV1
                     }
 
                     int rowWords = channelData[channelIndex].Nx * layouts[channelIndex].WordSize;
-                    for (int i = 0; i < rowWords; i++)
+
+                    int destinationStart = channelData[channelIndex].Start + channelPositions[channelIndex];
+                    if (BitConverter.IsLittleEndian)
                     {
-                        tmpBuffer[channelData[channelIndex].Start + channelPositions[channelIndex]++] =
-                            BinaryPrimitives.ReadUInt16LittleEndian(raw.AsSpan(rawOffset + i * sizeof(ushort), sizeof(ushort)));
+                        // EXR stores words little endian, matching the managed layout on a little-endian host, so a
+                        // whole row can be reinterpreted and block copied instead of read one word at a time.
+                        MemoryMarshal
+                            .Cast<byte, ushort>(raw.AsSpan(rawOffset, rowWords * sizeof(ushort)))
+                            .CopyTo(tmpBuffer.AsSpan(destinationStart, rowWords));
                     }
+                    else
+                    {
+                        for (int i = 0; i < rowWords; i++)
+                        {
+                            tmpBuffer[destinationStart + i] = BinaryPrimitives.ReadUInt16LittleEndian(
+                                raw.AsSpan(rawOffset + (i * sizeof(ushort)), sizeof(ushort)));
+                        }
+                    }
+
+                    channelPositions[channelIndex] += rowWords;
 
                     rawOffset += rowWords * sizeof(ushort);
                 }
@@ -1191,11 +1563,12 @@ namespace TinyEXR.PortV1
                 return ResultCode.InvalidArgument;
             }
 
-            byte[] bitmap = new byte[BitmapSize];
-            BitmapFromData(tmpBuffer, bitmap, out ushort minNonZero, out ushort maxNonZero);
-            ushort[] forwardLut = new ushort[UShortRange];
+            Span<ushort> words = tmpBuffer.AsSpan(0, wordCount);
+            byte[] bitmap = workspace?.GetBitmap() ?? new byte[BitmapSize];
+            BitmapFromData(words, bitmap, out ushort minNonZero, out ushort maxNonZero);
+            ushort[] forwardLut = workspace?.GetUShortLut() ?? new ushort[UShortRange];
             ushort maxValue = ForwardLutFromBitmap(bitmap, forwardLut);
-            ApplyLut(forwardLut, tmpBuffer);
+            ApplyLut(forwardLut, words);
 
             for (int i = 0; i < channelData.Length; i++)
             {
@@ -1205,28 +1578,32 @@ namespace TinyEXR.PortV1
                 }
             }
 
-            byte[] huffman = HufCompress(tmpBuffer);
-            using MemoryStream output = new MemoryStream();
-            Span<byte> header = stackalloc byte[sizeof(ushort) * 2];
-            BinaryPrimitives.WriteUInt16LittleEndian(header, minNonZero);
-            BinaryPrimitives.WriteUInt16LittleEndian(header.Slice(sizeof(ushort)), maxNonZero);
-            output.Write(header);
-            if (minNonZero <= maxNonZero)
-            {
-                output.Write(bitmap, minNonZero, maxNonZero - minNonZero + 1);
-            }
+            byte[] huffman = HufCompress(words, workspace);
 
-            Span<byte> length = stackalloc byte[sizeof(int)];
-            BinaryPrimitives.WriteInt32LittleEndian(length, huffman.Length);
-            output.Write(length);
-            output.Write(huffman, 0, huffman.Length);
-
-            payload = output.ToArray();
-            if (payload.Length >= raw.Length)
+            // The payload layout is fixed: two range words, the bitmap slice, the Huffman length, then the data.
+            int bitmapByteCount = minNonZero <= maxNonZero ? maxNonZero - minNonZero + 1 : 0;
+            int payloadSize = (sizeof(ushort) * 2) + bitmapByteCount + sizeof(int) + huffman.Length;
+            if (payloadSize >= raw.Length)
             {
                 payload = raw.ToArray();
+                return ResultCode.Success;
             }
 
+            payload = new byte[payloadSize];
+            int offset = 0;
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(offset, sizeof(ushort)), minNonZero);
+            offset += sizeof(ushort);
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(offset, sizeof(ushort)), maxNonZero);
+            offset += sizeof(ushort);
+            if (bitmapByteCount != 0)
+            {
+                bitmap.AsSpan(minNonZero, bitmapByteCount).CopyTo(payload.AsSpan(offset, bitmapByteCount));
+                offset += bitmapByteCount;
+            }
+
+            BinaryPrimitives.WriteInt32LittleEndian(payload.AsSpan(offset, sizeof(int)), huffman.Length);
+            offset += sizeof(int);
+            huffman.AsSpan().CopyTo(payload.AsSpan(offset, huffman.Length));
             return ResultCode.Success;
         }
 
@@ -1580,7 +1957,16 @@ namespace TinyEXR.PortV1
             return result;
         }
 
-        private static ResultCode TryDecompressPxr24(ChannelLayout[] layouts, int pixelStride, int width, int height, ReadOnlySpan<byte> payload, int expectedSize, out byte[] raw)
+        private static ResultCode TryDecompressPxr24(
+            ChannelLayout[] layouts,
+            int pixelStride,
+            int width,
+            int height,
+            byte[] payload,
+            int payloadLength,
+            int expectedSize,
+            DecodeWorkspace? workspace,
+            out byte[] raw)
         {
             int packedSize = 0;
             for (int i = 0; i < layouts.Length; i++)
@@ -1588,14 +1974,30 @@ namespace TinyEXR.PortV1
                 packedSize += width * height * (layouts[i].Type == ExrPixelType.Float ? 3 : layouts[i].SampleSize);
             }
 
-            ResultCode zlibResult = TryDecompressZlib(payload.ToArray(), packedSize, out byte[] packed);
-            if (zlibResult != ResultCode.Success)
+            byte[] packed;
+            if (workspace != null)
             {
-                raw = Array.Empty<byte>();
-                return zlibResult;
+                packed = workspace.GetWork(packedSize);
+                if (!TryInflateInto(payload, payloadLength, packed, packedSize))
+                {
+                    raw = Array.Empty<byte>();
+                    return ResultCode.InvalidData;
+                }
+            }
+            else
+            {
+                ResultCode zlibResult = TryDecompressZlib(
+                    payload.AsSpan(0, payloadLength).ToArray(),
+                    packedSize,
+                    out packed);
+                if (zlibResult != ResultCode.Success)
+                {
+                    raw = Array.Empty<byte>();
+                    return zlibResult;
+                }
             }
 
-            raw = new byte[expectedSize];
+            raw = workspace?.GetRaw(expectedSize) ?? new byte[expectedSize];
             int packedOffset = 0;
             for (int line = 0; line < height; line++)
             {
@@ -1660,27 +2062,57 @@ namespace TinyEXR.PortV1
             return ResultCode.Success;
         }
 
-        private static ResultCode TryCompressB44(ChannelLayout[] layouts, int startX, int startY, int width, int height, byte[] raw, bool isB44A, out byte[] payload)
+        private static ResultCode TryCompressB44(
+            ChannelLayout[] layouts,
+            int startX,
+            int startY,
+            int width,
+            int height,
+            byte[] raw,
+            bool isB44A,
+            EncodeWorkspace? workspace,
+            out byte[] payload,
+            out int payloadLength)
         {
-            if (!TrySplitRawByChannel(layouts, startX, startY, width, height, raw, out ChannelPlane[] planes))
+            payloadLength = 0;
+            if (!TrySplitRawByChannel(layouts, startX, startY, width, height, raw, workspace, out ChannelPlane[] planes))
             {
                 payload = Array.Empty<byte>();
                 return ResultCode.InvalidArgument;
             }
 
-            using MemoryStream output = new MemoryStream();
+            // Every 4x4 half block costs at most 14 bytes and non-half planes are copied verbatim, so the worst
+            // case output size is known up front. Writing into one sized buffer avoids MemoryStream growth copies.
+            int maximumPayloadSize = 0;
+            for (int channelIndex = 0; channelIndex < planes.Length; channelIndex++)
+            {
+                ChannelPlane plane = planes[channelIndex];
+                if (plane.Layout.Type != ExrPixelType.Half)
+                {
+                    maximumPayloadSize = checked(maximumPayloadSize + plane.ByteCount);
+                    continue;
+                }
+
+                int blockCount = checked(((plane.Height + 3) / 4) * ((plane.Width + 3) / 4));
+                maximumPayloadSize = checked(maximumPayloadSize + (blockCount * 14));
+            }
+
+            byte[] output = workspace?.GetRleOutput(maximumPayloadSize) ?? new byte[maximumPayloadSize];
+            int outputOffset = 0;
+            Span<byte> blockBytes = stackalloc byte[14];
+            Span<ushort> block = stackalloc ushort[16];
             for (int channelIndex = 0; channelIndex < planes.Length; channelIndex++)
             {
                 ChannelPlane plane = planes[channelIndex];
                 ChannelLayout layout = plane.Layout;
                 if (layout.Type != ExrPixelType.Half)
                 {
-                    output.Write(plane.Data, 0, plane.Data.Length);
+                    plane.Data.AsSpan(0, plane.ByteCount)
+                        .CopyTo(output.AsSpan(outputOffset, plane.ByteCount));
+                    outputOffset += plane.ByteCount;
                     continue;
                 }
 
-                byte[] blockBytes = new byte[14];
-                ushort[] block = new ushort[16];
                 for (int by = 0; by < (plane.Height + 3) / 4; by++)
                 {
                     for (int bx = 0; bx < (plane.Width + 3) / 4; bx++)
@@ -1698,39 +2130,53 @@ namespace TinyEXR.PortV1
                         }
 
                         int written = PackB44Block(blockBytes, block, isB44A, exactMax: true);
-                        output.Write(blockBytes, 0, written);
+                        blockBytes.Slice(0, written).CopyTo(output.AsSpan(outputOffset, written));
+                        outputOffset += written;
                     }
                 }
             }
 
-            payload = output.ToArray();
+            // B44 payloads are shorter than the worst case whenever flat blocks compress to three bytes, so the
+            // caller must use payloadLength rather than the buffer length.
+            payload = output;
+            payloadLength = outputOffset;
             return ResultCode.Success;
         }
 
-        private static ResultCode TryDecompressB44(ChannelLayout[] layouts, int startX, int startY, int width, int height, ReadOnlySpan<byte> payload, int expectedSize, out byte[] raw)
+        private static ResultCode TryDecompressB44(
+            ChannelLayout[] layouts,
+            int startX,
+            int startY,
+            int width,
+            int height,
+            ReadOnlySpan<byte> payload,
+            int expectedSize,
+            DecodeWorkspace? workspace,
+            out byte[] raw)
         {
-            if (!TryCreateChannelPlanes(layouts, startX, startY, width, height, out ChannelPlane[] planes))
+            if (!TryCreateChannelPlanes(layouts, startX, startY, width, height, workspace, out ChannelPlane[] planes))
             {
                 raw = Array.Empty<byte>();
                 return ResultCode.InvalidData;
             }
 
             int sourceOffset = 0;
-            ushort[] block = new ushort[16];
+            Span<ushort> block = stackalloc ushort[16];
             for (int channelIndex = 0; channelIndex < planes.Length; channelIndex++)
             {
                 ChannelPlane plane = planes[channelIndex];
                 ChannelLayout layout = plane.Layout;
                 if (layout.Type != ExrPixelType.Half)
                 {
-                    if (sourceOffset + plane.Data.Length > payload.Length)
+                    if (sourceOffset + plane.ByteCount > payload.Length)
                     {
                         raw = Array.Empty<byte>();
                         return ResultCode.InvalidData;
                     }
 
-                    payload.Slice(sourceOffset, plane.Data.Length).CopyTo(plane.Data);
-                    sourceOffset += plane.Data.Length;
+                    payload.Slice(sourceOffset, plane.ByteCount)
+                        .CopyTo(plane.Data.AsSpan(0, plane.ByteCount));
+                    sourceOffset += plane.ByteCount;
                     continue;
                 }
 
@@ -1763,7 +2209,7 @@ namespace TinyEXR.PortV1
 
                         if (layout.Linear != 0)
                         {
-                            for (int i = 0; i < block.Length; i++)
+                            for (int i = 0; i < 16; i++)
                             {
                                 block[i] = B44ConvertToLinear(block[i]);
                             }
@@ -1799,7 +2245,7 @@ namespace TinyEXR.PortV1
                 return ResultCode.InvalidData;
             }
 
-            if (!TryAssembleRawFromChannelPlanes(planes, startY, height, expectedSize, out raw))
+            if (!TryAssembleRawFromChannelPlanes(planes, startY, height, expectedSize, workspace, out raw))
             {
                 raw = Array.Empty<byte>();
                 return ResultCode.InvalidData;
@@ -2056,9 +2502,9 @@ namespace TinyEXR.PortV1
             }
         }
 
-        private static void BitmapFromData(ushort[] data, byte[] bitmap, out ushort minNonZero, out ushort maxNonZero)
+        private static void BitmapFromData(ReadOnlySpan<ushort> data, byte[] bitmap, out ushort minNonZero, out ushort maxNonZero)
         {
-            Array.Clear(bitmap, 0, bitmap.Length);
+            Array.Clear(bitmap, 0, BitmapSize);
             for (int i = 0; i < data.Length; i++)
             {
                 bitmap[data[i] >> 3] |= (byte)(1 << (data[i] & 7));
@@ -2067,7 +2513,7 @@ namespace TinyEXR.PortV1
             bitmap[0] &= 0xfe;
             minNonZero = BitmapSize - 1;
             maxNonZero = 0;
-            for (ushort i = 0; i < bitmap.Length; i++)
+            for (ushort i = 0; i < BitmapSize; i++)
             {
                 if (bitmap[i] != 0)
                 {
@@ -2225,11 +2671,16 @@ namespace TinyEXR.PortV1
             return result;
         }
 
-        private static bool TryHufBuildEncTable(long[] freq, out long[] codes, out int im, out int iM)
+        private static bool TryHufBuildEncTable(
+            long[] freq,
+            EncodeWorkspace? workspace,
+            out long[] codes,
+            out int im,
+            out int iM)
         {
-            codes = new long[HufEncSize];
-            int[] heap = new int[HufEncSize];
-            int[] hlink = new int[HufEncSize];
+            codes = workspace?.GetHufCodes() ?? new long[HufEncSize];
+            int[] heap = workspace?.GetHufHeap() ?? new int[HufEncSize];
+            int[] hlink = workspace?.GetHufLinks() ?? new int[HufEncSize];
             im = 0;
             while (im < HufEncSize && freq[im] == 0)
             {
@@ -2572,29 +3023,29 @@ namespace TinyEXR.PortV1
             }
         }
 
-        private static byte[] HufCompress(ushort[] raw)
+        private static byte[] HufCompress(ReadOnlySpan<ushort> raw, EncodeWorkspace? workspace)
         {
             if (raw.Length == 0)
             {
                 return Array.Empty<byte>();
             }
 
-            long[] freq = new long[HufEncSize];
+            long[] freq = workspace?.GetHufFrequencies() ?? new long[HufEncSize];
             for (int i = 0; i < raw.Length; i++)
             {
                 freq[raw[i]]++;
             }
 
-            if (!TryHufBuildEncTable(freq, out long[] codes, out int im, out int iM))
+            if (!TryHufBuildEncTable(freq, workspace, out long[] codes, out int im, out int iM))
             {
                 throw new InvalidOperationException("Failed to build Huffman encoding table for PIZ data.");
             }
 
-            BitWriter tableWriter = new BitWriter();
+            BitWriter tableWriter = workspace?.GetHufTableWriter() ?? new BitWriter();
             HufPackEncTable(codes, im, iM, tableWriter);
-            byte[] tableBytes = tableWriter.ToArray();
+            int tableByteCount = tableWriter.Flush();
 
-            BitWriter dataWriter = new BitWriter();
+            BitWriter dataWriter = workspace?.GetHufDataWriter() ?? new BitWriter();
             int symbol = raw[0];
             int count = 0;
             for (int i = 1; i < raw.Length; i++)
@@ -2613,16 +3064,17 @@ namespace TinyEXR.PortV1
             }
 
             SendCode(codes[symbol], count, codes[iM], dataWriter);
-            byte[] dataBytes = dataWriter.ToArray();
+            int dataByteCount = dataWriter.Flush();
 
-            byte[] output = new byte[20 + tableBytes.Length + dataBytes.Length];
+            byte[] output = new byte[20 + tableByteCount + dataByteCount];
             BinaryPrimitives.WriteInt32LittleEndian(output.AsSpan(0, 4), im);
             BinaryPrimitives.WriteInt32LittleEndian(output.AsSpan(4, 4), iM);
-            BinaryPrimitives.WriteInt32LittleEndian(output.AsSpan(8, 4), tableBytes.Length);
+            BinaryPrimitives.WriteInt32LittleEndian(output.AsSpan(8, 4), tableByteCount);
             BinaryPrimitives.WriteInt32LittleEndian(output.AsSpan(12, 4), dataWriter.TotalBits);
             BinaryPrimitives.WriteInt32LittleEndian(output.AsSpan(16, 4), 0);
-            tableBytes.CopyTo(output, 20);
-            dataBytes.CopyTo(output, 20 + tableBytes.Length);
+            tableWriter.Buffer.AsSpan(0, tableByteCount).CopyTo(output.AsSpan(20, tableByteCount));
+            dataWriter.Buffer.AsSpan(0, dataByteCount)
+                .CopyTo(output.AsSpan(20 + tableByteCount, dataByteCount));
             return output;
         }
 
@@ -2921,11 +3373,13 @@ namespace TinyEXR.PortV1
             return (value + a + b) >> shift;
         }
 
-        private static int PackB44Block(Span<byte> output, ushort[] block, bool flatFields, bool exactMax)
+        private static int PackB44Block(Span<byte> output, ReadOnlySpan<ushort> block, bool flatFields, bool exactMax)
         {
-            int[] deltas = new int[16];
-            int[] runs = new int[15];
-            ushort[] ordered = new ushort[16];
+            // These three scratch arrays are per-4x4-block. A 1920x1080 four-channel image has 518400 blocks, so
+            // heap allocating them here would dominate B44 encode cost; stack slices keep the codec allocation free.
+            Span<int> deltas = stackalloc int[16];
+            Span<int> runs = stackalloc int[15];
+            Span<ushort> ordered = stackalloc ushort[16];
             ushort max = 0;
             int shift = -1;
             const int bias = 0x20;
@@ -3025,7 +3479,7 @@ namespace TinyEXR.PortV1
             return 14;
         }
 
-        private static void UnpackB44Block(ReadOnlySpan<byte> input, ushort[] block)
+        private static void UnpackB44Block(ReadOnlySpan<byte> input, Span<ushort> block)
         {
             ushort s0 = (ushort)((input[0] << 8) | input[1]);
             int shift = input[2] >> 2;
@@ -3071,7 +3525,7 @@ namespace TinyEXR.PortV1
             }
         }
 
-        private static void UnpackB44FlatBlock(ReadOnlySpan<byte> input, ushort[] block)
+        private static void UnpackB44FlatBlock(ReadOnlySpan<byte> input, Span<ushort> block)
         {
             ushort ordered = (ushort)((input[0] << 8) | input[1]);
             ushort value = (ordered & 0x8000) != 0

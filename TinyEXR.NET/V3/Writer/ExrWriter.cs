@@ -24,8 +24,7 @@ namespace TinyEXR.V3
         private readonly bool _forceMultipart;
         private readonly WriterLimits _limits;
         private readonly List<Header> _headers = new List<Header>();
-        private readonly ExrCompressionCodec.EncodeWorkspace _encodeWorkspace =
-            new ExrCompressionCodec.EncodeWorkspace();
+        private readonly WriterEncodeResources _encodeResources = new WriterEncodeResources();
         private readonly SemaphoreSlim _operationGate = new SemaphoreSlim(1, 1);
         private readonly object _stateGate = new object();
 
@@ -1035,12 +1034,18 @@ namespace TinyEXR.V3
                     channels,
                     _multipart,
                     _limits,
-                    _encodeWorkspace);
+                    _encodeResources,
+                    out int chunkLength);
                 operation = new PendingBlock(
                     partIndex,
                     blockIndex,
                     _streamEndPosition,
-                    chunk);
+                    chunk,
+                    chunkLength,
+                    maximumSamplesPerPixel: 0)
+                {
+                    PooledChunk = true,
+                };
                 _pendingBlock = operation;
                 SetState(WriterState.WritingBlock);
                 return null;
@@ -1144,7 +1149,7 @@ namespace TinyEXR.V3
                     channels,
                     _multipart,
                     _limits,
-                    _encodeWorkspace);
+                    _encodeResources.CodecWorkspace);
                 operation = new PendingBlock(
                     partIndex,
                     blockIndex,
@@ -1189,9 +1194,20 @@ namespace TinyEXR.V3
             part.MaximumSamplesPerPixel = Math.Max(
                 part.MaximumSamplesPerPixel,
                 operation.MaximumSamplesPerPixel);
-            _streamEndPosition = checked(operation.StartPosition + operation.Output.Data.LongLength);
-            _pendingBlock = null;
+            _streamEndPosition = checked(operation.StartPosition + operation.Output.Length);
+            ReleasePendingBlock();
             SetState(WriterState.Streaming);
+        }
+
+        /// <summary>Returns the pending block's pooled chunk buffer, if any, and clears the block.</summary>
+        private void ReleasePendingBlock()
+        {
+            if (_pendingBlock != null && _pendingBlock.PooledChunk)
+            {
+                _encodeResources.ReturnBytes(_pendingBlock.Output.Data);
+            }
+
+            _pendingBlock = null;
         }
 
         private WriterResult EndCore()
@@ -1404,7 +1420,7 @@ namespace TinyEXR.V3
         private WriterResult? DrainOutput(PendingOutput output, ref long bytesWritten)
         {
             output.InvocationBytesWritten = 0;
-            if (output.Offset == output.Data.Length)
+            if (output.Offset == output.Length)
             {
                 return null;
             }
@@ -1420,7 +1436,7 @@ namespace TinyEXR.V3
                 output.SeekCompleted = true;
             }
 
-            int remaining = output.Data.Length - output.Offset;
+            int remaining = output.Length - output.Offset;
             DataTransferResult transfer;
             try
             {
@@ -1446,7 +1462,7 @@ namespace TinyEXR.V3
             CancellationToken cancellationToken)
         {
             output.InvocationBytesWritten = 0;
-            if (output.Offset == output.Data.Length)
+            if (output.Offset == output.Length)
             {
                 return null;
             }
@@ -1464,7 +1480,7 @@ namespace TinyEXR.V3
                 output.SeekCompleted = true;
             }
 
-            int remaining = output.Data.Length - output.Offset;
+            int remaining = output.Length - output.Offset;
             DataTransferResult transfer;
             try
             {
@@ -1715,6 +1731,8 @@ namespace TinyEXR.V3
             lock (_stateGate)
             {
                 _disposed = true;
+                ReleasePendingBlock();
+                _encodeResources.Dispose();
                 _pending = null;
                 _state = WriterState.Disposed;
             }
@@ -1829,12 +1847,23 @@ namespace TinyEXR.V3
                 long startPosition,
                 byte[] data,
                 int maximumSamplesPerPixel = 0)
+                : this(partIndex, blockIndex, startPosition, data, data.Length, maximumSamplesPerPixel)
+            {
+            }
+
+            public PendingBlock(
+                int partIndex,
+                int blockIndex,
+                long startPosition,
+                byte[] data,
+                int length,
+                int maximumSamplesPerPixel)
             {
                 PartIndex = partIndex;
                 BlockIndex = blockIndex;
                 StartPosition = startPosition;
                 MaximumSamplesPerPixel = maximumSamplesPerPixel;
-                Output = new PendingOutput(startPosition, data);
+                Output = new PendingOutput(startPosition, data, length);
             }
 
             public int PartIndex { get; }
@@ -1846,6 +1875,9 @@ namespace TinyEXR.V3
             public int MaximumSamplesPerPixel { get; }
 
             public PendingOutput Output { get; }
+
+            /// <summary>True when <see cref="PendingOutput.Data"/> was rented and must be returned after writing.</summary>
+            public bool PooledChunk { get; set; }
         }
 
         private sealed class EndOperation
@@ -1865,14 +1897,24 @@ namespace TinyEXR.V3
         private sealed class PendingOutput
         {
             public PendingOutput(long absolutePosition, byte[] data)
+                : this(absolutePosition, data, data.Length)
+            {
+            }
+
+            public PendingOutput(long absolutePosition, byte[] data, int length)
             {
                 AbsolutePosition = absolutePosition;
                 Data = data;
+                Length = length;
             }
 
             public long AbsolutePosition { get; }
 
+            /// <summary>The backing store, which may be a pooled buffer with spare capacity.</summary>
             public byte[] Data { get; }
+
+            /// <summary>The number of bytes to write, which can be shorter than <see cref="Data"/>.</summary>
+            public int Length { get; }
 
             public int Offset { get; set; }
 

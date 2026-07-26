@@ -18,6 +18,21 @@ namespace TinyEXR.V3.Codecs
             out byte[] payload,
             out string? error)
         {
+            return Encode(header, region, source, null, out payload, out error);
+        }
+
+        /// <summary>
+        /// Encodes one HTJ2K block. Passing a caller-owned <paramref name="pool"/> lets every block of a part reuse
+        /// the same buffers; a null pool creates and drops a private pool for this call alone.
+        /// </summary>
+        internal static Htj2kEncodeStatus Encode(
+            Header header,
+            Box2i region,
+            byte[] source,
+            Htj2kBufferPool? pool,
+            out byte[] payload,
+            out string? error)
+        {
             if (header == null)
             {
                 throw new ArgumentNullException(nameof(header));
@@ -30,7 +45,9 @@ namespace TinyEXR.V3.Codecs
 
             try
             {
-                payload = EncodeCore(header, region, source);
+                payload = pool == null
+                    ? EncodeCore(header, region, source)
+                    : EncodeCore(header, region, source, pool);
                 error = null;
                 return Htj2kEncodeStatus.Success;
             }
@@ -55,6 +72,12 @@ namespace TinyEXR.V3.Codecs
         }
 
         private static byte[] EncodeCore(Header header, Box2i region, byte[] source)
+        {
+            using Htj2kBufferPool pool = new Htj2kBufferPool();
+            return EncodeCore(header, region, source, pool);
+        }
+
+        private static byte[] EncodeCore(Header header, Box2i region, byte[] source, Htj2kBufferPool pool)
         {
             EncodeRequire(!header.IsDeep, Htj2kEncodeStatus.Unsupported,
                 "HTJ2K encoding is available only for flat parts.");
@@ -89,7 +112,7 @@ namespace TinyEXR.V3.Codecs
                 }
             }
 
-            Plane[] planes = DeinterleaveBlock(header, region, source);
+            Plane[] planes = DeinterleaveBlock(header, region, source, pool);
             try
             {
                 ForwardNonlinearTransforms(header, planes);
@@ -106,9 +129,9 @@ namespace TinyEXR.V3.Codecs
                     maximumWidth = Math.Max(maximumWidth, plane.Width);
                 }
 
-                long[] temporary = ArrayPool<long>.Shared.Rent(temporaryLength);
-                long[] lowRow = ArrayPool<long>.Shared.Rent(checked((int)((maximumWidth + 1) / 2)));
-                long[] highRow = ArrayPool<long>.Shared.Rent(checked((int)(maximumWidth / 2)));
+                long[] temporary = pool.RentInt64(temporaryLength);
+                long[] lowRow = pool.RentInt64(checked((int)((maximumWidth + 1) / 2)));
+                long[] highRow = pool.RentInt64(checked((int)(maximumWidth / 2)));
                 try
                 {
                     for (int component = 0; component < planes.Length; component++)
@@ -125,13 +148,14 @@ namespace TinyEXR.V3.Codecs
                 }
                 finally
                 {
-                    ArrayPool<long>.Shared.Return(highRow);
-                    ArrayPool<long>.Shared.Return(lowRow);
-                    ArrayPool<long>.Shared.Return(temporary);
+                    pool.ReturnInt64(highRow);
+                    pool.ReturnInt64(lowRow);
+                    pool.ReturnInt64(temporary);
                 }
 
                 using ByteAccumulator output = new ByteAccumulator(
-                    Math.Min(checked(source.Length + 4096), 64 * 1024));
+                    Math.Min(checked(source.Length + 4096), 64 * 1024),
+                    pool);
                 WriteHtHeader(output, header, componentToFile);
                 output.WriteUInt16BigEndian(MarkerSoc);
                 WriteSiz(output, header, width, height, componentToFile);
@@ -172,11 +196,11 @@ namespace TinyEXR.V3.Codecs
             }
             finally
             {
-                ReturnPlanes(planes);
+                ReturnPlanes(planes, pool);
             }
         }
 
-        private static Plane[] DeinterleaveBlock(Header header, Box2i region, byte[] source)
+        private static Plane[] DeinterleaveBlock(Header header, Box2i region, byte[] source, Htj2kBufferPool pool)
         {
             Plane[] planes = new Plane[header.Channels.Count];
             bool completed = false;
@@ -203,7 +227,7 @@ namespace TinyEXR.V3.Codecs
                     planes[channelIndex] = new Plane(
                         checked((uint)width),
                         checked((uint)height),
-                        ArrayPool<long>.Shared.Rent(checked((int)count)));
+                        pool.RentInt64(checked((int)count)));
                 }
 
                 int offset = 0;
@@ -279,7 +303,7 @@ namespace TinyEXR.V3.Codecs
             {
                 if (!completed)
                 {
-                    ReturnPlanes(planes);
+                    ReturnPlanes(planes, pool);
                 }
             }
         }
@@ -852,11 +876,13 @@ namespace TinyEXR.V3.Codecs
 
         private sealed class ByteAccumulator : IDisposable
         {
+            private readonly Htj2kBufferPool _pool;
             private byte[] _data;
 
-            public ByteAccumulator(int initialCapacity)
+            public ByteAccumulator(int initialCapacity, Htj2kBufferPool pool)
             {
-                _data = ArrayPool<byte>.Shared.Rent(Math.Max(initialCapacity, 256));
+                _pool = pool;
+                _data = pool.RentBytes(Math.Max(initialCapacity, 256));
             }
 
             public int Count { get; private set; }
@@ -917,9 +943,9 @@ namespace TinyEXR.V3.Codecs
                     capacity = checked(capacity * 2);
                 }
 
-                byte[] replacement = ArrayPool<byte>.Shared.Rent(capacity);
+                byte[] replacement = _pool.RentBytes(capacity);
                 Array.Copy(_data, replacement, Count);
-                ArrayPool<byte>.Shared.Return(_data);
+                _pool.ReturnBytes(_data);
                 _data = replacement;
             }
 
@@ -927,7 +953,7 @@ namespace TinyEXR.V3.Codecs
             {
                 if (_data.Length != 0)
                 {
-                    ArrayPool<byte>.Shared.Return(_data);
+                    _pool.ReturnBytes(_data);
                     _data = Array.Empty<byte>();
                 }
             }

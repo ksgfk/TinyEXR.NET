@@ -8,14 +8,20 @@ namespace TinyEXR.V3
 {
     internal static class FlatBlockEncoder
     {
+        /// <summary>
+        /// Encodes one flat block into a buffer rented from <paramref name="resources"/>. The caller owns the
+        /// returned buffer and must return it to the same pool once the chunk has been written.
+        /// </summary>
         public static byte[] Encode(
             WriterPartData part,
             BlockInfo info,
             IReadOnlyList<ChannelBuffer> channels,
             bool multipart,
             WriterLimits limits,
-            ExrCompressionCodec.EncodeWorkspace workspace)
+            WriterEncodeResources resources,
+            out int chunkLength)
         {
+            ExrCompressionCodec.EncodeWorkspace workspace = resources.CodecWorkspace;
             if (part.Header.IsDeep || info.IsDeep)
             {
                 throw new WriterPlanException(
@@ -34,16 +40,18 @@ namespace TinyEXR.V3
                 throw Invalid("Every block must provide exactly one buffer for every header channel.");
             }
 
-            Dictionary<string, ChannelBuffer> sources = new Dictionary<string, ChannelBuffer>(
-                channels.Count,
-                StringComparer.Ordinal);
             for (int i = 0; i < channels.Count; i++)
             {
-                ChannelBuffer source = channels[i] ??
+                ChannelBuffer probe = channels[i] ??
                     throw Invalid("The block channel collection contains a null buffer.");
-                if (!sources.TryAdd(source.Name, source))
+                for (int j = i + 1; j < channels.Count; j++)
                 {
-                    throw Invalid($"Duplicate block channel buffer '{source.Name}'.");
+                    ChannelBuffer other = channels[j] ??
+                        throw Invalid("The block channel collection contains a null buffer.");
+                    if (string.Equals(probe.Name, other.Name, StringComparison.Ordinal))
+                    {
+                        throw Invalid($"Duplicate block channel buffer '{probe.Name}'.");
+                    }
                 }
             }
 
@@ -66,12 +74,22 @@ namespace TinyEXR.V3
                     exception);
             }
 
-            ChannelBuffer[] orderedSources = new ChannelBuffer[part.Header.Channels.Count];
-            int[] sourceOffsets = new int[orderedSources.Length];
+            ChannelBuffer[] orderedSources = part.RentOrderedSources();
+            int[] sourceOffsets = part.RentSourceOffsets();
             for (int i = 0; i < orderedSources.Length; i++)
             {
                 Channel expected = part.Header.Channels[i];
-                if (!sources.TryGetValue(expected.Name, out ChannelBuffer? source))
+                ChannelBuffer? source = null;
+                for (int j = 0; j < channels.Count; j++)
+                {
+                    if (string.Equals(channels[j].Name, expected.Name, StringComparison.Ordinal))
+                    {
+                        source = channels[j];
+                        break;
+                    }
+                }
+
+                if (source == null)
                 {
                     throw Invalid($"The block does not contain channel '{expected.Name}'.");
                 }
@@ -120,7 +138,7 @@ namespace TinyEXR.V3
                 }
             }
 
-            if (rawOffset != raw.Length)
+            if (rawOffset != rawLength)
             {
                 throw new InvalidOperationException("The gathered block length does not match its canonical EXR size.");
             }
@@ -134,21 +152,23 @@ namespace TinyEXR.V3
                 }
             }
 
-            byte[] payload = EncodePayload(part, info, raw, workspace);
-            if (payload.Length >= raw.Length &&
+            byte[] payload = EncodePayload(part, info, raw, rawLength, resources, out int payloadLength);
+            if (payloadLength >= rawLength &&
                 part.Header.Compression != Compression.B44 &&
                 part.Header.Compression != Compression.B44A &&
                 !ReferenceEquals(payload, raw))
             {
                 payload = raw;
+                payloadLength = rawLength;
             }
 
             Limit(
                 nameof(limits.MaximumEncodedBlockByteCount),
-                checked((long)info.ChunkHeaderByteCount + payload.Length),
+                checked((long)info.ChunkHeaderByteCount + payloadLength),
                 limits.MaximumEncodedBlockByteCount);
 
-            byte[] chunk = new byte[checked(info.ChunkHeaderByteCount + payload.Length)];
+            chunkLength = checked(info.ChunkHeaderByteCount + payloadLength);
+            byte[] chunk = resources.RentBytes(chunkLength);
             int offset = 0;
             if (multipart)
             {
@@ -167,13 +187,13 @@ namespace TinyEXR.V3
                 WriteInt32(chunk, ref offset, info.Region.MinY);
             }
 
-            WriteInt32(chunk, ref offset, payload.Length);
+            WriteInt32(chunk, ref offset, payloadLength);
             if (offset != info.ChunkHeaderByteCount)
             {
                 throw new InvalidOperationException("The encoded flat chunk header has an inconsistent size.");
             }
 
-            payload.AsSpan().CopyTo(chunk.AsSpan(offset));
+            payload.AsSpan(0, payloadLength).CopyTo(chunk.AsSpan(offset, payloadLength));
             return chunk;
         }
 
@@ -181,8 +201,11 @@ namespace TinyEXR.V3
             WriterPartData part,
             BlockInfo info,
             byte[] raw,
-            ExrCompressionCodec.EncodeWorkspace workspace)
+            int rawLength,
+            WriterEncodeResources resources,
+            out int payloadLength)
         {
+            ExrCompressionCodec.EncodeWorkspace workspace = resources.CodecWorkspace;
             if (part.Header.Compression == Compression.HTJ2K256 ||
                 part.Header.Compression == Compression.HTJ2K32)
             {
@@ -190,11 +213,13 @@ namespace TinyEXR.V3
                     part.Header,
                     info.Region,
                     raw,
+                    resources.Htj2kPool,
                     out byte[] htj2kPayload,
                     out string? error);
                 switch (status)
                 {
                     case Htj2kEncodeStatus.Success:
+                        payloadLength = htj2kPayload.Length;
                         return htj2kPayload;
                     case Htj2kEncodeStatus.InvalidArgument:
                         throw Invalid(error ?? "The HTJ2K encoder rejected the flat block.");
@@ -226,13 +251,16 @@ namespace TinyEXR.V3
                 checked((int)info.Region.Height),
                 raw,
                 workspace,
-                out byte[] payload);
+                out byte[] payload,
+                out int encodedLength);
             switch (result)
             {
                 case ResultCode.Success:
+                    payloadLength = encodedLength;
                     return payload;
                 case ResultCode.UnsupportedFeature:
                 case ResultCode.UnsupportedFormat:
+                    payloadLength = rawLength;
                     return raw;
                 case ResultCode.DataTooLarge:
                     throw new WriterPlanException(

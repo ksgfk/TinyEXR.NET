@@ -61,6 +61,21 @@ namespace TinyEXR.V3.Codecs
             Span<byte> destination,
             out string? error)
         {
+            return Decode(header, region, source, destination, null, out error);
+        }
+
+        /// <summary>
+        /// Decodes one HTJ2K block. Passing a caller-owned <paramref name="pool"/> lets every block of a part reuse
+        /// the same buffers; a null pool creates and drops a private pool for this call alone.
+        /// </summary>
+        internal static Htj2kDecodeStatus Decode(
+            Header header,
+            Box2i region,
+            byte[] source,
+            Span<byte> destination,
+            Htj2kBufferPool? pool,
+            out string? error)
+        {
             if (header == null)
             {
                 throw new ArgumentNullException(nameof(header));
@@ -73,7 +88,7 @@ namespace TinyEXR.V3.Codecs
 
             try
             {
-                DecodeCore(new DecodeContext(header, region), source, destination);
+                DecodeCore(new DecodeContext(header, region), source, destination, pool);
                 error = null;
                 return Htj2kDecodeStatus.Success;
             }
@@ -94,14 +109,25 @@ namespace TinyEXR.V3.Codecs
             }
         }
 
-        private static void DecodeCore(DecodeContext context, byte[] source, Span<byte> destination)
+        private static void DecodeCore(
+            DecodeContext context,
+            byte[] source,
+            Span<byte> destination,
+            Htj2kBufferPool? pool)
         {
             int codestreamOffset = ParseHtHeader(context, source, out ushort[] channelMap);
             Require(codestreamOffset < source.Length, "The HTJ2K wrapper has no JPEG 2000 codestream.");
 
             Profile profile = ParseProfile(source, codestreamOffset, source.Length);
             ValidateProfile(context, profile, channelMap);
-            DecodeTilePayload(context, profile, channelMap, source, destination);
+            if (pool != null)
+            {
+                DecodeTilePayload(context, profile, channelMap, source, destination, pool);
+                return;
+            }
+
+            using Htj2kBufferPool privatePool = new Htj2kBufferPool();
+            DecodeTilePayload(context, profile, channelMap, source, destination, privatePool);
         }
 
         private static int ParseHtHeader(DecodeContext context, byte[] source, out ushort[] channelMap)
@@ -542,11 +568,12 @@ namespace TinyEXR.V3.Codecs
             Profile profile,
             ushort[] channelMap,
             byte[] source,
-            Span<byte> destination)
+            Span<byte> destination,
+            Htj2kBufferPool pool)
         {
             // The packet parser, HT cleanup/SPP/MRP decoder, inverse 5/3 transform,
             // RCT/NLT, and canonical EXR row packing are implemented below.
-            DecodePacketsAndStore(context, profile, channelMap, source, destination);
+            DecodePacketsAndStore(context, profile, channelMap, source, destination, pool);
         }
 
         private static void DecodePacketsAndStore(
@@ -554,10 +581,11 @@ namespace TinyEXR.V3.Codecs
             Profile profile,
             ushort[] channelMap,
             byte[] source,
-            Span<byte> destination)
+            Span<byte> destination,
+            Htj2kBufferPool pool)
         {
             List<CodeBlock> codeBlocks = ParseTilePackets(profile, source);
-            Plane[] planes = AllocatePlanes(profile);
+            Plane[] planes = AllocatePlanes(profile, pool);
             try
             {
                 CodeBlockDecodeWorkspace workspace = new CodeBlockDecodeWorkspace();
@@ -578,12 +606,12 @@ namespace TinyEXR.V3.Codecs
                     ScatterCodeBlock(profile, codeBlock, bands[codeBlock.Band], coefficients, planes[codeBlock.Component]);
                 }
 
-                PostprocessPlanes(profile, planes);
+                PostprocessPlanes(profile, planes, pool);
                 StorePlanes(context, profile, channelMap, planes, destination);
             }
             finally
             {
-                ReturnPlanes(planes);
+                ReturnPlanes(planes, pool);
             }
         }
 

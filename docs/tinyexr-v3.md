@@ -98,6 +98,27 @@ unsupported hardware and `netstandard2.1`, and parity tests compare exact output
 across every vector tail. Normalized `uint` conversion deliberately remains
 scalar so it preserves the existing double-precision scaling semantics.
 
+### Buffer ownership
+
+The library never uses `ArrayPool<T>.Shared`. Every reader, writer, and HTJ2K
+operation creates its own pool with `ArrayPool<T>.Create` and holds it in an
+instance-scoped resource set, so TinyEXR.NET neither retains buffers in
+process-wide state nor competes with host application code for shared pool
+buckets. Disposing an `ExrReader` or `ExrWriter` drops its pools and codec
+workspaces, leaving no retained arrays behind.
+
+Pools are created with an explicit maximum array length because the
+`ArrayPool<T>.Create()` default of 1 MiB is far below a typical EXR block or
+HTJ2K coefficient plane, and oversized rentals bypass a pool entirely. Retention
+per size class is likewise sized so that all buffers live at once during a single
+block stay poolable.
+
+Within one part, block decode and encode reuse their chunk, payload, plane, and
+codec scratch buffers across every block, so a whole-image read or write
+allocates roughly the materialized pixel data rather than a multiple of it. Codec
+buffers whose final length is only known after encoding are returned with an
+explicit length; callers must honour that length rather than the array length.
+
 `SpectralImage` materializes part 0 into wavelength-major float planes, sorts
 and merges wavelengths using the upstream 0.01 nm rule, preserves units and
 polarisation handedness, and point-expands sampled spectral channels. Files are

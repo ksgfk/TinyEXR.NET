@@ -178,6 +178,34 @@ Each cell is `encoded MiB / raw-to-encoded ratio`.
 - Managed RLE decode is 17% slower than TinyEXR v3 C but takes only 61% of
   OpenEXR time. Managed and TinyEXR v3 C ZIPS decode are within 2%.
 
+## Allocation Reduction (pending re-measurement)
+
+The tables above predate the buffer-ownership work described in
+`docs/tinyexr-v3.md`. That change routed block decode and encode through
+instance-scoped pools and codec workspaces, removing the per-block buffers that
+previously dominated managed allocation. Measured with
+`--profile-v3-compression <op> <codec> 30`, allocation per operation changed as
+follows. Times on that machine are not comparable to the table above, so only
+the allocation ratio is reported here; the full `Default` comparison needs a
+re-run on the report machine before the tables are updated.
+
+| Compression | Encode before / after MiB | Decode before / after MiB |
+| --- | ---: | ---: |
+| None | 97.0 / 33.3 | 48.1 / 16.3 |
+| RLE | 78.8 / 21.7 | 52.7 / 16.3 |
+| ZIPS | 34.9 / 33.9 | 49.0 / 16.6 |
+| ZIP | 32.9 / 33.2 | 48.0 / 16.7 |
+| PIZ | 97.6 / 22.3 | 83.3 / 18.5 |
+| PXR24 | 32.9 / 33.2 | 48.0 / 16.7 |
+| B44 | 96.5 / 25.7 | 55.0 / 17.6 |
+| B44A | 69.7 / 22.9 | 52.3 / 17.5 |
+
+Flat decode now allocates close to the 15.82 MiB materialized payload itself.
+ZIP, ZIPS, and PXR24 encode were already workspace-backed and are unchanged.
+HTJ2K is bounded by its scalar entropy and transform code rather than by
+allocation, and its per-operation pool cannot amortize across separate calls the
+way a process-wide pool would, so its allocation is roughly unchanged.
+
 ## Verification
 
 The report run completed all 68 expected rows without failures. Additional

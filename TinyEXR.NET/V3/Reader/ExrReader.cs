@@ -22,6 +22,7 @@ namespace TinyEXR.V3
         private readonly ReaderParser _parser;
         private readonly SemaphoreSlim _operationGate = new SemaphoreSlim(1, 1);
         private readonly object _stateGate = new object();
+        private readonly ReaderDecodeResources _decodeResources = new ReaderDecodeResources();
 
         private ReaderState _state = ReaderState.Created;
         private DataRange? _pending;
@@ -889,6 +890,13 @@ namespace TinyEXR.V3
             return data.Parts[partIndex];
         }
 
+        /// <summary>Releases the active block operation's pooled buffers and clears it.</summary>
+        private void ReleaseBlockOperation()
+        {
+            _blockOperation?.Release();
+            _blockOperation = null;
+        }
+
         private bool MarkDisposed()
         {
             lock (_stateGate)
@@ -900,7 +908,8 @@ namespace TinyEXR.V3
 
                 _disposed = true;
                 _offsetReconstruction = null;
-                _blockOperation = null;
+                ReleaseBlockOperation();
+                _decodeResources.Dispose();
                 _deepBlockOperation = null;
                 _flatReadOperation = null;
                 _deepReadOperation = null;
@@ -1402,7 +1411,7 @@ namespace TinyEXR.V3
             if (_flatReadOperation != null)
             {
                 _flatReadOperation = null;
-                _blockOperation = null;
+                ReleaseBlockOperation();
             }
 
             try
@@ -2458,7 +2467,7 @@ namespace TinyEXR.V3
                 operation = null;
                 if (_offsetReconstruction == null)
                 {
-                    _blockOperation = null;
+                    ReleaseBlockOperation();
                     try
                     {
                         _offsetReconstruction = new ChunkOffsetReconstructionOperation(data, _limits);
@@ -2510,11 +2519,16 @@ namespace TinyEXR.V3
                     "destination");
             }
 
-            if (_blockOperation == null ||
-                _blockOperation.Info.PartIndex != partIndex ||
-                _blockOperation.Info.BlockIndex != blockIndex)
+            if (_blockOperation == null || _blockOperation.Part != part)
             {
-                _blockOperation = new FlatBlockOperation(part.Header, info, data.Multipart, _limits);
+                _blockOperation?.Release();
+                _blockOperation = new FlatBlockOperation(part, info, data.Multipart, _limits, _decodeResources);
+                ClearPending();
+            }
+            else if (_blockOperation.IsConsumed || _blockOperation.Info.BlockIndex != blockIndex)
+            {
+                // Rebind the existing operation so its rented chunk-header and payload buffers carry over.
+                _blockOperation.Reset(info);
                 ClearPending();
             }
 
@@ -2532,7 +2546,7 @@ namespace TinyEXR.V3
                 ReaderResult? validation = operation.ValidateHeader(knownLength);
                 if (validation.HasValue)
                 {
-                    _blockOperation = null;
+                    ReleaseBlockOperation();
                     return validation.Value;
                 }
             }
@@ -2543,7 +2557,15 @@ namespace TinyEXR.V3
             }
 
             ReaderResult result = operation.Decode(destination);
-            _blockOperation = null;
+
+            // Keep the operation so the next block reuses its rented buffers, but mark it consumed so the next
+            // prepare always rebinds instead of reusing a finished decode.
+            operation.MarkConsumed();
+            if (!result.IsSuccess)
+            {
+                ReleaseBlockOperation();
+            }
+
             return result;
         }
 
@@ -2652,7 +2674,7 @@ namespace TinyEXR.V3
 
                     return new ReaderResult(ExrResult.WouldBlock, transfer.PendingRange, null);
                 case DataTransferStatus.EndOfSource:
-                    _blockOperation = null;
+                    ReleaseBlockOperation();
                     return new ReaderResult(
                         ExrResult.Corrupt,
                         null,
