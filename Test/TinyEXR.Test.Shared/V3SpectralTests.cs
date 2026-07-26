@@ -30,7 +30,7 @@ public sealed class V3SpectralTests
         Assert.IsFalse(V3.Spectral.IsSpectralChannel("S0.550,0nm.trailing"));
     }
 
-    [TestMethod(DisplayName = "[TinyEXR.NET Test] V3 emissive spectral cube round-trips through ZSTD memory and file reads")]
+    [TestMethod(DisplayName = "[TinyEXR.NET Test] V3 emissive spectral cube round-trips through ZIP memory and file reads")]
     public void Case_V3Spectral_EmissiveCubeRoundTripsThroughMemoryAndFile()
     {
         const int width = 3;
@@ -52,7 +52,7 @@ public sealed class V3SpectralTests
             sourceWavelengths,
             samples,
             "W.m^-2.sr^-1",
-            V3.Compression.ZSTD);
+            V3.Compression.ZIP);
         Assert.IsTrue(part.IsComplete);
         Assert.IsTrue(V3.Spectral.IsSpectral(part.Header));
         Assert.AreEqual(V3.SpectrumType.Emissive, V3.Spectral.GetSpectrumType(part.Header));

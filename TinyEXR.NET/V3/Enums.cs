@@ -37,7 +37,6 @@ namespace TinyEXR.V3
         DWAB = 9,
         HTJ2K256 = 10,
         HTJ2K32 = 11,
-        ZSTD = 12,
     }
 
     public enum LineOrder

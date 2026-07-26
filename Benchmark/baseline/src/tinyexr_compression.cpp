@@ -44,7 +44,6 @@ constexpr CompressionCase kCompressionCases[] = {
     {"B44A", "b44a.exr", EXR_COMPRESSION_B44A},
     {"HTJ2K256", "htj2k256.exr", EXR_COMPRESSION_HTJ2K256},
     {"HTJ2K32", "htj2k32.exr", EXR_COMPRESSION_HTJ2K32},
-    {"ZSTD", "zstd.exr", EXR_COMPRESSION_ZSTD},
 };
 
 class EncodedBuffer final

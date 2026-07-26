@@ -137,7 +137,7 @@ try {
     $fixtureDirectory = Join-Path $repoRoot '.cache\compression-benchmarks\v3-managed'
     $sharedCompressions = @(
         'None', 'RLE', 'ZIPS', 'ZIP', 'PIZ', 'PXR24', 'B44', 'B44A',
-        'HTJ2K256', 'HTJ2K32', 'ZSTD'
+        'HTJ2K256', 'HTJ2K32'
     )
     $comparison = [Collections.Generic.List[object]]::new()
     $managedReport = Get-Content -Raw -LiteralPath $managedJson.FullName | ConvertFrom-Json
@@ -145,9 +145,9 @@ try {
     $failedManagedBenchmarks = @($managedBenchmarks | Where-Object {
         $null -eq $_.Statistics -or [double]$_.Statistics.Mean -le 0
     })
-    if ($managedBenchmarks.Count -ne 22 -or $failedManagedBenchmarks.Count -gt 0) {
+    if ($managedBenchmarks.Count -ne 20 -or $failedManagedBenchmarks.Count -gt 0) {
         throw "The managed report is incomplete: $($managedBenchmarks.Count) rows, " +
-            "$($failedManagedBenchmarks.Count) failed rows; expected 22 successful rows."
+            "$($failedManagedBenchmarks.Count) failed rows; expected 20 successful rows."
     }
 
     foreach ($benchmark in $managedBenchmarks) {
@@ -177,7 +177,7 @@ try {
             Path = $tinyExrOutput
             Prefix = 'TinyEXR'
             Implementation = 'TinyEXR v3 C'
-            ExpectedRows = 22
+            ExpectedRows = 20
         },
         [pscustomobject]@{
             Path = $openExrOutput
@@ -240,8 +240,8 @@ try {
         }
     }
 
-    if ($comparison.Count -ne 68) {
-        throw "The combined comparison has $($comparison.Count) rows; expected 68."
+    if ($comparison.Count -ne 64) {
+        throw "The combined comparison has $($comparison.Count) rows; expected 64."
     }
 
     $comparisonPath = Join-Path $OutputDirectory 'comparison.csv'

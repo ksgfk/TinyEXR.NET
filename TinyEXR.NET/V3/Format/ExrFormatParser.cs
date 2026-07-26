@@ -589,7 +589,7 @@ namespace TinyEXR.V3.Format
         private static Compression ParseCompression(ParsedAttribute attribute)
         {
             byte value = attribute.Value.Data[0];
-            if (value > (byte)Compression.ZSTD)
+            if (value > (byte)Compression.HTJ2K32)
             {
                 throw Failure(ExrResult.Unsupported);
             }
@@ -956,7 +956,6 @@ namespace TinyEXR.V3.Format
                 case Compression.B44A:
                 case Compression.DWAA:
                 case Compression.HTJ2K32:
-                case Compression.ZSTD:
                     return 32;
                 case Compression.DWAB:
                 case Compression.HTJ2K256:

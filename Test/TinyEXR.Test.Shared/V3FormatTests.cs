@@ -798,7 +798,7 @@ public sealed class V3FormatTests
             V3.Compression.None or V3.Compression.RLE or V3.Compression.ZIPS => 1,
             V3.Compression.ZIP or V3.Compression.PXR24 => 16,
             V3.Compression.PIZ or V3.Compression.B44 or V3.Compression.B44A or
-                V3.Compression.DWAA or V3.Compression.HTJ2K32 or V3.Compression.ZSTD => 32,
+                V3.Compression.DWAA or V3.Compression.HTJ2K32 => 32,
             V3.Compression.DWAB or V3.Compression.HTJ2K256 => 256,
             _ => throw new ArgumentOutOfRangeException(nameof(compression)),
         };

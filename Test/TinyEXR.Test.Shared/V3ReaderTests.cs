@@ -1,6 +1,5 @@
 using System.Buffers.Binary;
 using V3 = TinyEXR.V3;
-using V3Codecs = TinyEXR.V3.Codecs;
 using V3IO = TinyEXR.V3.IO;
 
 namespace TinyEXR.Test;
@@ -496,28 +495,15 @@ public sealed class V3ReaderTests
         }
     }
 
-    [TestMethod(DisplayName = "[TinyEXR.NET Test] V3 reader decodes ZSTD EXR blocks and genuinely awaits async input")]
-    public async Task Case_V3Reader_DecodeBlockSupportsZstdAndAsync()
+    [TestMethod(DisplayName = "[TinyEXR.NET Test] V3 reader decodes EXR blocks and genuinely awaits async input")]
+    public async Task Case_V3Reader_DecodeBlockAwaitsAsyncInput()
     {
         byte[] canonical = Enumerable.Repeat((byte)0x42, 64).ToArray();
-        Assert.AreEqual(
-            V3Codecs.ZstdFrameStatus.Success,
-            V3Codecs.ZstdRawRleEncoder.GetEncodedSize(canonical, includeChecksum: true, out int encodedSize));
-        byte[] payload = new byte[encodedSize];
-        Assert.AreEqual(
-            V3Codecs.ZstdFrameStatus.Success,
-            V3Codecs.ZstdRawRleEncoder.Encode(
-                canonical,
-                payload,
-                includeChecksum: true,
-                out int bytesWritten));
-        Assert.AreEqual(payload.Length, bytesWritten);
-
         SyntheticFile file = BuildFlatScanlineBlockFile(
             StandardAttributes(
-                V3.Compression.ZSTD,
+                V3.Compression.None,
                 Box(0, 0, 31, 0)),
-            payload,
+            canonical,
             minimumY: 0);
         using YieldingAsyncSource source = new YieldingAsyncSource(file.Bytes);
         await using V3.ExrReader reader = V3.ExrReader.OpenAsyncSource(source);
@@ -608,7 +594,6 @@ public sealed class V3ReaderTests
         V3.Compression[] rawFallbackCodecs =
         {
             V3.Compression.ZIP,
-            V3.Compression.ZSTD,
             V3.Compression.DWAA,
             V3.Compression.HTJ2K256,
         };
@@ -894,7 +879,7 @@ public sealed class V3ReaderTests
         }
     }
 
-    [TestMethod(DisplayName = "[TinyEXR.NET Test] V3 deep block supports raw RLE ZIP ZIPS and ZSTD payloads")]
+    [TestMethod(DisplayName = "[TinyEXR.NET Test] V3 deep block supports raw RLE ZIP and ZIPS payloads")]
     public void Case_V3Reader_DeepBlockCompressionMatrix()
     {
         V3.Compression[] compressions =
@@ -903,7 +888,6 @@ public sealed class V3ReaderTests
             V3.Compression.RLE,
             V3.Compression.ZIPS,
             V3.Compression.ZIP,
-            V3.Compression.ZSTD,
         };
         ChannelSpec[] channels =
         {
@@ -1006,7 +990,7 @@ public sealed class V3ReaderTests
         }
 
         DeepSyntheticFile valid = BuildDeepBlockFile(
-            V3.Compression.ZSTD,
+            V3.Compression.ZIP,
             new V3.Box2i(0, 0, 1, 0),
             channels,
             expectedCounts);
@@ -1052,7 +1036,7 @@ public sealed class V3ReaderTests
         }
 
         DeepSyntheticFile corruptSamples = BuildDeepBlockFile(
-            V3.Compression.ZSTD,
+            V3.Compression.ZIP,
             new V3.Box2i(0, 0, 1, 0),
             channels,
             expectedCounts);
@@ -1081,7 +1065,7 @@ public sealed class V3ReaderTests
         ChannelSpec[] channels = { new ChannelSpec("Z", V3.PixelType.Float, 1, 1) };
         int[] expectedCounts = { 1, 2, 0, 1 };
         DeepSyntheticFile file = BuildDeepBlockFile(
-            V3.Compression.ZSTD,
+            V3.Compression.ZIP,
             new V3.Box2i(0, 0, 3, 0),
             channels,
             expectedCounts);
@@ -1320,7 +1304,7 @@ public sealed class V3ReaderTests
 
         int[] tileCounts = { 1, 0, 2, 1 };
         DeepSyntheticFile tile = BuildDeepBlockFile(
-            V3.Compression.ZSTD,
+            V3.Compression.ZIP,
             new V3.Box2i(-2, -1, -1, 0),
             channels,
             tileCounts,
@@ -1390,7 +1374,7 @@ public sealed class V3ReaderTests
         };
         int[] counts = { 1, 0, 2, 1 };
         DeepSyntheticFile deepFile = BuildDeepBlockFile(
-            V3.Compression.ZSTD,
+            V3.Compression.ZIP,
             new V3.Box2i(-2, -1, -1, 0),
             deepChannels,
             counts,
@@ -1419,7 +1403,7 @@ public sealed class V3ReaderTests
         ChannelSpec[] channels = { new ChannelSpec("Z", V3.PixelType.Float, 1, 1) };
         int[] counts = { 1, 2, 0, 1 };
         DeepSyntheticFile file = BuildDeepBlockFile(
-            V3.Compression.ZSTD,
+            V3.Compression.ZIP,
             new V3.Box2i(0, 0, 3, 0),
             channels,
             counts);
@@ -2360,7 +2344,6 @@ public sealed class V3ReaderTests
             case V3.Compression.B44A:
             case V3.Compression.DWAA:
             case V3.Compression.HTJ2K32:
-            case V3.Compression.ZSTD:
                 return 32;
             case V3.Compression.DWAB:
             case V3.Compression.HTJ2K256:
@@ -2381,28 +2364,6 @@ public sealed class V3ReaderTests
             case V3.Compression.ZIPS:
             case V3.Compression.ZIP:
                 return EncodeDeepZipPayload(raw);
-            case V3.Compression.ZSTD:
-                V3Codecs.ZstdFrameStatus sizeStatus = V3Codecs.ZstdRawRleEncoder.GetEncodedSize(
-                    raw,
-                    includeChecksum: true,
-                    out int encodedSize);
-                if (sizeStatus != V3Codecs.ZstdFrameStatus.Success)
-                {
-                    throw new InvalidOperationException($"Could not size a ZSTD fixture ({sizeStatus}).");
-                }
-
-                byte[] encoded = new byte[encodedSize];
-                V3Codecs.ZstdFrameStatus encodeStatus = V3Codecs.ZstdRawRleEncoder.Encode(
-                    raw,
-                    encoded,
-                    includeChecksum: true,
-                    out int written);
-                if (encodeStatus != V3Codecs.ZstdFrameStatus.Success || written != encoded.Length)
-                {
-                    throw new InvalidOperationException($"Could not encode a ZSTD fixture ({encodeStatus}).");
-                }
-
-                return encoded;
             default:
                 throw new InvalidOperationException(
                     $"Compression '{compression}' is not supported by the deep fixture builder.");

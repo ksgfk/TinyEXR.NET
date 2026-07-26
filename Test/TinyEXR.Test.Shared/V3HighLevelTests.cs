@@ -9,7 +9,7 @@ public sealed class V3HighLevelTests
     public void Case_V3HighLevel_MemoryRoundTripsMixedMultipartImage()
     {
         V3.Image source = CreateImage();
-        V3.WriterResult<byte[]> saved = V3.ExrFile.SaveToMemory(source, V3.Compression.ZSTD);
+        V3.WriterResult<byte[]> saved = V3.ExrFile.SaveToMemory(source, V3.Compression.ZIP);
         Assert.AreEqual(V3.ExrResult.Success, saved.Status, saved.Error?.ToString());
         Assert.IsNotNull(saved.Value);
         Assert.IsTrue(V3.ExrFile.IsExr(saved.Value));
@@ -17,7 +17,7 @@ public sealed class V3HighLevelTests
         V3.ReaderResult<V3.Image> loaded = V3.ExrFile.LoadFromMemory(saved.Value);
         Assert.AreEqual(V3.ExrResult.Success, loaded.Status, loaded.Error?.ToString());
         Assert.IsNotNull(loaded.Value);
-        AssertImageMatches(source, loaded.Value, V3.Compression.ZSTD);
+        AssertImageMatches(source, loaded.Value, V3.Compression.ZIP);
 
         Assert.IsFalse(V3.ExrFile.IsExr(ReadOnlySpan<byte>.Empty));
         Assert.IsFalse(V3.ExrFile.IsExr(new byte[] { 0x76, 0x2f, 0x31, 0x00 }));
@@ -64,13 +64,13 @@ public sealed class V3HighLevelTests
             V3.WriterResult saved = await V3.ExrFile.SaveToFileAsync(
                 source,
                 path,
-                V3.Compression.ZSTD);
+                V3.Compression.ZIP);
             Assert.AreEqual(V3.ExrResult.Success, saved.Status, saved.Error?.ToString());
 
             V3.ReaderResult<V3.Image> loaded = V3.ExrFile.LoadFromFile(path);
             Assert.AreEqual(V3.ExrResult.Success, loaded.Status, loaded.Error?.ToString());
             Assert.IsNotNull(loaded.Value);
-            AssertImageMatches(source, loaded.Value, V3.Compression.ZSTD);
+            AssertImageMatches(source, loaded.Value, V3.Compression.ZIP);
         }
         finally
         {

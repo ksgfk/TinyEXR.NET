@@ -14,8 +14,7 @@ namespace TinyEXR.V3
             IReadOnlyList<ChannelBuffer> channels,
             bool multipart,
             WriterLimits limits,
-            ExrCompressionCodec.EncodeWorkspace workspace,
-            ZstdCompressionEncoder zstdEncoder)
+            ExrCompressionCodec.EncodeWorkspace workspace)
         {
             if (part.Header.IsDeep || info.IsDeep)
             {
@@ -135,7 +134,7 @@ namespace TinyEXR.V3
                 }
             }
 
-            byte[] payload = EncodePayload(part, info, raw, workspace, zstdEncoder);
+            byte[] payload = EncodePayload(part, info, raw, workspace);
             if (payload.Length >= raw.Length &&
                 part.Header.Compression != Compression.B44 &&
                 part.Header.Compression != Compression.B44A &&
@@ -182,24 +181,8 @@ namespace TinyEXR.V3
             WriterPartData part,
             BlockInfo info,
             byte[] raw,
-            ExrCompressionCodec.EncodeWorkspace workspace,
-            ZstdCompressionEncoder zstdEncoder)
+            ExrCompressionCodec.EncodeWorkspace workspace)
         {
-            if (part.Header.Compression == Compression.ZSTD)
-            {
-                try
-                {
-                    return zstdEncoder.Encode(raw);
-                }
-                catch (ZstdCompressionException exception)
-                {
-                    throw new WriterPlanException(
-                        ExrResult.Corrupt,
-                        "The ZSTD encoder could not encode the flat block.",
-                        exception);
-                }
-            }
-
             if (part.Header.Compression == Compression.HTJ2K256 ||
                 part.Header.Compression == Compression.HTJ2K32)
             {

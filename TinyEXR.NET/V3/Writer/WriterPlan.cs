@@ -262,8 +262,7 @@ namespace TinyEXR.V3
                 header.Compression != Compression.ZIPS &&
                 header.Compression != Compression.ZIP &&
                 header.Compression != Compression.HTJ2K256 &&
-                header.Compression != Compression.HTJ2K32 &&
-                header.Compression != Compression.ZSTD)
+                header.Compression != Compression.HTJ2K32)
             {
                 throw Unsupported(
                     $"Compression '{header.Compression}' is not permitted for deep OpenEXR data.");

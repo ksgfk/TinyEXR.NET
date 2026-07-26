@@ -197,30 +197,6 @@ namespace TinyEXR.V3
             {
                 decoded = _payload.ToArray();
             }
-            else if (_header.Compression == Compression.ZSTD)
-            {
-                decoded = new byte[expectedSize];
-                ZstdFrameStatus status = ZstdFrameDecoder.Decode(
-                    _payload!,
-                    decoded,
-                    out int consumed,
-                    out int written,
-                    out _);
-                if (status != ZstdFrameStatus.Success ||
-                    consumed != _payload!.Length ||
-                    written != expectedSize)
-                {
-                    if (status == ZstdFrameStatus.DictionaryNotSupported ||
-                        status == ZstdFrameStatus.WindowTooLarge ||
-                        status == ZstdFrameStatus.ContentSizeTooLarge ||
-                        status == ZstdFrameStatus.UnsupportedCompressedBlock)
-                    {
-                        return Unsupported($"The ZSTD block is not supported ({status}).");
-                    }
-
-                    return Corrupt($"The ZSTD block is invalid ({status}).");
-                }
-            }
             else if (_header.Compression == Compression.HTJ2K256 ||
                 _header.Compression == Compression.HTJ2K32)
             {

@@ -24,7 +24,7 @@ legacy users and tests.
 | Multipart and levels | Separate structures and function families | Parts and mip/rip levels are part of the central image model |
 | Deep data | Separate deep loader representation | Unified deep parts plus two-stage count/sample block decoding |
 | Metadata | Parsed legacy header fields and custom attributes | First-class immutable header/channel/attribute model with round-trip attributes |
-| Compression additions | Values through DWAB in the historical API | Adds HTJ2K256 (10), HTJ2K32 (11), and ZSTD (12) |
+| Compression additions | Values through DWAB in the historical API | Adds HTJ2K256 (10) and HTJ2K32 (11) |
 | Utility surface | EXR loading and saving | Also includes spectral, conversion, resize, tone-map, color, transfer, LUT, and RGBA helpers |
 
 Upstream v3 intentionally leaves DWAA and DWAB unsupported. Its HTJ2K support
@@ -127,13 +127,11 @@ storage, but it is not an implementation of the selected codec.
 | B44 / B44A | Implemented | Implemented | Raw-only input | Unsupported |
 | DWAA / DWAB | Raw-only input | Unsupported | Raw-only input | Unsupported |
 | HTJ2K256 / HTJ2K32 | Implemented | Implemented | Raw only, matching upstream deep policy | Raw fallback only |
-| ZSTD | Implemented | Implemented | Implemented | Implemented |
 
-ZSTD decoding is an independent safe managed implementation. Encoding uses
-`ZstdSharp.Port` 0.8.8 at level 3, matching tinyexr's policy. Flat data uses one
-frame per block; deep data compresses the cumulative count table and sample
-payload independently. Both paths store raw bytes when compression is not
-smaller.
+tinyexr v3 also defines ZSTD (12). OpenEXR does not support ZSTD, so
+TinyEXR.NET does not implement it either; the value is absent from
+`TinyEXR.V3.Compression` and files that declare it are rejected as
+`Unsupported`.
 
 Deep RLE, ZIPS, and ZIP encoding applies the OpenEXR byte reorder/predictor and
 compresses the cumulative count table and sample payload independently. The
@@ -163,8 +161,8 @@ incremental:
   arrays, and converts UINT, HALF, and FLOAT samples to the v1 `float`
   representation. Raw deep attributes such as `version`,
   `maxSamplesPerPixel`, `chromaticities`, and custom values are retained
-  exactly. This path includes genuine ZSTD deep payloads and preserves non-zero
-  stream origins and caller stream positions. Deep tiled mipmap/ripmap files
+  exactly. This path preserves non-zero stream origins and caller stream
+  positions. Deep tiled mipmap/ripmap files
   return `UnsupportedFeature` because `ExrDeepImage` has no level dimension.
 - Eligible flat memory/file saves use `ExrWriter` for both single-part and
   multipart scanline or tiled images, including single-entry multipart

@@ -73,7 +73,6 @@ internal sealed class V3CompressionBenchmarkData
         V3.Compression.B44A,
         V3.Compression.HTJ2K256,
         V3.Compression.HTJ2K32,
-        V3.Compression.ZSTD,
     ];
 
     public static IReadOnlyList<V3.Compression> SelectedCompressions

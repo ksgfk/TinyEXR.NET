@@ -1,7 +1,6 @@
 using System.Buffers.Binary;
 using System.Text;
 using V3 = TinyEXR.V3;
-using V3Codecs = TinyEXR.V3.Codecs;
 using V3Format = TinyEXR.V3.Format;
 using V3IO = TinyEXR.V3.IO;
 
@@ -175,211 +174,6 @@ public sealed class V3WriterTests
         AssertPartMatches(decoded.Value);
     }
 
-    [TestMethod(DisplayName = "[TinyEXR.NET Test] V3 writer emits entropy-compressed ZSTD frames")]
-    public void Case_V3Writer_EmitsEntropyCompressedZstdFrames()
-    {
-        V3.Header header = new(
-            V3.PartType.Scanline,
-            new V3.Box2i(0, 0, 1023, 31),
-            new[] { new V3.Channel("R", V3.PixelType.Float) },
-            compression: V3.Compression.ZSTD);
-        byte[] expected = CreateRepeatingFloatBytes(checked((int)(header.DataWindow.Width * header.DataWindow.Height)));
-
-        using MemoryStream stream = new();
-        using (V3IO.StreamDataSink sink = new(stream, leaveOpen: true))
-        using (V3.ExrWriter writer = V3.ExrWriter.OpenSink(sink))
-        {
-            writer.AddPart(header);
-            Assert.AreEqual(V3.ExrResult.Success, writer.Begin().Status);
-            Assert.AreEqual(1, writer.GetNumBlocks(0));
-            V3.BlockInfo block = writer.GetBlockInfo(0, 0);
-            Assert.AreEqual(
-                V3.ExrResult.Success,
-                writer.WriteScanlineBlock(
-                    0,
-                    block.Region.MinY,
-                    new[] { new V3.ChannelBuffer("R", V3.PixelType.Float, expected) }).Status);
-            Assert.AreEqual(V3.ExrResult.Success, writer.End().Status);
-        }
-
-        byte[] encoded = stream.ToArray();
-        using V3.ExrReader reader = V3.ExrReader.OpenMemory(encoded);
-        Assert.AreEqual(V3.ExrResult.Success, reader.ParseHeader().Status);
-        V3.BlockInfo encodedBlock = reader.GetBlockInfo(0, 0);
-        int rawSize = checked((int)encodedBlock.UncompressedByteCount!.Value);
-        int chunkOffset = checked((int)encodedBlock.FileOffset);
-        int packedSize = BinaryPrimitives.ReadInt32LittleEndian(
-            encoded.AsSpan(chunkOffset + sizeof(int), sizeof(int)));
-        Assert.IsTrue(packedSize < rawSize, $"Expected {packedSize} packed bytes to be smaller than {rawSize} raw bytes.");
-
-        ReadOnlySpan<byte> payload = encoded.AsSpan(
-            chunkOffset + encodedBlock.ChunkHeaderByteCount,
-            packedSize);
-        Assert.IsTrue(ContainsEntropyCompressedZstdBlock(payload));
-        byte[] decodedPayload = new byte[rawSize];
-        Assert.AreEqual(
-            V3Codecs.ZstdFrameStatus.Success,
-            V3Codecs.ZstdFrameDecoder.Decode(
-                payload,
-                decodedPayload,
-                out int consumed,
-                out int written,
-                out _));
-        Assert.AreEqual(payload.Length, consumed);
-        Assert.AreEqual(decodedPayload.Length, written);
-        CollectionAssert.AreEqual(expected, decodedPayload);
-
-        V3.ReaderResult<V3.Part> decoded = reader.ReadPart(0);
-        Assert.AreEqual(V3.ExrResult.Success, decoded.Status, decoded.Error?.ToString());
-        Assert.IsNotNull(decoded.Value);
-        CollectionAssert.AreEqual(
-            expected,
-            decoded.Value.GetLevel(0, 0).GetChannel("R").Data.ToArray());
-
-        Assert.AreEqual(
-            ResultCode.Success,
-            Exr.ParseEXRHeaderFromMemory(encoded, out _, out ExrHeader v1Header));
-        Assert.AreEqual(CompressionType.ZSTD, v1Header.Compression);
-        Assert.AreEqual(
-            ResultCode.Success,
-            Exr.LoadEXRImageFromMemory(encoded, v1Header, out ExrImage v1Image));
-        CollectionAssert.AreEqual(expected, v1Image.GetChannel("R").Data);
-    }
-
-    [TestMethod(DisplayName = "[TinyEXR.NET Test] V3 writer stores non-beneficial ZSTD blocks raw")]
-    public void Case_V3Writer_StoresNonBeneficialZstdBlocksRaw()
-    {
-        V3.Header header = new(
-            V3.PartType.Scanline,
-            new V3.Box2i(0, 0, 1, 0),
-            new[] { new V3.Channel("R", V3.PixelType.Float) },
-            compression: V3.Compression.ZSTD);
-        byte[] expected = CreateRepeatingFloatBytes(2);
-
-        using MemoryStream stream = new();
-        using (V3IO.StreamDataSink sink = new(stream, leaveOpen: true))
-        using (V3.ExrWriter writer = V3.ExrWriter.OpenSink(sink))
-        {
-            writer.AddPart(header);
-            Assert.AreEqual(V3.ExrResult.Success, writer.Begin().Status);
-            V3.BlockInfo block = writer.GetBlockInfo(0, 0);
-            Assert.AreEqual(
-                V3.ExrResult.Success,
-                writer.WriteScanlineBlock(
-                    0,
-                    block.Region.MinY,
-                    new[] { new V3.ChannelBuffer("R", V3.PixelType.Float, expected) }).Status);
-            Assert.AreEqual(V3.ExrResult.Success, writer.End().Status);
-        }
-
-        byte[] encoded = stream.ToArray();
-        using V3.ExrReader reader = V3.ExrReader.OpenMemory(encoded);
-        Assert.AreEqual(V3.ExrResult.Success, reader.ParseHeader().Status);
-        V3.BlockInfo encodedBlock = reader.GetBlockInfo(0, 0);
-        int chunkOffset = checked((int)encodedBlock.FileOffset);
-        int packedSize = BinaryPrimitives.ReadInt32LittleEndian(
-            encoded.AsSpan(chunkOffset + sizeof(int), sizeof(int)));
-        Assert.AreEqual(expected.Length, packedSize);
-        CollectionAssert.AreEqual(
-            expected,
-            encoded.AsSpan(chunkOffset + encodedBlock.ChunkHeaderByteCount, packedSize).ToArray());
-
-        V3.ReaderResult<V3.Part> decoded = reader.ReadPart(0);
-        Assert.AreEqual(V3.ExrResult.Success, decoded.Status, decoded.Error?.ToString());
-        Assert.IsNotNull(decoded.Value);
-        CollectionAssert.AreEqual(
-            expected,
-            decoded.Value.GetLevel(0, 0).GetChannel("R").Data.ToArray());
-    }
-
-    [TestMethod(DisplayName = "[TinyEXR.NET Test] V3 deep writer compresses ZSTD count and sample payloads")]
-    public void Case_V3DeepWriter_CompressesZstdCountAndSamplePayloads()
-    {
-        V3.Header header = new(
-            V3.PartType.DeepScanline,
-            new V3.Box2i(0, 0, 1023, 31),
-            new[] { new V3.Channel("Z", V3.PixelType.Float) },
-            compression: V3.Compression.ZSTD);
-        int pixelCount = checked((int)(header.DataWindow.Width * header.DataWindow.Height));
-        int[] counts = Enumerable.Repeat(2, pixelCount).ToArray();
-        byte[] samples = CreateRepeatingFloatBytes(checked(pixelCount * 2));
-
-        using MemoryStream stream = new();
-        using (V3IO.StreamDataSink sink = new(stream, leaveOpen: true))
-        using (V3.ExrWriter writer = V3.ExrWriter.OpenSink(sink))
-        {
-            writer.AddPart(header);
-            Assert.AreEqual(V3.ExrResult.Success, writer.Begin().Status);
-            Assert.AreEqual(1, writer.GetNumBlocks(0));
-            V3.BlockInfo block = writer.GetBlockInfo(0, 0);
-            Assert.AreEqual(
-                V3.ExrResult.Success,
-                writer.WriteDeepScanlineBlock(
-                    0,
-                    block.Region.MinY,
-                    counts,
-                    new[] { new V3.ChannelBuffer("Z", V3.PixelType.Float, samples) }).Status);
-            Assert.AreEqual(V3.ExrResult.Success, writer.End().Status);
-        }
-
-        byte[] encoded = stream.ToArray();
-        using V3.ExrReader reader = V3.ExrReader.OpenMemory(encoded);
-        Assert.AreEqual(V3.ExrResult.Success, reader.ParseHeader().Status);
-        V3.BlockInfo encodedBlock = reader.GetBlockInfo(0, 0);
-        int chunkOffset = checked((int)encodedBlock.FileOffset);
-        int packedCountSize = checked((int)BinaryPrimitives.ReadUInt64LittleEndian(
-            encoded.AsSpan(chunkOffset + sizeof(int), sizeof(ulong))));
-        int packedSampleSize = checked((int)BinaryPrimitives.ReadUInt64LittleEndian(
-            encoded.AsSpan(chunkOffset + sizeof(int) + sizeof(ulong), sizeof(ulong))));
-        int unpackedSampleSize = checked((int)BinaryPrimitives.ReadUInt64LittleEndian(
-            encoded.AsSpan(chunkOffset + sizeof(int) + (2 * sizeof(ulong)), sizeof(ulong))));
-        int unpackedCountSize = checked(pixelCount * sizeof(int));
-        Assert.IsTrue(packedCountSize < unpackedCountSize);
-        Assert.IsTrue(packedSampleSize < unpackedSampleSize);
-        Assert.AreEqual(samples.Length, unpackedSampleSize);
-
-        int payloadOffset = chunkOffset + encodedBlock.ChunkHeaderByteCount;
-        ReadOnlySpan<byte> packedCounts = encoded.AsSpan(payloadOffset, packedCountSize);
-        ReadOnlySpan<byte> packedSamples = encoded.AsSpan(
-            payloadOffset + packedCountSize,
-            packedSampleSize);
-        Assert.IsTrue(ContainsEntropyCompressedZstdBlock(packedCounts));
-        Assert.IsTrue(ContainsEntropyCompressedZstdBlock(packedSamples));
-
-        byte[] decodedCounts = new byte[unpackedCountSize];
-        Assert.AreEqual(
-            V3Codecs.ZstdFrameStatus.Success,
-            V3Codecs.ZstdFrameDecoder.Decode(
-                packedCounts,
-                decodedCounts,
-                out int countConsumed,
-                out int countWritten,
-                out _));
-        Assert.AreEqual(packedCounts.Length, countConsumed);
-        Assert.AreEqual(decodedCounts.Length, countWritten);
-        CollectionAssert.AreEqual(CreateCumulativeDeepCounts(header.DataWindow, counts), decodedCounts);
-
-        byte[] decodedSamples = new byte[unpackedSampleSize];
-        Assert.AreEqual(
-            V3Codecs.ZstdFrameStatus.Success,
-            V3Codecs.ZstdFrameDecoder.Decode(
-                packedSamples,
-                decodedSamples,
-                out int sampleConsumed,
-                out int sampleWritten,
-                out _));
-        Assert.AreEqual(packedSamples.Length, sampleConsumed);
-        Assert.AreEqual(decodedSamples.Length, sampleWritten);
-        CollectionAssert.AreEqual(samples, decodedSamples);
-
-        V3.ReaderResult<V3.Part> decoded = reader.ReadPart(0);
-        Assert.AreEqual(V3.ExrResult.Success, decoded.Status, decoded.Error?.ToString());
-        Assert.IsNotNull(decoded.Value);
-        V3.DeepLevel level = (V3.DeepLevel)decoded.Value.GetLevel(0, 0);
-        CollectionAssert.AreEqual(counts, level.SampleCounts.ToArray());
-        CollectionAssert.AreEqual(samples, level.GetChannel("Z").Data.ToArray());
-    }
-
     [TestMethod(DisplayName = "[TinyEXR.NET Test] V3 deep writer genuinely compresses RLE and ZIP payloads")]
     public void Case_V3DeepWriter_CompressesRleAndZipPayloads()
     {
@@ -470,7 +264,7 @@ public sealed class V3WriterTests
             V3.PartType.Tiled,
             new V3.Box2i(-3, 2, 1, 4),
             new[] { new V3.Channel("Z", V3.PixelType.Float) },
-            compression: V3.Compression.ZSTD,
+            compression: V3.Compression.ZIP,
             lineOrder: V3.LineOrder.RandomY,
             tiles: new V3.TileDescription(
                 2,
@@ -663,7 +457,7 @@ public sealed class V3WriterTests
                 new V3.Channel("A", V3.PixelType.Half),
                 new V3.Channel("Z", V3.PixelType.Float),
             },
-            compression: V3.Compression.ZSTD,
+            compression: V3.Compression.ZIP,
             tiles: new V3.TileDescription(
                 3,
                 2,
@@ -810,7 +604,7 @@ public sealed class V3WriterTests
             V3.PartType.DeepTiled,
             new V3.Box2i(-1, 2, 0, 3),
             new[] { new V3.Channel("A", V3.PixelType.Half) },
-            compression: V3.Compression.ZSTD,
+            compression: V3.Compression.ZIP,
             tiles: new V3.TileDescription(2, 2),
             name: "tile");
         V3.Header[] headers = { scanline, tiled };
@@ -918,7 +712,7 @@ public sealed class V3WriterTests
     [TestMethod(DisplayName = "[TinyEXR.NET Test] V3 writer resumes async cancellation and WouldBlock")]
     public async Task Case_V3Writer_ResumesAsyncCancellationAndWouldBlock()
     {
-        V3.Header header = SimpleHeader(V3.Compression.ZSTD);
+        V3.Header header = SimpleHeader(V3.Compression.ZIP);
         await using RetryDataSink sink = new();
         await using V3.ExrWriter writer = V3.ExrWriter.OpenAsyncSink(
             sink,
@@ -1160,92 +954,6 @@ public sealed class V3WriterTests
         }
 
         return result;
-    }
-
-    private static byte[] CreateRepeatingFloatBytes(int sampleCount)
-    {
-        byte[] data = new byte[checked(sampleCount * sizeof(float))];
-        for (int index = 0; index < sampleCount; index++)
-        {
-            float value = (index % 64) * 0.25f;
-            BinaryPrimitives.WriteInt32LittleEndian(
-                data.AsSpan(index * sizeof(float), sizeof(float)),
-                BitConverter.SingleToInt32Bits(value));
-        }
-
-        return data;
-    }
-
-    private static byte[] CreateCumulativeDeepCounts(V3.Box2i region, ReadOnlySpan<int> counts)
-    {
-        int width = checked((int)region.Width);
-        int height = checked((int)region.Height);
-        Assert.AreEqual(checked(width * height), counts.Length);
-        byte[] cumulativeCounts = new byte[checked(counts.Length * sizeof(int))];
-        int source = 0;
-        int target = 0;
-        for (int row = 0; row < height; row++)
-        {
-            int cumulative = 0;
-            for (int x = 0; x < width; x++)
-            {
-                cumulative = checked(cumulative + counts[source++]);
-                BinaryPrimitives.WriteInt32LittleEndian(
-                    cumulativeCounts.AsSpan(target, sizeof(int)),
-                    cumulative);
-                target += sizeof(int);
-            }
-        }
-
-        Assert.AreEqual(cumulativeCounts.Length, target);
-        return cumulativeCounts;
-    }
-
-    private static bool ContainsEntropyCompressedZstdBlock(ReadOnlySpan<byte> frame)
-    {
-        Assert.AreEqual(
-            V3Codecs.ZstdFrameStatus.Success,
-            V3Codecs.ZstdFrameHeaderParser.Parse(
-                frame,
-                out V3Codecs.ZstdFrameHeader header,
-                out int headerBytes));
-        Assert.AreEqual(header.HeaderSize, headerBytes);
-
-        int offset = headerBytes;
-        bool containsCompressedBlock = false;
-        while (true)
-        {
-            Assert.IsTrue(frame.Length - offset >= 3, "The ZSTD frame ended before its block header.");
-            uint blockHeader = (uint)(frame[offset]
-                | (frame[offset + 1] << 8)
-                | (frame[offset + 2] << 16));
-            offset += 3;
-
-            bool isLast = (blockHeader & 1U) != 0;
-            int blockType = (int)((blockHeader >> 1) & 0x03U);
-            int blockSize = checked((int)(blockHeader >> 3));
-            Assert.AreNotEqual(3, blockType, "A reserved ZSTD block type was emitted.");
-            containsCompressedBlock |= blockType == 2;
-
-            int payloadSize = blockType == 1 ? 1 : blockSize;
-            Assert.IsTrue(
-                frame.Length - offset >= payloadSize,
-                "The ZSTD frame ended inside a block payload.");
-            offset += payloadSize;
-            if (!isLast)
-            {
-                continue;
-            }
-
-            if (header.HasChecksum)
-            {
-                Assert.IsTrue(frame.Length - offset >= sizeof(uint));
-                offset += sizeof(uint);
-            }
-
-            Assert.AreEqual(frame.Length, offset);
-            return containsCompressedBlock;
-        }
     }
 
     private static int[] CreateDeepCounts(V3.Box2i region, int levelX = 0, int levelY = 0)

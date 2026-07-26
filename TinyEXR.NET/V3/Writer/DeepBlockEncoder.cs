@@ -28,8 +28,7 @@ namespace TinyEXR.V3
             IReadOnlyList<ChannelBuffer> channels,
             bool multipart,
             WriterLimits limits,
-            ExrCompressionCodec.EncodeWorkspace workspace,
-            ZstdCompressionEncoder zstdEncoder)
+            ExrCompressionCodec.EncodeWorkspace workspace)
         {
             if (!part.Header.IsDeep || !info.IsDeep)
             {
@@ -193,22 +192,7 @@ namespace TinyEXR.V3
 
             byte[] packedCounts = countRaw;
             byte[] packedSamples = sampleRaw;
-            if (part.Header.Compression == Compression.ZSTD)
-            {
-                try
-                {
-                    packedCounts = zstdEncoder.Encode(countRaw);
-                    packedSamples = zstdEncoder.Encode(sampleRaw);
-                }
-                catch (ZstdCompressionException exception)
-                {
-                    throw new WriterPlanException(
-                        ExrResult.Corrupt,
-                        "The ZSTD encoder could not encode the deep block.",
-                        exception);
-                }
-            }
-            else if (part.Header.Compression == Compression.RLE ||
+            if (part.Header.Compression == Compression.RLE ||
                 part.Header.Compression == Compression.ZIPS ||
                 part.Header.Compression == Compression.ZIP)
             {

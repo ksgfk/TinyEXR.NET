@@ -36,34 +36,6 @@ namespace TinyEXR.V3
                 return Corrupt($"Compression '{compression}' cannot encode a non-raw deep payload.");
             }
 
-            if (compression == Compression.ZSTD)
-            {
-                decoded = new byte[expectedSize];
-                ZstdFrameStatus status = ZstdFrameDecoder.Decode(
-                    payload,
-                    decoded,
-                    out int consumed,
-                    out int written,
-                    out _);
-                if (status == ZstdFrameStatus.Success &&
-                    consumed == payload.Length &&
-                    written == expectedSize)
-                {
-                    return null;
-                }
-
-                decoded = Array.Empty<byte>();
-                if (status == ZstdFrameStatus.DictionaryNotSupported ||
-                    status == ZstdFrameStatus.WindowTooLarge ||
-                    status == ZstdFrameStatus.ContentSizeTooLarge ||
-                    status == ZstdFrameStatus.UnsupportedCompressedBlock)
-                {
-                    return Unsupported($"The ZSTD deep payload is not supported ({status}).");
-                }
-
-                return Corrupt($"The ZSTD deep payload is invalid ({status}).");
-            }
-
             if (compression != Compression.RLE &&
                 compression != Compression.ZIPS &&
                 compression != Compression.ZIP)

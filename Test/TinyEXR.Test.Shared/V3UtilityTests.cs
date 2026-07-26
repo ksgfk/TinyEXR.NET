@@ -117,8 +117,8 @@ public sealed class V3UtilityTests
             1,
             4,
             V3.PixelType.Half,
-            V3.Compression.ZSTD);
-        Assert.AreEqual(V3.Compression.ZSTD, part.Header.Compression);
+            V3.Compression.ZIP);
+        Assert.AreEqual(V3.Compression.ZIP, part.Header.Compression);
         V3.InterleavedFloatImage decoded = V3.PartConversion.ToInterleavedFloat(part);
         CollectionAssert.AreEqual(new[] { "A", "B", "G", "R" }, decoded.ChannelNames.ToArray());
         float[] expected =

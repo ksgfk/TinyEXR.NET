@@ -2,7 +2,6 @@ using System.Buffers.Binary;
 using System.Runtime.InteropServices;
 using System.Text;
 using V3 = TinyEXR.V3;
-using V3Codecs = TinyEXR.V3.Codecs;
 using V3IO = TinyEXR.V3.IO;
 
 namespace TinyEXR.Test;
@@ -32,8 +31,8 @@ public sealed class V1FacadeV3CoreTests
         0.00006103515625f,
     };
 
-    [TestMethod(DisplayName = "[TinyEXR.NET Test] V1 memory facade delegates ZSTD scanline reads to V3")]
-    public void Case_V1MemoryFacade_DelegatesZstdScanlineReadsToV3()
+    [TestMethod(DisplayName = "[TinyEXR.NET Test] V1 memory facade delegates HTJ2K scanline reads to V3")]
+    public void Case_V1MemoryFacade_DelegatesHtj2kScanlineReadsToV3()
     {
         byte[] customValue = Encoding.UTF8.GetBytes("v3-core\0");
         V3.Header sourceHeader = new V3.Header(
@@ -45,7 +44,7 @@ public sealed class V1FacadeV3CoreTests
                 new V3.Channel("H", V3.PixelType.Half),
                 new V3.Channel("U", V3.PixelType.UInt),
             },
-            compression: V3.Compression.ZSTD,
+            compression: V3.Compression.HTJ2K32,
             attributes: new[]
             {
                 new V3.HeaderAttribute("facadeSource", "string", customValue),
@@ -59,7 +58,7 @@ public sealed class V1FacadeV3CoreTests
         Assert.IsFalse(version.Tiled);
         Assert.IsFalse(version.NonImage);
         Assert.IsFalse(version.Multipart);
-        Assert.AreEqual(CompressionType.ZSTD, header.Compression);
+        Assert.AreEqual(CompressionType.HTJ2K32, header.Compression);
         Assert.AreEqual(DataWindow.MinX, header.DataWindow.MinX);
         Assert.AreEqual(DataWindow.MinY, header.DataWindow.MinY);
         Assert.AreEqual(DataWindow.MaxX, header.DataWindow.MaxX);
@@ -98,8 +97,8 @@ public sealed class V1FacadeV3CoreTests
         CollectionAssert.AreEqual(CreateUIntValues(), ReadUInts(uintChannel.Data));
     }
 
-    [TestMethod(DisplayName = "[TinyEXR.NET Test] V1 stream facade delegates ZSTD reads and preserves its origin")]
-    public void Case_V1StreamFacade_DelegatesZstdReadsAndPreservesOrigin()
+    [TestMethod(DisplayName = "[TinyEXR.NET Test] V1 stream facade delegates HTJ2K reads and preserves its origin")]
+    public void Case_V1StreamFacade_DelegatesHtj2kReadsAndPreservesOrigin()
     {
         V3.Header sourceHeader = new V3.Header(
             V3.PartType.Scanline,
@@ -110,7 +109,7 @@ public sealed class V1FacadeV3CoreTests
                 new V3.Channel("H", V3.PixelType.Half),
                 new V3.Channel("U", V3.PixelType.UInt),
             },
-            compression: V3.Compression.ZSTD,
+            compression: V3.Compression.HTJ2K32,
             attributes: new[]
             {
                 new V3.HeaderAttribute("streamSource", "string", Encoding.UTF8.GetBytes("v3-stream\0")),
@@ -149,8 +148,8 @@ public sealed class V1FacadeV3CoreTests
         CollectionAssert.AreEqual(CreateUIntValues(), ReadUInts(image.GetChannel("U").Data));
     }
 
-    [TestMethod(DisplayName = "[TinyEXR.NET Test] V1 headerless image entrypoints delegate ZSTD reads to V3")]
-    public void Case_V1HeaderlessImageEntrypoints_DelegateZstdReadsToV3()
+    [TestMethod(DisplayName = "[TinyEXR.NET Test] V1 headerless image entrypoints delegate HTJ2K reads to V3")]
+    public void Case_V1HeaderlessImageEntrypoints_DelegateHtj2kReadsToV3()
     {
         byte[] customValue = Encoding.UTF8.GetBytes("headerless-v3\0");
         V3.Header sourceHeader = new V3.Header(
@@ -162,7 +161,7 @@ public sealed class V1FacadeV3CoreTests
                 new V3.Channel("H", V3.PixelType.Half),
                 new V3.Channel("U", V3.PixelType.UInt),
             },
-            compression: V3.Compression.ZSTD,
+            compression: V3.Compression.HTJ2K32,
             attributes: new[]
             {
                 new V3.HeaderAttribute("headerlessSource", "string", customValue),
@@ -175,7 +174,7 @@ public sealed class V1FacadeV3CoreTests
         Assert.AreEqual(
             ResultCode.Success,
             Exr.TryReadImage(encoded, out ExrHeader memoryHeader, out ExrImage memoryImage));
-        Assert.AreEqual(CompressionType.ZSTD, memoryHeader.Compression);
+        Assert.AreEqual(CompressionType.HTJ2K32, memoryHeader.Compression);
         CollectionAssert.AreEqual(customValue, memoryHeader.CustomAttributes.Single().Value);
         CollectionAssert.AreEqual(CreateFloatBytes(), memoryImage.GetChannel("F").Data);
         CollectionAssert.AreEqual(HalfBits, MemoryMarshal.Cast<byte, ushort>(
@@ -210,8 +209,8 @@ public sealed class V1FacadeV3CoreTests
         }
     }
 
-    [TestMethod(DisplayName = "[TinyEXR.NET Test] V1 save facade emits genuine ZSTD frames through V3")]
-    public void Case_V1SaveFacade_EmitsGenuineZstdFramesThroughV3()
+    [TestMethod(DisplayName = "[TinyEXR.NET Test] V1 save facade emits genuine HTJ2K blocks through V3")]
+    public void Case_V1SaveFacade_EmitsGenuineHtj2kBlocksThroughV3()
     {
         const int width = 1024;
         const int height = 32;
@@ -228,14 +227,14 @@ public sealed class V1FacadeV3CoreTests
             });
         ExrHeader header = new ExrHeader
         {
-            Compression = CompressionType.ZSTD,
+            Compression = CompressionType.HTJ2K32,
         };
 
         Assert.AreEqual(ResultCode.Success, Exr.SaveEXRImageToMemory(image, header, out byte[] encoded));
         using (V3.ExrReader reader = V3.ExrReader.OpenMemory(encoded))
         {
             Assert.AreEqual(V3.ExrResult.Success, reader.ParseHeader().Status);
-            Assert.AreEqual(V3.Compression.ZSTD, reader.GetHeader(0).Compression);
+            Assert.AreEqual(V3.Compression.HTJ2K32, reader.GetHeader(0).Compression);
             Assert.AreEqual(1, reader.GetNumBlocks(0));
             V3.BlockInfo block = reader.GetBlockInfo(0, 0);
             int rawSize = checked((int)block.UncompressedByteCount!.Value);
@@ -244,27 +243,18 @@ public sealed class V1FacadeV3CoreTests
                 encoded.AsSpan(chunkOffset + sizeof(int), sizeof(int)));
             Assert.IsTrue(packedSize < rawSize);
 
-            ReadOnlySpan<byte> payload = encoded.AsSpan(
-                chunkOffset + block.ChunkHeaderByteCount,
-                packedSize);
-            byte[] decodedPayload = new byte[rawSize];
-            Assert.AreEqual(
-                V3Codecs.ZstdFrameStatus.Success,
-                V3Codecs.ZstdFrameDecoder.Decode(
-                    payload,
-                    decodedPayload,
-                    out int consumed,
-                    out int written,
-                    out _));
-            Assert.AreEqual(payload.Length, consumed);
-            Assert.AreEqual(decodedPayload.Length, written);
-            CollectionAssert.AreEqual(expected, decodedPayload);
+            V3.ReaderResult<V3.Part> part = reader.ReadPart(0);
+            Assert.AreEqual(V3.ExrResult.Success, part.Status, part.Error?.ToString());
+            Assert.IsNotNull(part.Value);
+            CollectionAssert.AreEqual(
+                expected,
+                part.Value.GetLevel(0, 0).GetChannel("R").Data.ToArray());
         }
 
         Assert.AreEqual(
             ResultCode.Success,
             Exr.ParseEXRHeaderFromMemory(encoded, out _, out ExrHeader decodedHeader));
-        Assert.AreEqual(CompressionType.ZSTD, decodedHeader.Compression);
+        Assert.AreEqual(CompressionType.HTJ2K32, decodedHeader.Compression);
         Assert.AreEqual(
             ResultCode.Success,
             Exr.LoadEXRImageFromMemory(encoded, decodedHeader, out ExrImage decodedImage));
@@ -294,7 +284,7 @@ public sealed class V1FacadeV3CoreTests
             Assert.AreEqual(
                 ResultCode.Success,
                 Exr.ParseEXRHeaderFromFile(path, out _, out ExrHeader fileHeader));
-            Assert.AreEqual(CompressionType.ZSTD, fileHeader.Compression);
+            Assert.AreEqual(CompressionType.HTJ2K32, fileHeader.Compression);
             Assert.AreEqual(
                 ResultCode.Success,
                 Exr.LoadEXRImageFromFile(path, fileHeader, out ExrImage fileImage));
@@ -367,8 +357,8 @@ public sealed class V1FacadeV3CoreTests
         }
     }
 
-    [TestMethod(DisplayName = "[TinyEXR.NET Test] V1 layers and RGBA facade delegate ZSTD reads to V3")]
-    public void Case_V1LayersAndRgbaFacade_DelegateZstdReadsToV3()
+    [TestMethod(DisplayName = "[TinyEXR.NET Test] V1 layers and RGBA facade delegate HTJ2K reads to V3")]
+    public void Case_V1LayersAndRgbaFacade_DelegateHtj2kReadsToV3()
     {
         const int width = 128;
         const int height = 32;
@@ -384,7 +374,7 @@ public sealed class V1FacadeV3CoreTests
             });
         ExrHeader header = new ExrHeader
         {
-            Compression = CompressionType.ZSTD,
+            Compression = CompressionType.HTJ2K32,
         };
         Assert.AreEqual(ResultCode.Success, Exr.SaveEXRImageToMemory(image, header, out byte[] encoded));
         Assert.AreEqual(
@@ -441,15 +431,15 @@ public sealed class V1FacadeV3CoreTests
         }
     }
 
-    [TestMethod(DisplayName = "[TinyEXR.NET Test] V1 tiled facade materializes ZSTD levels and tiles through V3")]
-    public void Case_V1TiledFacade_MaterializesZstdLevelsAndTilesThroughV3()
+    [TestMethod(DisplayName = "[TinyEXR.NET Test] V1 tiled facade materializes HTJ2K levels and tiles through V3")]
+    public void Case_V1TiledFacade_MaterializesHtj2kLevelsAndTilesThroughV3()
     {
         V3.Box2i dataWindow = new V3.Box2i(-2, 3, 2, 6);
         V3.Header sourceHeader = new V3.Header(
             V3.PartType.Tiled,
             dataWindow,
             new[] { new V3.Channel("R", V3.PixelType.Float) },
-            compression: V3.Compression.ZSTD,
+            compression: V3.Compression.HTJ2K32,
             tiles: new V3.TileDescription(3, 2));
         byte[] expected = CreateRepeatingFloatBytes(
             checked((int)(dataWindow.Width * dataWindow.Height)));
@@ -458,7 +448,7 @@ public sealed class V1FacadeV3CoreTests
         Assert.AreEqual(
             ResultCode.Success,
             Exr.ParseEXRHeaderFromMemory(encoded, out _, out ExrHeader header));
-        Assert.AreEqual(CompressionType.ZSTD, header.Compression);
+        Assert.AreEqual(CompressionType.HTJ2K32, header.Compression);
         Assert.IsNotNull(header.Tiles);
         Assert.AreEqual(
             ResultCode.UnsupportedFeature,
@@ -494,20 +484,20 @@ public sealed class V1FacadeV3CoreTests
         }
     }
 
-    [TestMethod(DisplayName = "[TinyEXR.NET Test] V1 multipart facade delegates heterogeneous ZSTD parts to V3")]
-    public void Case_V1MultipartFacade_DelegatesHeterogeneousZstdPartsToV3()
+    [TestMethod(DisplayName = "[TinyEXR.NET Test] V1 multipart facade delegates heterogeneous HTJ2K parts to V3")]
+    public void Case_V1MultipartFacade_DelegatesHeterogeneousHtj2kPartsToV3()
     {
         V3.Header scanHeader = new V3.Header(
             V3.PartType.Scanline,
             new V3.Box2i(0, 0, 127, 31),
             new[] { new V3.Channel("R", V3.PixelType.Float) },
-            compression: V3.Compression.ZSTD,
+            compression: V3.Compression.HTJ2K32,
             name: "scan");
         V3.Header tileHeader = new V3.Header(
             V3.PartType.Tiled,
             new V3.Box2i(-2, 3, 2, 6),
             new[] { new V3.Channel("Y", V3.PixelType.Float) },
-            compression: V3.Compression.ZSTD,
+            compression: V3.Compression.HTJ2K32,
             tiles: new V3.TileDescription(3, 2),
             name: "tile");
         byte[] scanData = CreateRepeatingFloatBytes(
@@ -583,7 +573,7 @@ public sealed class V1FacadeV3CoreTests
         ExrHeader sourceHeader = new()
         {
             Name = "only",
-            Compression = CompressionType.ZSTD,
+            Compression = CompressionType.HTJ2K32,
         };
         ExrMultipartImage sourceImages = new(new[] { sourceImage });
         ExrMultipartHeader sourceHeaders = new(new[] { sourceHeader });
@@ -618,8 +608,8 @@ public sealed class V1FacadeV3CoreTests
         CollectionAssert.AreEqual(sourceData, streamImages.Images[0].GetChannel("R").Data);
     }
 
-    [TestMethod(DisplayName = "[TinyEXR.NET Test] V1 tiled save facade emits ZSTD rip levels through V3")]
-    public void Case_V1TiledSaveFacade_EmitsZstdRipLevelsThroughV3()
+    [TestMethod(DisplayName = "[TinyEXR.NET Test] V1 tiled save facade emits HTJ2K rip levels through V3")]
+    public void Case_V1TiledSaveFacade_EmitsHtj2kRipLevelsThroughV3()
     {
         const int width = 128;
         const int height = 64;
@@ -630,7 +620,7 @@ public sealed class V1FacadeV3CoreTests
             ExrTileRoundingMode.RoundDown);
         ExrHeader sourceHeader = new ExrHeader
         {
-            Compression = CompressionType.ZSTD,
+            Compression = CompressionType.HTJ2K32,
             LineOrder = LineOrderType.RandomY,
             DataWindow = new ExrBox2i(-2, 3, width - 3, height + 2),
             DisplayWindow = new ExrBox2i(-4, 1, width - 1, height + 4),
@@ -656,8 +646,8 @@ public sealed class V1FacadeV3CoreTests
         {
             Assert.AreEqual(V3.ExrResult.Success, reader.ParseHeader().Status);
             Assert.AreEqual(V3.PartType.Tiled, reader.GetHeader(0).PartType);
-            Assert.AreEqual(V3.Compression.ZSTD, reader.GetHeader(0).Compression);
-            AssertPartHasCompressedZstdBlock(encoded, reader, 0);
+            Assert.AreEqual(V3.Compression.HTJ2K32, reader.GetHeader(0).Compression);
+            AssertPartHasCompressedBlock(encoded, reader, 0);
         }
 
         Assert.AreEqual(
@@ -693,8 +683,8 @@ public sealed class V1FacadeV3CoreTests
         }
     }
 
-    [TestMethod(DisplayName = "[TinyEXR.NET Test] V1 multipart save facade emits heterogeneous ZSTD parts through V3")]
-    public void Case_V1MultipartSaveFacade_EmitsHeterogeneousZstdPartsThroughV3()
+    [TestMethod(DisplayName = "[TinyEXR.NET Test] V1 multipart save facade emits heterogeneous HTJ2K parts through V3")]
+    public void Case_V1MultipartSaveFacade_EmitsHeterogeneousHtj2kPartsThroughV3()
     {
         const int scanWidth = 1024;
         const int scanHeight = 32;
@@ -716,13 +706,13 @@ public sealed class V1FacadeV3CoreTests
             ExrTileRoundingMode.RoundDown);
         ExrHeader scanHeader = new ExrHeader
         {
-            Name = "scan-zstd",
-            Compression = CompressionType.ZSTD,
+            Name = "scan-htj2k",
+            Compression = CompressionType.HTJ2K32,
         };
         ExrHeader tileHeader = new ExrHeader
         {
-            Name = "tile-zstd",
-            Compression = CompressionType.ZSTD,
+            Name = "tile-htj2k",
+            Compression = CompressionType.HTJ2K32,
             LineOrder = LineOrderType.RandomY,
             Tiles = new ExrTileDescription
             {
@@ -750,17 +740,17 @@ public sealed class V1FacadeV3CoreTests
             Assert.AreEqual(2, reader.NumParts);
             Assert.AreEqual(V3.PartType.Scanline, reader.GetHeader(0).PartType);
             Assert.AreEqual(V3.PartType.Tiled, reader.GetHeader(1).PartType);
-            AssertPartHasCompressedZstdBlock(encoded, reader, 0);
-            AssertPartHasCompressedZstdBlock(encoded, reader, 1);
+            AssertPartHasCompressedBlock(encoded, reader, 0);
+            AssertPartHasCompressedBlock(encoded, reader, 1);
         }
 
         Assert.AreEqual(
             ResultCode.Success,
             Exr.ParseEXRMultipartHeaderFromMemory(encoded, out ExrVersion version, out ExrMultipartHeader decodedHeaders));
         Assert.IsTrue(version.Multipart);
-        Assert.AreEqual("scan-zstd", decodedHeaders.Headers[0].Name);
+        Assert.AreEqual("scan-htj2k", decodedHeaders.Headers[0].Name);
         Assert.AreEqual("scanlineimage", decodedHeaders.Headers[0].PartType);
-        Assert.AreEqual("tile-zstd", decodedHeaders.Headers[1].Name);
+        Assert.AreEqual("tile-htj2k", decodedHeaders.Headers[1].Name);
         Assert.AreEqual("tiledimage", decodedHeaders.Headers[1].PartType);
         Assert.AreEqual(
             ResultCode.Success,
@@ -794,8 +784,8 @@ public sealed class V1FacadeV3CoreTests
         }
     }
 
-    [TestMethod(DisplayName = "[TinyEXR.NET Test] V1 save facade converts sampled ZSTD channels through V3")]
-    public void Case_V1SaveFacade_ConvertsSampledZstdChannelsThroughV3()
+    [TestMethod(DisplayName = "[TinyEXR.NET Test] V1 save facade converts sampled HTJ2K channels through V3")]
+    public void Case_V1SaveFacade_ConvertsSampledHtj2kChannelsThroughV3()
     {
         const int width = 128;
         const int height = 32;
@@ -826,7 +816,7 @@ public sealed class V1FacadeV3CoreTests
             });
         ExrHeader header = new ExrHeader
         {
-            Compression = CompressionType.ZSTD,
+            Compression = CompressionType.HTJ2K32,
             DataWindow = new ExrBox2i(-4, 6, 123, 37),
             DisplayWindow = new ExrBox2i(-4, 6, 123, 37),
         };
@@ -849,7 +839,7 @@ public sealed class V1FacadeV3CoreTests
         using (V3.ExrReader reader = V3.ExrReader.OpenMemory(encoded))
         {
             Assert.AreEqual(V3.ExrResult.Success, reader.ParseHeader().Status);
-            AssertPartHasCompressedZstdBlock(encoded, reader, 0);
+            Assert.AreEqual(V3.Compression.HTJ2K32, reader.GetHeader(0).Compression);
         }
 
         Assert.AreEqual(
@@ -885,8 +875,8 @@ public sealed class V1FacadeV3CoreTests
             decodedImage.GetChannel("UtoF").Data);
     }
 
-    [TestMethod(DisplayName = "[TinyEXR.NET Test] V1 deep facade delegates ZSTD memory stream and file reads to V3")]
-    public void Case_V1DeepFacade_DelegatesZstdMemoryStreamAndFileReadsToV3()
+    [TestMethod(DisplayName = "[TinyEXR.NET Test] V1 deep facade delegates HTJ2K memory stream and file reads to V3")]
+    public void Case_V1DeepFacade_DelegatesHtj2kMemoryStreamAndFileReadsToV3()
     {
         V3.Box2i dataWindow = new V3.Box2i(-3, 5, 124, 36);
         V3.Chromaticities chromaticities = new V3.Chromaticities(
@@ -908,7 +898,7 @@ public sealed class V1FacadeV3CoreTests
                 new V3.Channel("H", V3.PixelType.Half),
                 new V3.Channel("U", V3.PixelType.UInt),
             },
-            compression: V3.Compression.ZSTD,
+            compression: V3.Compression.HTJ2K32,
             chromaticities: chromaticities,
             attributes: new[]
             {
@@ -919,19 +909,7 @@ public sealed class V1FacadeV3CoreTests
         using (V3.ExrReader reader = V3.ExrReader.OpenMemory(encoded))
         {
             Assert.AreEqual(V3.ExrResult.Success, reader.ParseHeader().Status);
-            Assert.AreEqual(V3.Compression.ZSTD, reader.GetHeader(0).Compression);
-            Assert.IsTrue(
-                Enumerable.Range(0, reader.GetNumBlocks(0)).Any(blockIndex =>
-                {
-                    V3.BlockInfo block = reader.GetBlockInfo(0, blockIndex);
-                    int chunkOffset = checked((int)block.FileOffset);
-                    long packedSampleSize = BinaryPrimitives.ReadInt64LittleEndian(
-                        encoded.AsSpan(chunkOffset + 12, sizeof(long)));
-                    long unpackedSampleSize = BinaryPrimitives.ReadInt64LittleEndian(
-                        encoded.AsSpan(chunkOffset + 20, sizeof(long)));
-                    return packedSampleSize < unpackedSampleSize;
-                }),
-                "At least one deep sample payload should be a genuine ZSTD frame rather than a raw fallback.");
+            Assert.AreEqual(V3.Compression.HTJ2K32, reader.GetHeader(0).Compression);
         }
 
         Assert.AreEqual(
@@ -983,7 +961,7 @@ public sealed class V1FacadeV3CoreTests
                 new V3.Channel("H", V3.PixelType.Half),
                 new V3.Channel("U", V3.PixelType.UInt),
             },
-            compression: V3.Compression.ZSTD,
+            compression: V3.Compression.HTJ2K32,
             tiles: new V3.TileDescription(3, 2),
             attributes: new[]
             {
@@ -1006,7 +984,7 @@ public sealed class V1FacadeV3CoreTests
             V3.PartType.DeepTiled,
             dataWindow,
             oneLevel.Channels,
-            compression: V3.Compression.ZSTD,
+            compression: V3.Compression.HTJ2K32,
             tiles: new V3.TileDescription(
                 3,
                 2,
@@ -1029,13 +1007,13 @@ public sealed class V1FacadeV3CoreTests
                 new V3.Channel("H", V3.PixelType.Half),
                 new V3.Channel("U", V3.PixelType.UInt),
             },
-            compression: V3.Compression.ZSTD,
+            compression: V3.Compression.HTJ2K32,
             name: "flat");
         V3.Header deep = new(
             V3.PartType.DeepScanline,
             DataWindow,
             flat.Channels,
-            compression: V3.Compression.ZSTD,
+            compression: V3.Compression.HTJ2K32,
             name: "deep");
         byte[] encoded = WriteMixedMultipartImage(flat, deep);
 
@@ -1391,7 +1369,7 @@ public sealed class V1FacadeV3CoreTests
         Assert.IsTrue(header.IsDeep);
         Assert.IsFalse(header.IsMultipart);
         Assert.AreEqual("deepscanline", header.PartType);
-        Assert.AreEqual(CompressionType.ZSTD, header.Compression);
+        Assert.AreEqual(CompressionType.HTJ2K32, header.Compression);
         Assert.AreEqual(sourceHeader.DataWindow.MinX, header.DataWindow.MinX);
         Assert.AreEqual(sourceHeader.DataWindow.MinY, header.DataWindow.MinY);
         Assert.AreEqual(sourceHeader.DataWindow.MaxX, header.DataWindow.MaxX);
@@ -1649,7 +1627,7 @@ public sealed class V1FacadeV3CoreTests
         return new ExrAttribute("chromaticities", "chromaticities", data);
     }
 
-    private static void AssertPartHasCompressedZstdBlock(
+    private static void AssertPartHasCompressedBlock(
         byte[] encoded,
         V3.ExrReader reader,
         int partIndex)
@@ -1663,9 +1641,17 @@ public sealed class V1FacadeV3CoreTests
                     encoded.AsSpan(
                         chunkOffset + block.ChunkHeaderByteCount - sizeof(int),
                         sizeof(int)));
-                return packedSize >= 0 && (ulong)packedSize < block.UncompressedByteCount!.Value;
+                if (packedSize < 2)
+                {
+                    return false;
+                }
+
+                ReadOnlySpan<byte> payload = encoded.AsSpan(
+                    chunkOffset + block.ChunkHeaderByteCount,
+                    packedSize);
+                return payload[0] == (byte)'H' && payload[1] == (byte)'T';
             }),
-            $"Part {partIndex} should contain at least one genuine ZSTD block.");
+            $"Part {partIndex} should contain at least one genuine HTJ2K block.");
     }
 
     private static float[] CreateFloatValues()

@@ -30,6 +30,5 @@
     <Compile Include="$(MSBuildThisFileDirectory)V3Htj2kTests.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)V3ReaderTests.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)V3WriterTests.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)V3ZstdFrameTests.cs" />
   </ItemGroup>
 </Project>

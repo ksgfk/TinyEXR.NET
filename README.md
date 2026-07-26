@@ -12,9 +12,7 @@ The target frameworks are `net8.0`, `netstandard2.1`
 
 ## Dependencies
 
-Both targets use [ZstdSharp.Port](https://github.com/oleg-st/ZstdSharp) for TinyEXR v3-compatible ZSTD encoding. The decoder remains an independent managed implementation in this repository.
-
-The `netstandard2.1` target additionally depends on [SharpZipLib](https://github.com/icsharpcode/SharpZipLib).
+The `net8.0` target has no third-party runtime dependencies. The `netstandard2.1` target depends on [SharpZipLib](https://github.com/icsharpcode/SharpZipLib).
 
 ## Features
 
@@ -23,12 +21,11 @@ The `netstandard2.1` target additionally depends on [SharpZipLib](https://github
 - [x] Single-part EXR read/write for tiled images, including one-level tiles and multi-resolution mipmap/ripmap layouts.
 - [x] Multipart image EXR parse/load/save for flat image parts, including single-entry multipart containers.
 - [x] Deep single-part scanline and one-level tiled EXR load through `LoadDeepEXR`.
-- [x] Regular image compression support for `NONE`, `RLE`, `ZIP`, `ZIPS`, `PIZ`, `PXR24`, `B44`, `B44A`, `HTJ2K32`, `HTJ2K256`, and `ZSTD`.
-- [x] V3 deep compression support for `NONE`, `RLE`, `ZIPS`, `ZIP`, and `ZSTD`.
+- [x] Regular image compression support for `NONE`, `RLE`, `ZIP`, `ZIPS`, `PIZ`, `PXR24`, `B44`, `B44A`, `HTJ2K32`, and `HTJ2K256`.
+- [x] V3 deep compression support for `NONE`, `RLE`, `ZIPS`, and `ZIP`.
 - [x] Layer- and multiview-aware helpers such as `EXRLayers` and `LoadEXRWithLayer`, including RGBA expansion for subsampled channels in the convenience load path.
 - [x] Managed header/image models that preserve EXR metadata needed by tools and inspectors, including data/display windows, tile descriptions, custom attributes, channel sampling, line order, and long names.
 - [x] Stateful `TinyEXR.V3` reader/writer APIs for multipart, mip/rip, flat/deep, partial block reads, bounded-memory streaming writes, synchronous/asynchronous data sources, cancellation, and `WouldBlock` resume.
-- [x] V3 ZSTD flat/deep decode and encode, including entropy-compressed frames and canonical raw fallback when compression does not reduce the payload.
 - [x] V3 HTJ2K32/HTJ2K256 flat decode and genuine encode through a safe managed JPEG 2000 Part 15 implementation.
 - [x] Safe SIMD paths for pixel conversion, RGB color matrices, and ZIP/RLE byte reorder and prediction, with scalar parity fallbacks.
 - [x] V3 spectral wavelength cubes and CPU image utilities: typed pixel conversion, whole-image and streaming resize, tone mapping, color/transfer transforms, `.cube` 3D LUTs, planar/interleaved bridges, and luminance-chroma reconstruction.
@@ -70,7 +67,7 @@ Console.WriteLine(
     $"{firstPart.Header.PartType}: {baseLevel.Width}x{baseLevel.Height}, " +
     $"{baseLevel.Channels.Count} channels");
 
-WriterResult save = ExrFile.SaveToFile(image, outputPath, Compression.ZSTD);
+WriterResult save = ExrFile.SaveToFile(image, outputPath, Compression.ZIP);
 if (!save.IsSuccess)
 {
     throw new InvalidOperationException($"EXR save failed: {save.Status}", save.Error);
@@ -110,12 +107,11 @@ Representative means are `encode ms / decode ms`:
 | PXR24 | 14.25 / 14.84 | 16.42 / 7.51 | 18.37 / 5.16 |
 | HTJ2K256 | 105.44 / 102.34 | 47.43 / 33.71 | 29.39 / 23.61 |
 | HTJ2K32 | 111.64 / 102.51 | 38.64 / 24.55 | 52.69 / 40.03 |
-| ZSTD | 6.05 / 12.88 | 8.62 / 4.57 | - |
 
-Managed ZIPS, ZIP, PXR24, and ZSTD encode outperform TinyEXR v3 C in this
+Managed ZIPS, ZIP, and PXR24 encode outperform TinyEXR v3 C in this
 workload; native implementations remain substantially faster for B44 and
 HTJ2K decode. See [`Benchmark/README.md`](Benchmark/README.md) for the complete
-68-row timing, throughput, allocation, encoded-size, build, fairness, and MSVC
+timing, throughput, allocation, encoded-size, build, fairness, and MSVC
 compatibility report.
 
 ## Versioning

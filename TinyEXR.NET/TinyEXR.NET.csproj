@@ -17,7 +17,7 @@
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <RepositoryUrl>https://github.com/ksgfk/TinyEXR.NET</RepositoryUrl>
     <PackageTags>OpenEXR,HDR</PackageTags>
-    <PackageReleaseNotes>Adds a pure managed TinyEXR v3 API with immutable image and header models, whole and partial reads, synchronous and asynchronous streaming I/O, multipart and mipmap/ripmap support, flat and deep image read/write, HTJ2K32/HTJ2K256 and ZSTD encoding/decoding, safe SIMD acceleration, spectral and image-processing utilities, and migration of compatible v1 facade paths onto the v3 core. Retains NativeAOT, net8.0, and netstandard2.1 support.</PackageReleaseNotes>
+    <PackageReleaseNotes>Adds a pure managed TinyEXR v3 API with immutable image and header models, whole and partial reads, synchronous and asynchronous streaming I/O, multipart and mipmap/ripmap support, flat and deep image read/write, HTJ2K32/HTJ2K256 encoding/decoding, safe SIMD acceleration, spectral and image-processing utilities, and migration of compatible v1 facade paths onto the v3 core. Retains NativeAOT, net8.0, and netstandard2.1 support.</PackageReleaseNotes>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <Version>1.1.0</Version>
     <Nullable>enable</Nullable>
@@ -61,7 +61,6 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.SourceLink.GitHub" Version="10.0.202" PrivateAssets="All" />
-    <PackageReference Include="ZstdSharp.Port" Version="0.8.8" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.1'">

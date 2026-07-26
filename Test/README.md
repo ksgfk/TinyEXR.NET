@@ -91,7 +91,7 @@ The suite uses three complementary kinds of test input:
   decoder, metadata, multipart, multi-resolution, deep, HTJ2K, damaged-file,
   and round-trip compatibility tests.
 - Valid EXR files generated in memory by the managed writer for writer,
-  facade, ZSTD, deep, multipart, streaming, and asynchronous scenarios.
+  facade, deep, multipart, streaming, and asynchronous scenarios.
 - Focused byte buffers and mock data sources for frame parsing, malformed
   input, limits, cancellation, `WouldBlock`, SIMD parity, and image-processing
   algorithms where a standalone EXR file would not improve the assertion.
@@ -124,12 +124,11 @@ If both need to run, it is better to execute them explicitly instead of only run
 
 ## Known Coverage Gaps
 
-- There is no independently generated static ZSTD fixture matrix covering
-  scanline, tiled, deep, and multipart EXR files. Current ZSTD coverage uses
-  managed-writer output plus frame-level golden and malformed vectors. This is
-  strong format coverage, but it does not independently rule out a symmetric
-  managed encoder/decoder error.
-- Managed HTJ2K and ZSTD encoder output has been checked manually with the
+- There is no independently generated static HTJ2K fixture matrix covering
+  scanline, tiled, and multipart EXR files. Current HTJ2K encode coverage uses
+  managed-writer output. This is strong format coverage, but it does not
+  independently rule out a symmetric managed encoder/decoder error.
+- Managed HTJ2K encoder output has been checked manually with the
   upstream TinyEXR v3 C reader, but that cross-implementation check is not yet
   an automated MSTest or CI job. An integration job should build the upstream
   `parse_harness` and `compare_exr` tools, decode managed output, and compare it

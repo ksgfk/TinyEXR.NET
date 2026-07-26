@@ -10,7 +10,7 @@ public sealed class V3ModelTests
     {
         AssertEnumValues<V3.ExrResult>(0, 1, -1, -2, -3, -4, -5, -6);
         AssertEnumValues<V3.PixelType>(0, 1, 2);
-        AssertEnumValues<V3.Compression>(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12);
+        AssertEnumValues<V3.Compression>(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11);
         AssertEnumValues<V3.LineOrder>(0, 1, 2);
         AssertEnumValues<V3.PartType>(0, 1, 2, 3);
         AssertEnumValues<V3.TileLevelMode>(0, 1, 2);

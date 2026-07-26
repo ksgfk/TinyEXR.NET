@@ -26,7 +26,6 @@ namespace TinyEXR.V3
         private readonly List<Header> _headers = new List<Header>();
         private readonly ExrCompressionCodec.EncodeWorkspace _encodeWorkspace =
             new ExrCompressionCodec.EncodeWorkspace();
-        private readonly ZstdCompressionEncoder _zstdEncoder = new ZstdCompressionEncoder();
         private readonly SemaphoreSlim _operationGate = new SemaphoreSlim(1, 1);
         private readonly object _stateGate = new object();
 
@@ -668,7 +667,6 @@ namespace TinyEXR.V3
                 }
 
                 SetDisposed();
-                _zstdEncoder.Dispose();
                 if (!_leaveOpen)
                 {
                     if (_sinkOwner is IDisposable disposable)
@@ -698,7 +696,6 @@ namespace TinyEXR.V3
                 }
 
                 SetDisposed();
-                _zstdEncoder.Dispose();
                 if (!_leaveOpen)
                 {
                     if (_sinkOwner is IAsyncDisposable asyncDisposable)
@@ -1038,8 +1035,7 @@ namespace TinyEXR.V3
                     channels,
                     _multipart,
                     _limits,
-                    _encodeWorkspace,
-                    _zstdEncoder);
+                    _encodeWorkspace);
                 operation = new PendingBlock(
                     partIndex,
                     blockIndex,
@@ -1148,8 +1144,7 @@ namespace TinyEXR.V3
                     channels,
                     _multipart,
                     _limits,
-                    _encodeWorkspace,
-                    _zstdEncoder);
+                    _encodeWorkspace);
                 operation = new PendingBlock(
                     partIndex,
                     blockIndex,

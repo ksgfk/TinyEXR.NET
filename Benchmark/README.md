@@ -1,4 +1,4 @@
-# TinyEXR v3 Benchmarks
+﻿# TinyEXR v3 Benchmarks
 
 This directory contains three v3 compression benchmark entry points:
 
@@ -30,7 +30,7 @@ Outputs are written to `artifacts/compression-benchmarks`:
 - `managed/results`: BenchmarkDotNet JSON, CSV, and Markdown reports.
 - `tinyexr.json`: TinyEXR v3 C Google Benchmark results and build context.
 - `openexr.json`: OpenEXR Google Benchmark results and build context.
-- `comparison.csv`: 68 normalized result rows across all implementations.
+- `comparison.csv`: 64 normalized result rows across all implementations.
 
 ## Build
 
@@ -83,8 +83,8 @@ destruction as codec work while still charging every implementation for a
 complete result.
 
 For every mutually supported codec, both native implementations decode the
-exact EXR produced by TinyEXR.NET v3. ZSTD is shared by TinyEXR.NET and TinyEXR
-v3 C. DWAA/DWAB exist only in OpenEXR and therefore use OpenEXR's own output.
+exact EXR produced by TinyEXR.NET v3. DWAA/DWAB exist only in OpenEXR and
+therefore use OpenEXR's own output.
 Encode sizes always describe each implementation's own file.
 
 | Compression | TinyEXR.NET v3 | TinyEXR v3 C | OpenEXR 3.4.13 |
@@ -92,7 +92,6 @@ Encode sizes always describe each implementation's own file.
 | None, RLE, ZIPS, ZIP, PIZ, PXR24, B44, B44A | Encode/decode | Encode/decode | Encode/decode |
 | DWAA, DWAB | - | - | Encode/decode |
 | HTJ2K256, HTJ2K32 | Encode/decode | Encode/decode | Encode/decode |
-| ZSTD | Encode/decode | Encode/decode | - |
 
 ## Default Results (2026-07-21)
 
@@ -127,7 +126,6 @@ is binary MiB per operation. Lower time and higher throughput are better.
 | DWAB | - | - | - | 45.46 / 348.04 |
 | HTJ2K256 | 105.44 / 150.05 | 26.38 | 47.43 / 333.58 | 29.39 / 538.40 |
 | HTJ2K32 | 111.64 / 141.70 | 27.59 | 38.64 / 409.45 | 52.69 / 300.25 |
-| ZSTD | 6.05 / 2614.18 | 33.39 | 8.62 / 1835.94 | - |
 
 ### Decode
 
@@ -147,7 +145,6 @@ All shared rows use the TinyEXR.NET-produced bytes described in the size table.
 | DWAB | - | - | - | 19.21 / 823.73 |
 | HTJ2K256 | 102.34 / 154.58 | 22.01 | 33.71 / 469.29 | 23.61 / 670.10 |
 | HTJ2K32 | 102.51 / 154.33 | 23.49 | 24.55 / 644.46 | 40.03 / 395.25 |
-| ZSTD | 12.88 / 1228.69 | 32.76 | 4.57 / 3462.52 | - |
 
 ### Encoded Output
 
@@ -167,15 +164,12 @@ Each cell is `encoded MiB / raw-to-encoded ratio`.
 | DWAB | - | - | 0.120 / 131.35x |
 | HTJ2K256 | 0.647 / 24.45x | 0.647 / 24.45x | 0.647 / 24.45x |
 | HTJ2K32 | 0.727 / 21.76x | 0.727 / 21.76x | 0.728 / 21.74x |
-| ZSTD | 0.138 / 114.99x | 0.138 / 114.99x | - |
 
 ### Findings
 
 - Managed ZIPS and ZIP encode take 69%/58% of TinyEXR v3 C time and
   47%/51% of OpenEXR time. Managed PXR24 encode is also faster, taking
   87% of TinyEXR v3 C time and 78% of OpenEXR time.
-- Managed ZSTD encode is 1.42x faster than TinyEXR v3 C, while native ZSTD
-  decode is 2.82x faster than managed.
 - Managed B44/B44A encode takes 2.42x/2.10x the TinyEXR v3 C time and
   2.40x/2.17x the OpenEXR time. Decode shows a similar roughly 2x gap.
 - Managed HTJ2K256 encode/decode takes 2.22x/3.04x the TinyEXR v3 C time;
