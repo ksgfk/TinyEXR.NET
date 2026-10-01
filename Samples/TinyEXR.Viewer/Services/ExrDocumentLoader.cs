@@ -1,7 +1,7 @@
 using System.Buffers.Binary;
 using TinyEXR.Viewer.Models;
-using V3 = TinyEXR.V3;
-using V3IO = TinyEXR.V3.IO;
+using V3 = TinyEXR;
+using V3IO = TinyEXR.IO;
 
 namespace TinyEXR.Viewer.Services;
 
@@ -121,9 +121,9 @@ internal sealed class ExrDocumentLoader
         {
             return parts.Count == 1
                 ? deepCount == 1
-                    ? "Deep EXR loaded through TinyEXR.V3. A 2D preview is unavailable by design."
-                    : "Single-part image loaded through TinyEXR.V3."
-                : $"Multipart EXR loaded through TinyEXR.V3 ({parts.Count} parts: {flatCount} flat, {deepCount} deep).";
+                    ? "Deep EXR loaded through TinyEXR. A 2D preview is unavailable by design."
+                    : "Single-part image loaded through TinyEXR."
+                : $"Multipart EXR loaded through TinyEXR ({parts.Count} parts: {flatCount} flat, {deepCount} deep).";
         }
 
         string failures = string.Join(

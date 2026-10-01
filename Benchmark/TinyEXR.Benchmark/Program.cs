@@ -1,6 +1,6 @@
 using System.Diagnostics;
 using BenchmarkDotNet.Running;
-using V3 = TinyEXR.V3;
+using V3 = TinyEXR;
 
 if (args.Length == 1 && string.Equals(
     args[0],

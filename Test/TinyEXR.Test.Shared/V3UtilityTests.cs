@@ -1,6 +1,6 @@
 using System.Buffers.Binary;
 using System.Numerics;
-using V3 = TinyEXR.V3;
+using V3 = TinyEXR;
 
 namespace TinyEXR.Test;
 

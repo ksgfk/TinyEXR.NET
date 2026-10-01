@@ -1,4 +1,4 @@
-using V3IO = TinyEXR.V3.IO;
+using V3IO = TinyEXR.IO;
 
 namespace TinyEXR.Test;
 

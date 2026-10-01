@@ -4,7 +4,7 @@ using Avalonia;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
 using TinyEXR.Viewer.Models;
-using V3 = TinyEXR.V3;
+using V3 = TinyEXR;
 
 namespace TinyEXR.Viewer.Services;
 

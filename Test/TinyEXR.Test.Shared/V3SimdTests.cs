@@ -1,8 +1,8 @@
 using System.Runtime.InteropServices;
 using System.Runtime.Intrinsics.Arm;
 using System.Runtime.Intrinsics.X86;
-using V3 = TinyEXR.V3;
-using V3Codecs = TinyEXR.V3.Codecs;
+using V3 = TinyEXR;
+using V3Codecs = TinyEXR.Codecs;
 
 namespace TinyEXR.Test;
 

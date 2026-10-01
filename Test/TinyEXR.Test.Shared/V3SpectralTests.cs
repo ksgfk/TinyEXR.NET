@@ -1,6 +1,6 @@
 using System.Buffers.Binary;
-using V3 = TinyEXR.V3;
-using V3IO = TinyEXR.V3.IO;
+using V3 = TinyEXR;
+using V3IO = TinyEXR.IO;
 
 namespace TinyEXR.Test;
 
@@ -12,13 +12,13 @@ public sealed class V3SpectralTests
     {
         Assert.AreEqual(
             "S0.550,000000nm",
-            V3.Spectral.GetChannelName(V3.SpectrumType.Emissive, 550.0f));
+            V3.Spectral.GetChannelName(V3.SpectralType.Emissive, 550.0f));
         Assert.AreEqual(
             "S3.400,500000nm",
-            V3.Spectral.GetChannelName(V3.SpectrumType.Polarised, 400.5f, 9));
+            V3.Spectral.GetChannelName(V3.SpectralType.Polarised, 400.5f, 9));
         Assert.AreEqual(
             "T.700,000000nm",
-            V3.Spectral.GetChannelName(V3.SpectrumType.Reflective, 700.0f));
+            V3.Spectral.GetChannelName(V3.SpectralType.Reflective, 700.0f));
 
         Assert.IsTrue(V3.Spectral.TryParseChannelWavelength("S2.480,250000nm", out float wavelength));
         Assert.AreEqual(480.25f, wavelength, 0.0001f);
@@ -55,7 +55,7 @@ public sealed class V3SpectralTests
             V3.Compression.ZIP);
         Assert.IsTrue(part.IsComplete);
         Assert.IsTrue(V3.Spectral.IsSpectral(part.Header));
-        Assert.AreEqual(V3.SpectrumType.Emissive, V3.Spectral.GetSpectrumType(part.Header));
+        Assert.AreEqual(V3.SpectralType.Emissive, V3.Spectral.GetSpectrumType(part.Header));
         Assert.AreEqual("W.m^-2.sr^-1", V3.Spectral.GetUnits(part.Header));
 
         byte[] encoded = EncodeScanlinePart(part);
@@ -90,7 +90,7 @@ public sealed class V3SpectralTests
             dataWindow,
             new[] { channel },
             compression: V3.Compression.ZIP);
-        header = V3.Spectral.WithSpectralAttributes(header, V3.SpectrumType.Emissive, "radiance");
+        header = V3.Spectral.WithSpectralAttributes(header, V3.SpectralType.Emissive, "radiance");
 
         ushort[] half = { 0x4900, 0x4d00, 0x4f80, 0x5100 };
         byte[] data = new byte[half.Length * sizeof(ushort)];
@@ -145,7 +145,7 @@ public sealed class V3SpectralTests
                     System.Text.Encoding.UTF8.GetBytes("1.0")),
             });
         Assert.IsTrue(V3.Spectral.IsSpectral(rgb));
-        Assert.AreEqual(V3.SpectrumType.None, V3.Spectral.GetSpectrumType(rgb));
+        Assert.AreEqual(V3.SpectralType.None, V3.Spectral.GetSpectrumType(rgb));
 
         V3.Part nonSpectral = new(
             new V3.Header(
@@ -174,7 +174,7 @@ public sealed class V3SpectralTests
     {
         Assert.AreEqual(3, image.Width);
         Assert.AreEqual(2, image.Height);
-        Assert.AreEqual(V3.SpectrumType.Emissive, image.SpectrumType);
+        Assert.AreEqual(V3.SpectralType.Emissive, image.SpectrumType);
         Assert.AreEqual("W.m^-2.sr^-1", image.Units);
         CollectionAssert.AreEqual(
             sourceWavelengths.OrderBy(static wavelength => wavelength).ToArray(),

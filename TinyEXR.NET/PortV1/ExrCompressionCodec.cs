@@ -1,6 +1,6 @@
 using System.Buffers.Binary;
 using System.Runtime.InteropServices;
-using TinyEXR.V3.Codecs;
+using TinyEXR.Codecs;
 
 namespace TinyEXR.PortV1
 {

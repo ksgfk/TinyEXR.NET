@@ -1,8 +1,8 @@
 using System.Buffers.Binary;
 using System.Reflection;
-using V3 = TinyEXR.V3;
-using V3Codecs = TinyEXR.V3.Codecs;
-using V3IO = TinyEXR.V3.IO;
+using V3 = TinyEXR;
+using V3Codecs = TinyEXR.Codecs;
+using V3IO = TinyEXR.IO;
 
 namespace TinyEXR.Test;
 
@@ -166,7 +166,7 @@ public sealed class V3Htj2kTests
     public void Case_V3Htj2k_VlcTablesMatchTinyExrV3()
     {
         Type decoder = typeof(V3.ExrReader).Assembly.GetType(
-            "TinyEXR.V3.Codecs.Htj2kDecoder",
+            "TinyEXR.Codecs.Htj2kDecoder",
             throwOnError: true)!;
         object tables = decoder.GetField("Tables", BindingFlags.Static | BindingFlags.NonPublic)!
             .GetValue(null)!;

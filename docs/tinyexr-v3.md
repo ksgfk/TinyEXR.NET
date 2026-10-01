@@ -33,8 +33,15 @@ JPEG 2000 Part 1.
 
 ## Managed mapping
 
-The managed v3 surface lives in `TinyEXR.V3`; the existing `TinyEXR` namespace
-continues to expose the v1-compatible facade.
+As of TinyEXR.NET 1.2.0, the modern managed surface lives in the unversioned
+`TinyEXR` namespace alongside the v1-compatible facade. Data-source and sink
+contracts live in `TinyEXR.IO`. The v3 label in these notes refers to the
+upstream API generation, not the managed namespace or NuGet package version.
+`ExrFile.ApiVersionMajor` therefore remains `3`.
+
+Upgrading from 1.1.x requires source updates and a rebuild of every dependent
+assembly. See the [1.2.0 migration guide](migration-1.2.0.md) for the complete
+public type mapping and binary compatibility limits.
 
 | Upstream v3 concept | Managed API |
 | --- | --- |
@@ -49,7 +56,7 @@ continues to expose the v1-compatible facade.
 | source callback / pending range | `IExactDataSource`, `IAsyncExactDataSource`, `SuppliedDataSource`, `DataRange` |
 | seekable output sink | `ISeekableDataSink`, `IAsyncSeekableDataSink`, `StreamDataSink` |
 | allocator limits | `ReaderLimits`, `WriterLimits` resource ceilings |
-| spectral header/cube API | `Spectral`, `SpectralImage` |
+| spectral header/cube API | `Spectral`, `SpectralImage`, `SpectralType` |
 | pixel conversion | `PixelConversion`, `PixelConversionMode` |
 | one-shot / streaming resize | `ImageProcessing.Resize`, `StreamingImageResizer` |
 | tone map, color, transfer | `ImageProcessing`, `ToneMapParameters`, `ColorMatrix3x3` |
@@ -60,7 +67,7 @@ The managed API adds .NET-specific asynchronous operations, cancellation,
 atomic retry rules, `IDisposable`/`IAsyncDisposable`, and immutable owned model
 objects. It does not expose pointers or require unsafe code in this repository.
 
-## Current managed v3 coverage
+## Current managed API coverage
 
 | Capability | Status |
 | --- | --- |
@@ -87,8 +94,8 @@ objects. It does not expose pointers or require unsafe code in this repository.
 The CPU utilities operate on caller-owned spans or immutable owned results.
 Resize preserves HDR values and supports alpha-aware premultiplication; the
 streaming variant accepts UInt, Half, or Float rows and returns `WouldBlock`
-until its next contributor row is available. Half conversions reuse the v3 SIMD
-path, while UInt narrowing follows upstream clamp and round-to-nearest,
+until its next contributor row is available. Half conversions reuse the modern
+SIMD path, while UInt narrowing follows upstream clamp and round-to-nearest,
 ties-to-even behavior.
 
 On `net8.0`, the conversion and EXR predictor paths use safe `Vector128`
@@ -151,7 +158,7 @@ storage, but it is not an implementation of the selected codec.
 
 tinyexr v3 also defines ZSTD (12). OpenEXR does not support ZSTD, so
 TinyEXR.NET does not implement it either; the value is absent from
-`TinyEXR.V3.Compression` and files that declare it are rejected as
+`TinyEXR.Compression` and files that declare it are rejected as
 `Unsupported`.
 
 Deep RLE, ZIPS, and ZIP encoding applies the OpenEXR byte reorder/predictor and
@@ -161,20 +168,20 @@ encoded form is not smaller.
 
 ## V1 facade migration
 
-The public v1 facade remains available. Migration to the v3 core is currently
-incremental:
+The public v1 facade remains available. Migration to the modern core based on
+upstream v3 is currently incremental:
 
-- Single-part and multipart memory headers use the v3 format parser; seekable
-  stream and file headers use the incremental v3 reader. Files with legacy
+- Single-part and multipart memory headers use the modern format parser; seekable
+  stream and file headers use the incremental modern reader. Files with legacy
   unknown part-type strings continue through `PortV1`.
 - Flat scanline and tiled memory, stream, and file image loads use `ExrReader`
   for both single-part and multipart files, including one-level, mipmap, and
   ripmap parts. The bridge reconstructs the legacy per-level and per-tile
-  channel views from v3 planar levels. Caller-owned streams retain their
+  channel views from modern planar levels. Caller-owned streams retain their
   original position and may use a non-zero EXR origin.
-- `LoadEXR`, `LoadEXRWithLayer`, and `EXRLayers` use the same v3 flat image
+- `LoadEXR`, `LoadEXRWithLayer`, and `EXRLayers` use the same modern flat image
   path, while retaining the v1 layer selection and RGBA expansion rules.
-- HALF-to-FLOAT conversion on migrated read paths uses the v3 SIMD
+- HALF-to-FLOAT conversion on migrated read paths uses the modern SIMD
   implementation.
 - Single-part deep scanline and one-level deep-tiled memory, seekable-stream,
   and file loads use `ExrReader`. The bridge rebuilds the legacy per-row
@@ -189,11 +196,11 @@ incremental:
   multipart scanline or tiled images, including single-entry multipart
   containers and mipmap/ripmap levels. The bridge slices legacy planar levels
   into streaming blocks and tiles, preserves part names and custom metadata,
-  and maps the v1 `chromaticities` attribute to the first-class v3 field for
+  and maps the v1 `chromaticities` attribute to the first-class modern field for
   exact round trips.
-- Save-time UINT/HALF/FLOAT conversion is performed before each v3 writer block;
-  HALF conversion uses the v3 SIMD implementation. Flat scanline channels may
-  be subsampled when their sampling grid aligns with the data window. Tiled
+- Save-time UINT/HALF/FLOAT conversion is performed before each modern writer
+  block; HALF conversion uses the modern SIMD implementation. Flat scanline
+  channels may be subsampled when their sampling grid aligns with the data window. Tiled
   channels retain the OpenEXR unit-sampling requirement.
 - The v1 multipart image model contains only `ExrImage`, so mixed or all-deep
   multipart image loads return `UnsupportedFeature`; multipart header parsing
@@ -203,7 +210,7 @@ incremental:
   continue through `PortV1` where that implementation can represent them.
 - The legacy DWAA/DWAB `UnsupportedFeature` behavior is preserved.
 
-This keeps existing callers stable while allowing individual facade paths to be
+This preserves the v1 facade contract while allowing individual facade paths to be
 moved only after their compatibility behavior is covered by shared tests.
 
 ## HTJ2K implementation
