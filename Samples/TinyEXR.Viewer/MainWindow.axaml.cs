@@ -1,7 +1,9 @@
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
+using TinyEXR.Viewer.Services;
 using TinyEXR.Viewer.ViewModels;
 
 namespace TinyEXR.Viewer;
@@ -75,6 +77,28 @@ public partial class MainWindow : Window
     private void ResetExposureClick(object? sender, RoutedEventArgs e)
     {
         _viewModel.Exposure = 0.0;
+    }
+
+    private void PreviewPointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (sender is not Grid viewport ||
+            e.GetCurrentPoint(viewport).Properties.PointerUpdateKind != PointerUpdateKind.RightButtonPressed ||
+            _viewModel.PreviewBitmap is not { } bitmap)
+        {
+            return;
+        }
+
+        Point position = e.GetPosition(viewport);
+        if (PreviewPixelMapper.TryGetPixel(viewport.Bounds.Width, viewport.Bounds.Height,
+            bitmap.PixelSize.Width, bitmap.PixelSize.Height, position.X, position.Y, out int x, out int y))
+        {
+            e.Handled = _viewModel.InspectPixel(x, y);
+        }
+    }
+
+    private void ClearPixelSelectionClick(object? sender, RoutedEventArgs e)
+    {
+        _viewModel.ClearPixelSelection();
     }
 
     private void HandleDragOver(object? sender, DragEventArgs e)

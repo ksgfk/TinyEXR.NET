@@ -14,6 +14,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     private ExrViewerDocument? _document;
     private PreviewBuffer? _currentPreviewBuffer;
     private Bitmap? _previewBitmap;
+    private PixelInspection? _pixelSelection;
     private PartOption? _selectedPart;
     private LayerOption? _selectedLayer;
     private LevelOption? _selectedLevel;
@@ -95,6 +96,54 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     public bool HasPreviewBitmap => PreviewBitmap is not null;
 
     public bool HasNoPreviewBitmap => PreviewBitmap is null;
+
+    public PixelInspection? PixelSelection
+    {
+        get => _pixelSelection;
+        private set
+        {
+            if (SetProperty(ref _pixelSelection, value))
+            {
+                OnPropertyChanged(nameof(HasPixelSelection));
+                OnPropertyChanged(nameof(PixelCoordinates));
+                OnPropertyChanged(nameof(PixelContext));
+                OnPropertyChanged(nameof(PixelChannelEntries));
+            }
+        }
+    }
+
+    public bool HasPixelSelection => PixelSelection is not null;
+
+    public string PixelCoordinates => PixelSelection?.Coordinates ?? "No pixel selected";
+
+    public string PixelContext => PixelSelection?.Context ?? "Right-click the image to inspect a pixel.";
+
+    public IReadOnlyList<PixelChannelValue> PixelChannelEntries =>
+        PixelSelection?.Channels ?? Array.Empty<PixelChannelValue>();
+
+    public bool InspectPixel(int x, int y)
+    {
+        ExrPartDocument? part = GetSelectedPartDocument();
+        if (IsBusy || PreviewBitmap is null || _currentPreviewBuffer is null || part is null)
+        {
+            return false;
+        }
+
+        PixelInspection? inspection = PixelInspectionReader.Inspect(
+            part, SelectedLevel?.LevelIndex ?? 0, SelectedLayer?.LayerName, x, y);
+        if (inspection is null)
+        {
+            return false;
+        }
+
+        PixelSelection = inspection;
+        return true;
+    }
+
+    public void ClearPixelSelection()
+    {
+        PixelSelection = null;
+    }
 
     public IReadOnlyList<PartOption> PartOptions
     {
@@ -223,6 +272,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         previous?.Dispose();
 
         IsBusy = true;
+        ClearPreview();
         CurrentPath = path;
         PreviewMessage = "Loading EXR document...";
         EmptyPreviewMessage = "Loading EXR document...";
@@ -261,14 +311,13 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         CancellationTokenSource? cancellation = Interlocked.Exchange(ref _loadCancellation, null);
         cancellation?.Cancel();
         cancellation?.Dispose();
-        PreviewBitmap = null;
+        ClearPreview();
     }
 
     private void ApplyDocument(ExrViewerDocument document)
     {
         _document = document;
-        _currentPreviewBuffer = null;
-        PreviewBitmap = null;
+        ClearPreview();
 
         PartEntries = _metadataFormatter.BuildPartEntries(document.Parts);
         PartOptions = document.Parts.Select(static part => new PartOption
@@ -288,7 +337,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     private void ApplyLoadFailure(string path, string message)
     {
         _document = null;
-        _currentPreviewBuffer = null;
+        ClearPreview();
         PartOptions = Array.Empty<PartOption>();
         LayerOptions = Array.Empty<LayerOption>();
         LevelOptions = Array.Empty<LevelOption>();
@@ -298,7 +347,6 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         AttributeEntries = Array.Empty<AttributeInfoItem>();
         DeepEntries = Array.Empty<KeyValueItem>();
         OverviewEntries = Array.Empty<KeyValueItem>();
-        PreviewBitmap = null;
         CurrentPath = path;
         PreviewMessage = $"Failed to load file: {message}";
         EmptyPreviewMessage = PreviewMessage;
@@ -324,13 +372,11 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
 
     private void HandleRenderableSelectionChanged()
     {
+        ClearPreview();
         RefreshMetadata();
         ExrPartDocument? part = GetSelectedPartDocument();
         if (part is null || !part.CanPreview)
         {
-            Interlocked.Increment(ref _previewRevision);
-            _currentPreviewBuffer = null;
-            PreviewBitmap = null;
             PreviewMessage = part switch
             {
                 null => "Open an EXR file to begin.",
@@ -490,9 +536,16 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
             return;
         }
 
-        _currentPreviewBuffer = null;
-        PreviewBitmap = null;
+        ClearPreview();
         PreviewMessage = message;
         EmptyPreviewMessage = message;
+    }
+
+    private void ClearPreview()
+    {
+        Interlocked.Increment(ref _previewRevision);
+        _currentPreviewBuffer = null;
+        PreviewBitmap = null;
+        ClearPixelSelection();
     }
 }

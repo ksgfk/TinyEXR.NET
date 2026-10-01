@@ -1,4 +1,3 @@
-using System.Buffers.Binary;
 using System.Runtime.InteropServices;
 using Avalonia;
 using Avalonia.Media.Imaging;
@@ -185,65 +184,9 @@ internal static class PreviewBitmapRenderer
         int x,
         int y)
     {
-        V3.Channel description = channel.Description;
-        long firstSampleX = FloorDivide((long)region.MinX - 1L, description.XSampling) + 1L;
-        long lastSampleX = FloorDivide(region.MaxX, description.XSampling);
-        long firstSampleY = FloorDivide((long)region.MinY - 1L, description.YSampling) + 1L;
-        long lastSampleY = FloorDivide(region.MaxY, description.YSampling);
-        if (firstSampleX > lastSampleX || firstSampleY > lastSampleY)
-        {
-            throw new InvalidOperationException($"Channel '{description.Name}' has no samples in this level.");
-        }
-
-        long absoluteX = (long)region.MinX + x;
-        long absoluteY = (long)region.MinY + y;
-        long sampledX = Math.Clamp(
-            FloorDivide(absoluteX, description.XSampling),
-            firstSampleX,
-            lastSampleX);
-        long sampledY = Math.Clamp(
-            FloorDivide(absoluteY, description.YSampling),
-            firstSampleY,
-            lastSampleY);
-        long sampleWidth = lastSampleX - firstSampleX + 1L;
-        int sampleIndex = checked((int)(
-            (sampledY - firstSampleY) * sampleWidth + sampledX - firstSampleX));
-        return ReadSampleAsFloat(channel.Buffer.Data, channel.Buffer.PixelType, sampleIndex);
-    }
-
-    private static long FloorDivide(long value, int divisor)
-    {
-        long quotient = value / divisor;
-        if (value % divisor < 0)
-        {
-            quotient--;
-        }
-
-        return quotient;
-    }
-
-    private static float ReadSampleAsFloat(ReadOnlySpan<byte> data, V3.PixelType pixelType, int index)
-    {
-        int offset = checked(index * GetTypeSize(pixelType));
-        ReadOnlySpan<byte> bytes = data.Slice(offset);
-        return pixelType switch
-        {
-            V3.PixelType.UInt => BinaryPrimitives.ReadUInt32LittleEndian(bytes),
-            V3.PixelType.Half => (float)BitConverter.UInt16BitsToHalf(BinaryPrimitives.ReadUInt16LittleEndian(bytes)),
-            V3.PixelType.Float => BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(bytes)),
-            _ => 0.0f,
-        };
-    }
-
-    private static int GetTypeSize(V3.PixelType pixelType)
-    {
-        return pixelType switch
-        {
-            V3.PixelType.Half => 2,
-            V3.PixelType.UInt => 4,
-            V3.PixelType.Float => 4,
-            _ => 0,
-        };
+        ChannelSample sample = ExrChannelSampler.Read(channel, region, x, y) ??
+            throw new InvalidOperationException($"Channel '{channel.Description.Name}' has no samples in this level.");
+        return (float)sample.Value;
     }
 
     private static byte ToSrgbByte(float value)

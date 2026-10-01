@@ -6,6 +6,7 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:models="clr-namespace:TinyEXR.Viewer.Models"
+    xmlns:controls="clr-namespace:TinyEXR.Viewer.Controls"
     xmlns:viewModels="clr-namespace:TinyEXR.Viewer.ViewModels"
     Title="TinyEXR.Viewer"
     Width="1480"
@@ -126,13 +127,17 @@
               BorderThickness="1"
               CornerRadius="10"
               Padding="12">
-            <Grid>
+            <Grid Background="Transparent" PointerPressed="PreviewPointerPressed">
               <Image
                   HorizontalAlignment="Stretch"
                   VerticalAlignment="Stretch"
                   IsVisible="{Binding HasPreviewBitmap}"
                   Source="{Binding PreviewBitmap}"
                   Stretch="Uniform" />
+              <controls:PixelSelectionOverlay
+                  IsHitTestVisible="False"
+                  Source="{Binding PreviewBitmap}"
+                  Selection="{Binding PixelSelection}" />
               <TextBlock
                   HorizontalAlignment="Center"
                   VerticalAlignment="Center"
@@ -148,6 +153,39 @@
 
       <ScrollViewer Grid.Column="1" Margin="12,0,0,0">
         <StackPanel Spacing="12">
+          <Border Classes="sectionCard" BorderBrush="#0891B2">
+            <StackPanel Spacing="8">
+              <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Classes="sectionHeader" VerticalAlignment="Center" Text="Pixel Inspector" />
+                <Button Grid.Column="1" Content="Clear" Padding="10,4"
+                        IsEnabled="{Binding HasPixelSelection}" Click="ClearPixelSelectionClick" />
+              </Grid>
+              <TextBlock Classes="mono" FontWeight="SemiBold" Text="{Binding PixelCoordinates}" TextWrapping="Wrap" />
+              <TextBlock Text="{Binding PixelContext}" TextWrapping="Wrap" />
+              <ScrollViewer MaxHeight="280" HorizontalScrollBarVisibility="Disabled">
+                <ItemsControl ItemsSource="{Binding PixelChannelEntries}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="models:PixelChannelValue">
+                      <Border Margin="0,0,0,6" Padding="8" Background="#0B1220" CornerRadius="6">
+                        <Grid RowDefinitions="Auto,Auto,Auto" ColumnDefinitions="*,Auto">
+                          <TextBlock FontWeight="SemiBold" Text="{Binding Name}" TextWrapping="Wrap" />
+                          <TextBlock Grid.Column="1" Margin="8,0,0,0" Text="{Binding DataType}" />
+                          <SelectableTextBlock Grid.Row="1" Grid.ColumnSpan="2" Classes="mono"
+                                               FontSize="16" Text="{Binding Value}" />
+                          <TextBlock Grid.Row="2" Grid.ColumnSpan="2" FontSize="12"
+                                     IsVisible="{Binding HasSampleLocation}"
+                                     Text="{Binding SampleLocation}" TextWrapping="Wrap" />
+                        </Grid>
+                      </Border>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </ScrollViewer>
+              <TextBlock FontSize="12" TextWrapping="Wrap"
+                         Text="Original channel values · before exposure and sRGB conversion. Pixel coordinates start at (0, 0) in the top-left of the selected level." />
+            </StackPanel>
+          </Border>
+
           <Border Classes="sectionCard">
             <StackPanel Spacing="8">
               <TextBlock Classes="sectionHeader" Text="Overview" />

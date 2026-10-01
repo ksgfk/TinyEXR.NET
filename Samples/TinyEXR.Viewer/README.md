@@ -13,6 +13,9 @@ code based on earlier versions of this sample.
 - Supports part, layer, and level switching when the reader materializes the part data.
 - Previews flat parts while exposing deep part levels, channels, and aggregate sample statistics.
 - Applies exposure and converts linear HDR values to SDR `sRGB` for preview.
+- Inspects pixels with a right-click on the preview. The Pixel Inspector shows zero-based coordinates in the selected level, absolute EXR coordinates, and original channel values for the selected layer before exposure or sRGB conversion. A cyan marker stays on the selected pixel when the window is resized.
+- Preserves pixel readings while adjusting exposure; opening a file or switching part, layer, or level clears the selection. Use **Clear** to remove it manually. Right-clicking the margins around the image does not select a pixel.
+- Displays exact `UInt` values and identifies the stored sample coordinates used for subsampled channels, matching the preview's held-sample behavior.
 - Shows EXR version flags, windows, tile metadata, parts, layers, channels, deep statistics, and custom attributes.
 
 ## Current Boundaries
@@ -21,7 +24,7 @@ code based on earlier versions of this sample.
 - No tone mapping.
 - Deep parts show structure and statistics, but do not produce a 2D preview.
 - Parts using an unsupported codec or exceeding reader limits remain available as metadata with their decode status.
-- No automated tests are included; validate by launching the app and opening representative EXR samples.
+- Pixel mapping and original channel sampling are covered by shared tests in both compatibility hosts. Validate the desktop UI by launching the app and opening representative EXR samples.
 
 ## Run
 
