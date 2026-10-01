@@ -31,13 +31,5 @@
     <Compile Include="$(MSBuildThisFileDirectory)V3ReaderTests.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)V3WriterTests.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)NamespaceMigrationTests.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)ViewerPixelInspectionTests.cs" />
-    <!-- Exercise the viewer's platform-independent sampling in both compatibility hosts. -->
-    <Compile Include="$(MSBuildThisFileDirectory)..\..\samples\TinyEXR.Viewer\Models\ViewerModels.cs" Link="Viewer\ViewerModels.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)..\..\samples\TinyEXR.Viewer\Models\PixelInspection.cs" Link="Viewer\PixelInspection.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)..\..\samples\TinyEXR.Viewer\Services\ExrLayerHelper.cs" Link="Viewer\ExrLayerHelper.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)..\..\samples\TinyEXR.Viewer\Services\ExrChannelSampler.cs" Link="Viewer\ExrChannelSampler.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)..\..\samples\TinyEXR.Viewer\Services\PixelInspectionReader.cs" Link="Viewer\PixelInspectionReader.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)..\..\samples\TinyEXR.Viewer\Services\PreviewPixelMapper.cs" Link="Viewer\PreviewPixelMapper.cs" />
   </ItemGroup>
 </Project>

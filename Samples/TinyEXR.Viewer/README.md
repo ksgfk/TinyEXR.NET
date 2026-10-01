@@ -24,7 +24,7 @@ code based on earlier versions of this sample.
 - No tone mapping.
 - Deep parts show structure and statistics, but do not produce a 2D preview.
 - Parts using an unsupported codec or exceeding reader limits remain available as metadata with their decode status.
-- Pixel mapping and original channel sampling are covered by shared tests in both compatibility hosts. Validate the desktop UI by launching the app and opening representative EXR samples.
+- Validate the desktop UI by launching the app and opening representative EXR samples.
 
 ## Run
 
