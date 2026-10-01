@@ -1,8 +1,8 @@
 using System.Buffers.Binary;
 using System.Text;
-using V3 = TinyEXR.V3;
-using V3Format = TinyEXR.V3.Format;
-using V3IO = TinyEXR.V3.IO;
+using V3 = TinyEXR;
+using V3Format = TinyEXR.Format;
+using V3IO = TinyEXR.IO;
 
 namespace TinyEXR.Test;
 

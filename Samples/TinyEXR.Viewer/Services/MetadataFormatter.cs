@@ -2,7 +2,7 @@ using System.Buffers.Binary;
 using System.Globalization;
 using System.Text;
 using TinyEXR.Viewer.Models;
-using V3 = TinyEXR.V3;
+using V3 = TinyEXR;
 
 namespace TinyEXR.Viewer.Services;
 

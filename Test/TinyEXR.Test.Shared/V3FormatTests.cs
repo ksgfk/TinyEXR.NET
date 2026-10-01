@@ -1,7 +1,7 @@
 using System.Buffers.Binary;
 using System.Text;
-using TinyEXR.V3.Format;
-using V3 = TinyEXR.V3;
+using TinyEXR.Format;
+using V3 = TinyEXR;
 
 namespace TinyEXR.Test;
 

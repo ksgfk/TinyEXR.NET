@@ -1,12 +1,17 @@
-﻿# TinyEXR v3 Benchmarks
+﻿# TinyEXR compression benchmarks
 
-This directory contains three v3 compression benchmark entry points:
+This directory contains three compression benchmark entry points:
 
-- `TinyEXR.Benchmark`: BenchmarkDotNet coverage for TinyEXR.NET v3.
+- `TinyEXR.Benchmark`: BenchmarkDotNet coverage for the modern TinyEXR.NET API.
 - `baseline/tinyexr_compression_benchmark`: the vendored pure-C11 TinyEXR v3
   library with a Google Benchmark driver.
 - `baseline/openexr_compression_benchmark`: OpenEXR 3.4.13 with the same image
   and timing boundary.
+
+The managed benchmark now targets the unversioned `TinyEXR` namespace
+introduced in package 1.2.0. The v3 labels for the native library,
+CMake target, and profiling command refer to the upstream API generation.
+See the [1.2.0 migration guide](../docs/migration-1.2.0.md).
 
 Generated fixtures, dependencies, binaries, and reports live under `.cache`,
 `bin`, `obj`, `artifacts`, or `BenchmarkDotNet.Artifacts` and are not committed.
@@ -71,7 +76,7 @@ The timed work is the same semantic unit for every implementation:
 - Source construction, headers, fixture I/O, validation, counters, and result
   release are outside the timing boundary.
 
-TinyEXR.NET returns the complete `byte[]` or v3 `Image`. TinyEXR C uses manual
+TinyEXR.NET returns the complete `byte[]` or `TinyEXR.Image`. TinyEXR C uses manual
 wall time around `exr_save_to_memory` or `exr_load_from_memory`; their result
 allocations occur inside those calls. OpenEXR has no equivalent memory helper,
 so its benchmark reuses only the stream adapter object: each encode allocates
@@ -82,11 +87,11 @@ destruction as codec work while still charging every implementation for a
 complete result.
 
 For every mutually supported codec, both native implementations decode the
-exact EXR produced by TinyEXR.NET v3. DWAA/DWAB exist only in OpenEXR and
+exact EXR produced by TinyEXR.NET. DWAA/DWAB exist only in OpenEXR and
 therefore use OpenEXR's own output.
 Encode sizes always describe each implementation's own file.
 
-| Compression | TinyEXR.NET v3 | TinyEXR v3 C | OpenEXR 3.4.13 |
+| Compression | TinyEXR.NET (managed) | TinyEXR v3 C | OpenEXR 3.4.13 |
 | --- | --- | --- | --- |
 | None, RLE, ZIPS, ZIP, PIZ, PXR24, B44, B44A | Encode/decode | Encode/decode | Encode/decode |
 | DWAA, DWAB | - | - | Encode/decode |
@@ -94,7 +99,9 @@ Encode sizes always describe each implementation's own file.
 
 ## Default Results (2026-07-26)
 
-These are same-machine results, not cross-machine performance claims:
+These historical results predate the 1.2.0 namespace migration and have not
+been rerun for that release. They are same-machine results, not cross-machine
+performance claims:
 
 - CPU: Intel Core i7-13700K, 16 physical cores / 24 logical processors.
 - OS: Windows 11 25H2, build 10.0.26200.8875, x64.
@@ -111,7 +118,7 @@ is binary MiB per operation. Lower time and higher throughput are better.
 
 ### Encode
 
-| Compression | TinyEXR.NET v3 ms / MiB/s | Managed alloc MiB | TinyEXR v3 C ms / MiB/s | OpenEXR ms / MiB/s |
+| Compression | TinyEXR.NET (managed) ms / MiB/s | Managed alloc MiB | TinyEXR v3 C ms / MiB/s | OpenEXR ms / MiB/s |
 | --- | ---: | ---: | ---: | ---: |
 | None | 5.89 / 2686.55 | 33.33 | 6.71 / 2356.26 | 6.82 / 2320.76 |
 | RLE | 16.54 / 956.57 | 21.72 | 17.07 / 926.87 | 16.22 / 975.14 |
@@ -130,7 +137,7 @@ is binary MiB per operation. Lower time and higher throughput are better.
 
 All shared rows use the TinyEXR.NET-produced bytes described in the size table.
 
-| Compression | TinyEXR.NET v3 ms / MiB/s | Managed alloc MiB | TinyEXR v3 C ms / MiB/s | OpenEXR ms / MiB/s |
+| Compression | TinyEXR.NET (managed) ms / MiB/s | Managed alloc MiB | TinyEXR v3 C ms / MiB/s | OpenEXR ms / MiB/s |
 | --- | ---: | ---: | ---: | ---: |
 | None | 3.46 / 4577.67 | 16.28 | 4.44 / 3566.27 | 3.28 / 4828.24 |
 | RLE | 7.37 / 2146.88 | 16.30 | 8.03 / 1969.28 | 14.74 / 1073.55 |
@@ -149,7 +156,7 @@ All shared rows use the TinyEXR.NET-produced bytes described in the size table.
 
 Each cell is `encoded MiB / raw-to-encoded ratio`.
 
-| Compression | TinyEXR.NET v3 | TinyEXR v3 C | OpenEXR 3.4.13 |
+| Compression | TinyEXR.NET (managed) | TinyEXR v3 C | OpenEXR 3.4.13 |
 | --- | ---: | ---: | ---: |
 | None | 15.837 / 1.00x | 15.837 / 1.00x | 15.837 / 1.00x |
 | RLE | 4.199 / 3.77x | 4.199 / 3.77x | 4.199 / 3.77x |
@@ -187,8 +194,9 @@ Each cell is `encoded MiB / raw-to-encoded ratio`.
 ## Managed Allocation
 
 Block decode and encode run through instance-scoped pools and codec workspaces,
-as described in `docs/tinyexr-v3.md`. Non-HTJ2K decode allocates 16.28 to
-18.46 MiB against the 15.82 MiB materialized payload, so allocation is close to
+as described in the [API notes](../docs/tinyexr-v3.md). Non-HTJ2K decode
+allocates 16.28 to 18.46 MiB against the 15.82 MiB materialized payload, so
+allocation is close to
 the result itself. Encode ranges from 21.72 to 33.94 MiB.
 
 HTJ2K is bounded by its scalar entropy and transform code rather than by
@@ -199,7 +207,7 @@ encode/decode and 27.76/26.03 MiB for HTJ2K32.
 Per-operation allocation can also be measured directly with
 `--profile-v3-compression <op> <codec> 30`.
 
-## Verification
+## Historical verification (2026-07-26)
 
 The report run completed all 64 expected comparison rows without failures: 20
 managed, 20 TinyEXR v3 C, and 24 OpenEXR. Additional verification on the same

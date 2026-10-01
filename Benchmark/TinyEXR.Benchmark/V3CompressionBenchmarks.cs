@@ -5,7 +5,7 @@ using BenchmarkDotNet.Columns;
 using BenchmarkDotNet.Configs;
 using BenchmarkDotNet.Reports;
 using BenchmarkDotNet.Running;
-using V3 = TinyEXR.V3;
+using V3 = TinyEXR;
 
 namespace TinyEXR.Benchmark;
 

@@ -7,8 +7,8 @@
     <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
     <RootNamespace>TinyEXR</RootNamespace>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
-    <AssemblyVersion>1.1.0</AssemblyVersion>
-    <FileVersion>1.1.0</FileVersion>
+    <AssemblyVersion>1.2.0.0</AssemblyVersion>
+    <FileVersion>1.2.0.0</FileVersion>
     <RepositoryType>git</RepositoryType>
     <Description>TinyEXR.NET is a pure managed C# implementation of the tinyexr v1 facade and v3 streaming APIs</Description>
     <Company>ksgfk</Company>
@@ -17,9 +17,9 @@
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <RepositoryUrl>https://github.com/ksgfk/TinyEXR.NET</RepositoryUrl>
     <PackageTags>OpenEXR,HDR</PackageTags>
-    <PackageReleaseNotes>Adds a pure managed TinyEXR v3 API with immutable image and header models, whole and partial reads, synchronous and asynchronous streaming I/O, multipart and mipmap/ripmap support, flat and deep image read/write, HTJ2K32/HTJ2K256 encoding/decoding, safe SIMD acceleration, spectral and image-processing utilities, and migration of compatible v1 facade paths onto the v3 core. Retains NativeAOT, net8.0, and netstandard2.1 support.</PackageReleaseNotes>
+    <PackageReleaseNotes>Breaking namespace migration: modern APIs move from TinyEXR.V3 to TinyEXR and TinyEXR.V3.IO to TinyEXR.IO. The modern SpectrumType is renamed SpectralType; the legacy SpectrumType remains unchanged. Update imports and type references and recompile all consumers. No compatibility wrappers or binary drop-in compatibility. See docs/migration-1.2.0.md.</PackageReleaseNotes>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <Version>1.1.0</Version>
+    <Version>1.2.0</Version>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>

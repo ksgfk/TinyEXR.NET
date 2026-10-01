@@ -8,7 +8,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>TinyEXR.Viewer</AssemblyName>
     <RootNamespace>TinyEXR.Viewer</RootNamespace>
-    <Description>Avalonia EXR inspector built directly on TinyEXR.V3.</Description>
+    <Description>Avalonia EXR inspector built directly on TinyEXR.</Description>
     <IsPackable>false</IsPackable>
   </PropertyGroup>
 

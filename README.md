@@ -22,26 +22,30 @@ The `net8.0` target has no third-party runtime dependencies. The `netstandard2.1
 - [x] Multipart image EXR parse/load/save for flat image parts, including single-entry multipart containers.
 - [x] Deep single-part scanline and one-level tiled EXR load through `LoadDeepEXR`.
 - [x] Regular image compression support for `NONE`, `RLE`, `ZIP`, `ZIPS`, `PIZ`, `PXR24`, `B44`, `B44A`, `HTJ2K32`, and `HTJ2K256`.
-- [x] V3 deep compression support for `NONE`, `RLE`, `ZIPS`, and `ZIP`.
+- [x] Deep compression support for `NONE`, `RLE`, `ZIPS`, and `ZIP`.
 - [x] Layer- and multiview-aware helpers such as `EXRLayers` and `LoadEXRWithLayer`, including RGBA expansion for subsampled channels in the convenience load path.
 - [x] Managed header/image models that preserve EXR metadata needed by tools and inspectors, including data/display windows, tile descriptions, custom attributes, channel sampling, line order, and long names.
-- [x] Stateful `TinyEXR.V3` reader/writer APIs for multipart, mip/rip, flat/deep, partial block reads, bounded-memory streaming writes, synchronous/asynchronous data sources, cancellation, and `WouldBlock` resume.
-- [x] V3 HTJ2K32/HTJ2K256 flat decode and genuine encode through a safe managed JPEG 2000 Part 15 implementation.
+- [x] Stateful `TinyEXR` reader/writer APIs for multipart, mip/rip, flat/deep, partial block reads, bounded-memory streaming writes, synchronous/asynchronous data sources, cancellation, and `WouldBlock` resume.
+- [x] HTJ2K32/HTJ2K256 flat decode and genuine encode through a safe managed JPEG 2000 Part 15 implementation.
 - [x] Safe SIMD paths for pixel conversion, RGB color matrices, and ZIP/RLE byte reorder and prediction, with scalar parity fallbacks.
-- [x] V3 spectral wavelength cubes and CPU image utilities: typed pixel conversion, whole-image and streaming resize, tone mapping, color/transfer transforms, `.cube` 3D LUTs, planar/interleaved bridges, and luminance-chroma reconstruction.
-- [x] V3 whole-part decode for mixed flat/deep multipart files. The v1-compatible flat multipart facade returns `UnsupportedFeature` when a part is deep.
+- [x] Spectral wavelength cubes and CPU image utilities: typed pixel conversion, whole-image and streaming resize, tone mapping, color/transfer transforms, `.cube` 3D LUTs, planar/interleaved bridges, and luminance-chroma reconstruction.
+- [x] Whole-part decode for mixed flat/deep multipart files. The v1-compatible flat multipart facade returns `UnsupportedFeature` when a part is deep.
 
 ## Usage
 
-The `TinyEXR` namespace keeps the public facade close to tinyexr v1. The
-`TinyEXR.V3` namespace exposes the new stateful object, partial-I/O, deep, and
-streaming model introduced by tinyexr v3. See
-[TinyEXR v3 API notes](docs/tinyexr-v3.md) for the upstream differences, managed
-type mapping, migration status, and codec support matrix.
+The `TinyEXR` namespace contains both the v1-compatible facade and the modern
+stateful object, partial-I/O, deep, and streaming model introduced by upstream
+tinyexr v3. Data-source and sink types live in `TinyEXR.IO`. These managed
+namespaces are unversioned as of package 1.2.0; see the
+[1.2.0 migration guide](docs/migration-1.2.0.md) before upgrading from 1.1.x.
+See [TinyEXR v3 API notes](docs/tinyexr-v3.md) for upstream differences, managed
+type mapping, facade migration status, and codec support.
 
 V1-compatible facade:
 
 ```csharp
+using TinyEXR;
+
 ResultCode load = Exr.LoadEXR(inputPath, out float[] rgba, out int width, out int height);
 if (load != ResultCode.Success)
 {
@@ -49,10 +53,10 @@ if (load != ResultCode.Success)
 }
 ```
 
-Direct v3 API:
+Modern managed API (based on upstream v3):
 
 ```csharp
-using TinyEXR.V3;
+using TinyEXR;
 
 ReaderResult<Image> load = ExrFile.LoadFromFile(inputPath);
 if (!load.IsSuccess || load.Value is not Image image)
@@ -90,16 +94,18 @@ See `Test/README.md` for the current test layout and execution details.
 
 ## Benchmark
 
-The current compression benchmark compares TinyEXR.NET v3, the complete
-vendored TinyEXR v3 C library, and OpenEXR 3.4.13 on the same deterministic
+The recorded compression benchmark compares the modern TinyEXR.NET API, the
+complete vendored TinyEXR v3 C library, and OpenEXR 3.4.13 on the same deterministic
 1920x1080 RGBA HALF image. The 2026-07-26 run used BenchmarkDotNet's normal
-`DefaultJob` and clang-cl 22.1.3 native builds. Every timed operation includes
-result allocation and complete in-memory encode/decode, while preparation,
+`DefaultJob` and clang-cl 22.1.3 native builds. These historical results predate
+the 1.2.0 namespace migration and have not been rerun for that release. Every
+timed operation includes result allocation and complete in-memory encode/decode,
+while preparation,
 validation, and result release are excluded.
 
 Representative means are `encode ms / decode ms`:
 
-| Compression | TinyEXR.NET v3 | TinyEXR v3 C | OpenEXR 3.4.13 |
+| Compression | TinyEXR.NET (managed) | TinyEXR v3 C | OpenEXR 3.4.13 |
 | --- | ---: | ---: | ---: |
 | None | 5.89 / 3.46 | 6.71 / 4.44 | 6.82 / 3.28 |
 | RLE | 16.54 / 7.37 | 17.07 / 8.03 | 16.22 / 14.74 |
@@ -128,6 +134,19 @@ The main branch moves forward with `v1.0+`.
 
 For new development, prefer the mainline `v1.0+` branch. Use the `v0.3.x` maintenance branch only if you need the legacy native-wrapper line for compatibility reasons.
 
+### Upgrade from 1.1.x to 1.2.0
+
+Package 1.2.0 is a deliberate breaking minor release with `AssemblyVersion`
+`1.2.0.0`. Modern types move from `TinyEXR.V3` to `TinyEXR` and from
+`TinyEXR.V3.IO` to `TinyEXR.IO`; the modern `SpectrumType` becomes
+`SpectralType`. The legacy `TinyEXR.SpectrumType` is unchanged. There are no
+compatibility wrappers or type forwarders, and 1.2.0 is not a binary drop-in:
+update imports and type references, then rebuild all dependent assemblies.
+
+See the [migration guide](docs/migration-1.2.0.md) for all 69 public type
+mappings, enum values, and verification guidance. If you cannot migrate yet,
+constrain your NuGet dependency to `[1.1.0,1.2.0)`.
+
 ### Upgrade from v0.3.x
 
 - High-level RGBA helpers such as `LoadEXR`, `LoadEXRFromMemory`, `SaveEXR`, `SaveEXRToMemory`, `LoadEXRWithLayer`, and `EXRLayers` are still the recommended entry points, so code that only uses these helpers usually needs little or no change.
@@ -139,9 +158,9 @@ For new development, prefer the mainline `v1.0+` branch. Use the `v0.3.x` mainte
 
 ## Known Limitation
 
-The V3 reader materializes mixed flat/deep multipart files. The v1-compatible `LoadEXRMultipartImage*` model can represent only flat `ExrImage` parts, so it returns `UnsupportedFeature` when any part is deep; use `TinyEXR.V3.ExrReader` for those files. Likewise, v1 `ExrDeepImage` has no mip/rip level dimension, so `LoadDeepEXR*` accepts one-level deep tiles and rejects multilevel deep tiles.
+The modern reader materializes mixed flat/deep multipart files. The v1-compatible `LoadEXRMultipartImage*` model can represent only flat `ExrImage` parts, so it returns `UnsupportedFeature` when any part is deep; use `TinyEXR.ExrReader` for those files. Likewise, v1 `ExrDeepImage` has no mip/rip level dimension, so `LoadDeepEXR*` accepts one-level deep tiles and rejects multilevel deep tiles.
 
-The V3 reader and writer decode and genuinely encode flat HTJ2K32/HTJ2K256 payloads. Compressed deep HTJ2K data and compressed DWAA/DWAB remain intentionally unsupported, matching upstream v3 policy.
+The modern reader and writer decode and genuinely encode flat HTJ2K32/HTJ2K256 payloads. Compressed deep HTJ2K data and compressed DWAA/DWAB remain intentionally unsupported, matching upstream v3 policy.
 
 ## License
 

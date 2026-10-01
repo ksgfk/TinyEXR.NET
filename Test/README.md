@@ -163,3 +163,24 @@ The intent of the current test structure is straightforward:
 - Separate coverage for the default `TinyEXR.NET` output and the `netstandard2.1` fallback output
 
 If both pass, the two main target framework implementations in this repository are consistent within the current test coverage.
+
+## Package and NativeAOT smoke test
+
+`TinyEXR.PackageSmoke` is a standalone consumer of the packed `TinyEXR.NET`
+1.2.0 package, not a project reference. It intentionally stays outside the
+solution so ordinary solution restore does not require an unpublished package.
+It checks the unversioned root and I/O imports, a ZIP spectral-image round trip,
+the legacy spectral facade, and the upstream API-generation constant.
+
+```sh
+dotnet pack TinyEXR.NET/TinyEXR.NET.csproj -c Release -p:SignAssemblyKey=false -p:GeneratePackageOnBuild=false -o artifacts/packages
+dotnet restore Test/TinyEXR.PackageSmoke/TinyEXR.PackageSmoke.csproj -r linux-x64 -p:PublishAot=true --configfile Test/TinyEXR.PackageSmoke/NuGet.config --packages artifacts/consumer-packages
+dotnet publish Test/TinyEXR.PackageSmoke/TinyEXR.PackageSmoke.csproj -c Release -r linux-x64 -p:PublishAot=true --no-restore -o artifacts/aot-smoke -p:RestorePackagesPath="$PWD/artifacts/consumer-packages"
+./artifacts/aot-smoke/TinyEXR.PackageSmoke
+```
+
+The `package-aot-smoke` CI job runs this on Ubuntu with the NativeAOT compiler
+prerequisites. The smoke-specific NuGet configuration maps `TinyEXR.NET` only
+to the locally generated package feed; the isolated consumer cache prevents
+reusing a previously restored package of the same version. These unsigned checks do not validate the publisher's private
+strong-name signing key or signed release artifacts.
