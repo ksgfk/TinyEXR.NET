@@ -31,5 +31,6 @@
     <Compile Include="$(MSBuildThisFileDirectory)V3ReaderTests.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)V3WriterTests.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)NamespaceMigrationTests.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)B44RawFallbackTests.cs" />
   </ItemGroup>
 </Project>

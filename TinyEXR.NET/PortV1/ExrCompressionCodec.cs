@@ -2230,6 +2230,16 @@ namespace TinyEXR.PortV1
             DecodeWorkspace? workspace,
             out byte[] raw)
         {
+            if (payload.Length == expectedSize)
+            {
+                raw = workspace == null ? payload.ToArray() : workspace.GetRaw(expectedSize);
+                if (workspace != null)
+                {
+                    payload.CopyTo(raw);
+                }
+                return ResultCode.Success;
+            }
+
             if (!TryCreateChannelPlanes(layouts, startX, startY, width, height, workspace, out ChannelPlane[] planes))
             {
                 raw = Array.Empty<byte>();
