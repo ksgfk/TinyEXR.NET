@@ -249,9 +249,7 @@ namespace TinyEXR
             }
 
             int expectedSize = checked((int)Info.UncompressedByteCount!.Value);
-            if (_payloadLength == expectedSize &&
-                _header.Compression != Compression.B44 &&
-                _header.Compression != Compression.B44A)
+            if (_payloadLength == expectedSize)
             {
                 // A stored raw fallback block; copy it straight to the caller's canonical buffer.
                 _payload!.AsSpan(0, expectedSize).CopyTo(destination);

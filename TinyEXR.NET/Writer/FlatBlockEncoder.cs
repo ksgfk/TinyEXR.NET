@@ -154,8 +154,6 @@ namespace TinyEXR
 
             byte[] payload = EncodePayload(part, info, raw, rawLength, resources, out int payloadLength);
             if (payloadLength >= rawLength &&
-                part.Header.Compression != Compression.B44 &&
-                part.Header.Compression != Compression.B44A &&
                 !ReferenceEquals(payload, raw))
             {
                 payload = raw;
