@@ -49,7 +49,10 @@ namespace TinyEXR
 
         public ReaderFileData SourceData => _sourceData;
 
-        public ReaderFileData? ReconstructedData { get; private set; }
+        public ReaderFileData? ReconstructedData
+        {
+            get; private set;
+        }
 
         public ReaderParserRequest GetNextRequest()
         {
@@ -135,8 +138,6 @@ namespace TinyEXR
                             offsets,
                             sourcePart.Layout,
                             sourcePart.HeaderEnd,
-                            sourcePart.HasNameAttribute,
-                            sourcePart.HasTypeAttribute,
                             sourcePart.RawAttributes);
                     }
 

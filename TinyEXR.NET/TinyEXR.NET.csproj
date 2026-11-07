@@ -10,15 +10,15 @@
     <AssemblyVersion>1.2.0.0</AssemblyVersion>
     <FileVersion>1.2.0.0</FileVersion>
     <RepositoryType>git</RepositoryType>
-    <Description>TinyEXR.NET is a pure managed C# implementation of the tinyexr v1 facade and v3 streaming APIs</Description>
+    <Description>TinyEXR.NET is a pure managed C# implementation of tinyexr v3 with streaming and convenience APIs</Description>
     <Company>ksgfk</Company>
     <Authors>ksgfk</Authors>
     <Copyright>Copyright (c) 2023-2026 ksgfk</Copyright>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <RepositoryUrl>https://github.com/ksgfk/TinyEXR.NET</RepositoryUrl>
     <PackageTags>OpenEXR,HDR</PackageTags>
-    <PackageReleaseNotes>Breaking namespace migration: modern APIs move from TinyEXR.V3 to TinyEXR and TinyEXR.V3.IO to TinyEXR.IO. The modern SpectrumType is renamed SpectralType; the legacy SpectrumType remains unchanged. Update imports and type references and recompile all consumers. No compatibility wrappers or binary drop-in compatibility. See docs/migration-1.2.0.md.</PackageReleaseNotes>
-    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReleaseNotes>Breaking V3-only refactor: removes V1 models and implementation. Exr uses Header, Part, Image, SpectralType and ExrResult; all I/O shares the V3 reader/writer and newly ported codecs. Rebuild consumers and see docs/migration-v3-only.md. Package version remains unchanged pending release versioning.</PackageReleaseNotes>
+    <PackageLicenseExpression>MIT AND BSD-3-Clause</PackageLicenseExpression>
     <Version>1.2.0</Version>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -53,6 +53,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <None Include="..\THIRD-PARTY-NOTICES" Pack="true" PackagePath="\" />
     <None Include="..\README.md">
       <Pack>True</Pack>
       <PackagePath>\</PackagePath>
@@ -69,6 +70,9 @@
 
   <ItemGroup Condition="'$(SignAssembly)' != 'true'">
     <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>TinyEXR.Interop</_Parameter1>
+    </AssemblyAttribute>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
       <_Parameter1>TinyEXR.Test</_Parameter1>
     </AssemblyAttribute>
     <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
@@ -80,6 +84,9 @@
   </ItemGroup>
 
   <ItemGroup Condition="'$(SignAssembly)' == 'true'">
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>TinyEXR.Interop, PublicKey=$(FriendAssemblyPublicKey)</_Parameter1>
+    </AssemblyAttribute>
     <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
       <_Parameter1>TinyEXR.Test, PublicKey=$(FriendAssemblyPublicKey)</_Parameter1>
     </AssemblyAttribute>

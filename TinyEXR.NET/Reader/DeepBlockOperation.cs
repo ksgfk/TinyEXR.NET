@@ -1,4 +1,5 @@
 using System;
+using TinyEXR.Codecs;
 using System.Buffers.Binary;
 using System.Collections.Generic;
 
@@ -9,6 +10,7 @@ namespace TinyEXR
         private readonly Header _header;
         private readonly bool _multipart;
         private readonly ReaderLimits _limits;
+        private readonly CodecWorkspace _workspace;
         private readonly byte[] _chunkHeader;
         private readonly int _pixelCount;
         private readonly int _countByteCount;
@@ -29,12 +31,14 @@ namespace TinyEXR
             Header header,
             BlockInfo info,
             bool multipart,
-            ReaderLimits limits)
+            ReaderLimits limits,
+            CodecWorkspace workspace)
         {
             _header = header;
             Info = info;
             _multipart = multipart;
             _limits = limits;
+            _workspace = workspace;
             _chunkHeader = new byte[info.ChunkHeaderByteCount];
             _pixelCount = checked((int)checked(info.Region.Width * info.Region.Height));
             _countByteCount = checked(_pixelCount * sizeof(int));
@@ -271,6 +275,7 @@ namespace TinyEXR
                 _header.Compression,
                 _offsetPayload!,
                 _countByteCount,
+                _workspace,
                 out byte[] decodedOffsets);
             if (decodeFailure.HasValue)
             {
@@ -447,6 +452,7 @@ namespace TinyEXR
                 _header.Compression,
                 _samplePayload!,
                 _unpackedSampleByteCount,
+                _workspace,
                 out byte[] decodedSamples);
             if (decodeFailure.HasValue)
             {

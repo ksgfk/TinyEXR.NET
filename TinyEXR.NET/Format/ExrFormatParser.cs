@@ -7,8 +7,7 @@ using System.Text;
 namespace TinyEXR.Format
 {
     /// <summary>
-    /// Bounds-checked OpenEXR version, header, and offset-table parser.
-    /// Pixel chunk bytes are deliberately outside this phase.
+    /// Shared OpenEXR version and header semantics for the incremental reader and writer.
     /// </summary>
     internal static class ExrFormatParser
     {
@@ -23,9 +22,6 @@ namespace TinyEXR.Format
 
         private const int ShortNameByteLimit = 31;
         private const int LongNameByteLimit = 255;
-        private const int MaximumAttributes = 1_048_576;
-        private const int MaximumParts = 1_048_576;
-        private const int MaximumAttributeByteCount = 256 * 1024 * 1024;
         private const long MaximumDimension = 1L << 20;
         private const int WindowCoordinateLimit = int.MaxValue / 2;
 
@@ -46,32 +42,6 @@ namespace TinyEXR.Format
             "chromaticities",
         };
 
-        internal static ExrResult Parse(ReadOnlyMemory<byte> source, out ParsedFile? parsedFile)
-        {
-            parsedFile = null;
-            try
-            {
-                parsedFile = ParseCore(source.Span);
-                return ExrResult.Success;
-            }
-            catch (FormatParseException exception)
-            {
-                return exception.Result;
-            }
-            catch (OutOfMemoryException)
-            {
-                return ExrResult.OutOfMemory;
-            }
-            catch (OverflowException)
-            {
-                return ExrResult.Corrupt;
-            }
-            catch (ArgumentException)
-            {
-                return ExrResult.Corrupt;
-            }
-        }
-
         /// <summary>
         /// Interprets a completed attribute list for the incremental reader without requiring
         /// a contiguous file image. Attribute arrays are already reader-owned and are not copied.
@@ -87,15 +57,7 @@ namespace TinyEXR.Format
             chunkCount = 0;
             try
             {
-                List<ParsedAttribute> rawAttributes = new List<ParsedAttribute>(attributes.Count);
-                for (int i = 0; i < attributes.Count; i++)
-                {
-                    rawAttributes.Add(new ParsedAttribute(attributes[i], 0, 0, 0));
-                }
-
-                PartDraft draft = InterpretHeader(partIndex, rawAttributes, 0, 0, flags);
-                header = draft.Header;
-                chunkCount = draft.ChunkCount;
+                (header, chunkCount) = InterpretHeader(attributes, flags);
                 return ExrResult.Success;
             }
             catch (FormatParseException exception)
@@ -172,196 +134,18 @@ namespace TinyEXR.Format
             return ExrResult.Success;
         }
 
-        private static ParsedFile ParseCore(ReadOnlySpan<byte> source)
-        {
-            if (source.Length < 8)
-            {
-                throw Failure(ExrResult.InvalidFile);
-            }
-
-            if (BinaryPrimitives.ReadUInt32LittleEndian(source) != Magic)
-            {
-                throw Failure(ExrResult.InvalidFile);
-            }
-
-            uint versionField = BinaryPrimitives.ReadUInt32LittleEndian(source.Slice(4));
-            ExrResult versionResult = InterpretVersionField(versionField, out ParsedFileFlags flags, out int nameLimit);
-            if (versionResult != ExrResult.Success)
-            {
-                throw Failure(versionResult);
-            }
-
-            Cursor cursor = new Cursor(source, 8);
-            List<PartDraft> drafts = new List<PartDraft>();
-            for (;;)
-            {
-                if (flags.Multipart && cursor.PeekByte() == 0)
-                {
-                    cursor.Skip(1);
-                    break;
-                }
-
-                if (drafts.Count >= MaximumParts)
-                {
-                    throw Failure(ExrResult.Corrupt);
-                }
-
-                int headerStart = cursor.Position;
-                List<ParsedAttribute> rawAttributes = ParseAttributeList(ref cursor, nameLimit);
-                int headerEnd = cursor.Position;
-                drafts.Add(InterpretHeader(
-                    drafts.Count,
-                    rawAttributes,
-                    headerStart,
-                    headerEnd,
-                    flags));
-
-                if (!flags.Multipart)
-                {
-                    break;
-                }
-            }
-
-            if (drafts.Count == 0)
-            {
-                throw Failure(ExrResult.Corrupt);
-            }
-
-            List<Header> parsedHeaders = new List<Header>(drafts.Count);
-            for (int i = 0; i < drafts.Count; i++)
-            {
-                parsedHeaders.Add(drafts[i].Header);
-            }
-
-            ValidateFileFlagsAndPartNames(parsedHeaders, flags);
-
-            int headersEnd = cursor.Position;
-            int offsetTablesStart = headersEnd;
-            long totalOffsetTableBytes = 0;
-            for (int i = 0; i < drafts.Count; i++)
-            {
-                totalOffsetTableBytes = checked(totalOffsetTableBytes + checked((long)drafts[i].ChunkCount * sizeof(ulong)));
-            }
-
-            if (totalOffsetTableBytes > cursor.Remaining)
-            {
-                throw Failure(ExrResult.Corrupt);
-            }
-
-            for (int i = 0; i < drafts.Count; i++)
-            {
-                PartDraft draft = drafts[i];
-                draft.OffsetTableStart = cursor.Position;
-                draft.Offsets = new ulong[draft.ChunkCount];
-                for (int chunk = 0; chunk < draft.Offsets.Length; chunk++)
-                {
-                    draft.Offsets[chunk] = cursor.ReadUInt64();
-                }
-
-                draft.OffsetTableEnd = cursor.Position;
-            }
-
-            int offsetTablesEnd = cursor.Position;
-            List<ParsedPartIndex> parts = new List<ParsedPartIndex>(drafts.Count);
-            for (int i = 0; i < drafts.Count; i++)
-            {
-                PartDraft draft = drafts[i];
-                ParsedBlockGeometry[] geometries = BuildBlockGeometries(draft.Header, draft.ChunkCount, flags.Multipart);
-                ParsedChunkIndex[] chunks = new ParsedChunkIndex[draft.ChunkCount];
-                for (int chunk = 0; chunk < chunks.Length; chunk++)
-                {
-                    ulong offset = draft.Offsets![chunk];
-                    int chunkHeaderByteCount = geometries[chunk].ChunkHeaderByteCount;
-                    if (offset != 0 &&
-                        (offset < (ulong)offsetTablesEnd ||
-                         offset > (ulong)source.Length ||
-                         (ulong)chunkHeaderByteCount > (ulong)source.Length - offset))
-                    {
-                        throw Failure(ExrResult.Corrupt);
-                    }
-
-                    chunks[chunk] = new ParsedChunkIndex(chunk, offset, geometries[chunk]);
-                }
-
-                parts.Add(new ParsedPartIndex(
-                    draft.PartIndex,
-                    draft.Header,
-                    draft.RawAttributes,
-                    draft.DeclaredChunkCount,
-                    draft.HeaderStart,
-                    draft.HeaderEnd,
-                    draft.OffsetTableStart,
-                    draft.OffsetTableEnd,
-                    chunks));
-            }
-
-            return new ParsedFile(
-                versionField,
-                SupportedFileVersion,
-                flags,
-                headersStart: 8,
-                headersEnd,
-                offsetTablesStart,
-                offsetTablesEnd,
-                source.Length,
-                parts);
-        }
-
-        private static List<ParsedAttribute> ParseAttributeList(ref Cursor cursor, int nameLimit)
-        {
-            List<ParsedAttribute> attributes = new List<ParsedAttribute>();
-            HashSet<string> names = new HashSet<string>(StringComparer.Ordinal);
-            for (;;)
-            {
-                if (cursor.PeekByte() == 0)
-                {
-                    cursor.Skip(1);
-                    break;
-                }
-
-                if (attributes.Count >= MaximumAttributes)
-                {
-                    throw Failure(ExrResult.Corrupt);
-                }
-
-                int attributeStart = cursor.Position;
-                string name = cursor.ReadCString(nameLimit, allowEmpty: false);
-                string typeName = cursor.ReadCString(nameLimit, allowEmpty: false);
-                if (!names.Add(name))
-                {
-                    throw Failure(ExrResult.Corrupt);
-                }
-
-                int byteCount = cursor.ReadInt32();
-                if (byteCount < 0 || byteCount > MaximumAttributeByteCount)
-                {
-                    throw Failure(ExrResult.Corrupt);
-                }
-
-                int dataStart = cursor.Position;
-                byte[] data = cursor.ReadBytes(byteCount).ToArray();
-                HeaderAttribute value = HeaderAttribute.Adopt(name, typeName, data);
-                attributes.Add(new ParsedAttribute(value, attributeStart, dataStart, cursor.Position));
-            }
-
-            return attributes;
-        }
-
-        private static PartDraft InterpretHeader(
-            int partIndex,
-            List<ParsedAttribute> rawAttributes,
-            int headerStart,
-            int headerEnd,
+        private static (Header Header, int ChunkCount) InterpretHeader(
+            IReadOnlyList<HeaderAttribute> rawAttributes,
             ParsedFileFlags flags)
         {
-            Dictionary<string, ParsedAttribute> attributes = new Dictionary<string, ParsedAttribute>(rawAttributes.Count, StringComparer.Ordinal);
+            Dictionary<string, HeaderAttribute> attributes = new Dictionary<string, HeaderAttribute>(rawAttributes.Count, StringComparer.Ordinal);
             for (int i = 0; i < rawAttributes.Count; i++)
             {
-                attributes.Add(rawAttributes[i].Value.Name, rawAttributes[i]);
+                attributes.Add(rawAttributes[i].Name, rawAttributes[i]);
             }
 
             List<Channel> channels = ParseChannels(
-                Required(attributes, "channels", "chlist").Value.Data,
+                Required(attributes, "channels", "chlist").Data,
                 flags.LongNames ? LongNameByteLimit : ShortNameByteLimit);
             Compression compression = ParseCompression(Required(attributes, "compression", "compression", 1));
             Box2i dataWindow = ParseBox(Required(attributes, "dataWindow", "box2i", 16));
@@ -388,7 +172,7 @@ namespace TinyEXR.Format
             }
 
             string name = string.Empty;
-            ParsedAttribute? nameAttribute = Optional(attributes, "name", "string");
+            HeaderAttribute? nameAttribute = Optional(attributes, "name", "string");
             if (nameAttribute != null)
             {
                 name = DecodeStringValue(nameAttribute, allowEmpty: true);
@@ -415,10 +199,10 @@ namespace TinyEXR.Format
             }
 
             uint? declaredChunkCount = null;
-            ParsedAttribute? chunkCountAttribute = Optional(attributes, "chunkCount", "int", 4);
+            HeaderAttribute? chunkCountAttribute = Optional(attributes, "chunkCount", "int", 4);
             if (chunkCountAttribute != null)
             {
-                int signedCount = ReadInt32(chunkCountAttribute.Value.Data);
+                int signedCount = ReadInt32(chunkCountAttribute.Data);
                 if (signedCount < 0)
                 {
                     throw Failure(ExrResult.Corrupt);
@@ -439,30 +223,30 @@ namespace TinyEXR.Format
 
             if (deep)
             {
-                ParsedAttribute version = Required(attributes, "version", "int", 4);
-                if (ReadInt32(version.Value.Data) != 1)
+                HeaderAttribute version = Required(attributes, "version", "int", 4);
+                if (ReadInt32(version.Data) != 1)
                 {
                     throw Failure(ExrResult.Unsupported);
                 }
 
-                ParsedAttribute? maxSamples = Optional(attributes, "maxSamplesPerPixel", "int", 4);
-                if (maxSamples != null && ReadInt32(maxSamples.Value.Data) < -1)
+                HeaderAttribute? maxSamples = Optional(attributes, "maxSamplesPerPixel", "int", 4);
+                if (maxSamples != null && ReadInt32(maxSamples.Data) < -1)
                 {
                     throw Failure(ExrResult.Corrupt);
                 }
             }
 
             Chromaticities? chromaticities = null;
-            ParsedAttribute? chromaticitiesAttribute = Optional(attributes, "chromaticities", "chromaticities", 32);
+            HeaderAttribute? chromaticitiesAttribute = Optional(attributes, "chromaticities", "chromaticities", 32);
             if (chromaticitiesAttribute != null)
             {
-                chromaticities = ParseChromaticities(chromaticitiesAttribute.Value.Data);
+                chromaticities = ParseChromaticities(chromaticitiesAttribute.Data);
             }
 
             List<HeaderAttribute> customAttributes = new List<HeaderAttribute>();
             for (int i = 0; i < rawAttributes.Count; i++)
             {
-                HeaderAttribute value = rawAttributes[i].Value;
+                HeaderAttribute value = rawAttributes[i];
                 bool deepStandard = deep &&
                     (string.Equals(value.Name, "version", StringComparison.Ordinal) ||
                      string.Equals(value.Name, "maxSamplesPerPixel", StringComparison.Ordinal));
@@ -493,14 +277,7 @@ namespace TinyEXR.Format
                 throw Failure(ExrResult.Corrupt);
             }
 
-            return new PartDraft(
-                partIndex,
-                header,
-                rawAttributes,
-                declaredChunkCount,
-                computedChunkCount,
-                headerStart,
-                headerEnd);
+            return (header, computedChunkCount);
         }
 
         private static void ValidateFileFlagsAndPartNames(
@@ -540,7 +317,7 @@ namespace TinyEXR.Format
             List<Channel> channels = new List<Channel>();
             HashSet<string> names = new HashSet<string>(StringComparer.Ordinal);
             string? previousName = null;
-            for (;;)
+            for (; ; )
             {
                 if (cursor.PeekByte() == 0)
                 {
@@ -586,9 +363,9 @@ namespace TinyEXR.Format
             return channels;
         }
 
-        private static Compression ParseCompression(ParsedAttribute attribute)
+        private static Compression ParseCompression(HeaderAttribute attribute)
         {
-            byte value = attribute.Value.Data[0];
+            byte value = attribute.Data[0];
             if (value > (byte)Compression.HTJ2K32)
             {
                 throw Failure(ExrResult.Unsupported);
@@ -597,9 +374,9 @@ namespace TinyEXR.Format
             return (Compression)value;
         }
 
-        private static LineOrder ParseLineOrder(ParsedAttribute attribute)
+        private static LineOrder ParseLineOrder(HeaderAttribute attribute)
         {
-            byte value = attribute.Value.Data[0];
+            byte value = attribute.Data[0];
             if (value > (byte)LineOrder.RandomY)
             {
                 throw Failure(ExrResult.Corrupt);
@@ -608,9 +385,9 @@ namespace TinyEXR.Format
             return (LineOrder)value;
         }
 
-        private static Box2i ParseBox(ParsedAttribute attribute)
+        private static Box2i ParseBox(HeaderAttribute attribute)
         {
-            ReadOnlySpan<byte> data = attribute.Value.Data;
+            ReadOnlySpan<byte> data = attribute.Data;
             return new Box2i(
                 ReadInt32(data),
                 ReadInt32(data.Slice(4)),
@@ -618,9 +395,9 @@ namespace TinyEXR.Format
                 ReadInt32(data.Slice(12)));
         }
 
-        private static Vector2 ParseVector2(ParsedAttribute attribute)
+        private static Vector2 ParseVector2(HeaderAttribute attribute)
         {
-            ReadOnlySpan<byte> data = attribute.Value.Data;
+            ReadOnlySpan<byte> data = attribute.Data;
             return new Vector2(ReadSingle(data), ReadSingle(data.Slice(4)));
         }
 
@@ -637,9 +414,9 @@ namespace TinyEXR.Format
                 ReadSingle(data.Slice(28)));
         }
 
-        private static TileDescription ParseTileDescription(ParsedAttribute attribute)
+        private static TileDescription ParseTileDescription(HeaderAttribute attribute)
         {
-            ReadOnlySpan<byte> data = attribute.Value.Data;
+            ReadOnlySpan<byte> data = attribute.Data;
             uint tileSizeX = BinaryPrimitives.ReadUInt32LittleEndian(data);
             uint tileSizeY = BinaryPrimitives.ReadUInt32LittleEndian(data.Slice(4));
             byte mode = data[8];
@@ -661,10 +438,10 @@ namespace TinyEXR.Format
         }
 
         private static PartType ParsePartType(
-            Dictionary<string, ParsedAttribute> attributes,
+            Dictionary<string, HeaderAttribute> attributes,
             ParsedFileFlags flags)
         {
-            ParsedAttribute? typeAttribute = Optional(attributes, "type", "string");
+            HeaderAttribute? typeAttribute = Optional(attributes, "type", "string");
             PartType partType;
             if (typeAttribute == null)
             {
@@ -754,89 +531,6 @@ namespace TinyEXR.Format
             }
 
             return (int)count;
-        }
-
-        private static ParsedBlockGeometry[] BuildBlockGeometries(Header header, int chunkCount, bool multipart)
-        {
-            ParsedBlockGeometry[] geometries = new ParsedBlockGeometry[chunkCount];
-            int index = 0;
-            int chunkHeaderByteCount = ChunkHeaderByteCount(header, multipart);
-            if (!header.IsTiled)
-            {
-                int linesPerBlock = LinesPerBlock(header.Compression);
-                for (; index < chunkCount; index++)
-                {
-                    long y0 = checked((long)header.DataWindow.MinY + checked((long)index * linesPerBlock));
-                    int height = (int)Math.Min(linesPerBlock, checked((long)header.DataWindow.MaxY - y0 + 1L));
-                    if (height <= 0)
-                    {
-                        throw Failure(ExrResult.Corrupt);
-                    }
-
-                    Box2i region = new Box2i(
-                        header.DataWindow.MinX,
-                        checked((int)y0),
-                        header.DataWindow.MaxX,
-                        checked((int)(y0 + height - 1L)));
-                    geometries[index] = new ParsedBlockGeometry(
-                        isTiled: false,
-                        header.IsDeep,
-                        levelX: 0,
-                        levelY: 0,
-                        tileX: -1,
-                        tileY: -1,
-                        region,
-                        chunkHeaderByteCount,
-                        header.IsDeep ? null : ComputeUncompressedByteCount(header, region));
-                }
-            }
-            else
-            {
-                TileDescription tiles = header.Tiles!;
-                foreach (LevelLayout level in EnumerateLevels(header))
-                {
-                    for (int tileY = 0; tileY < level.TilesY; tileY++)
-                    {
-                        for (int tileX = 0; tileX < level.TilesX; tileX++)
-                        {
-                            if (index >= geometries.Length)
-                            {
-                                throw Failure(ExrResult.Corrupt);
-                            }
-
-                            ulong relativeX = checked((ulong)tileX * tiles.TileSizeX);
-                            ulong relativeY = checked((ulong)tileY * tiles.TileSizeY);
-                            long width = (long)Math.Min((ulong)level.Width - relativeX, tiles.TileSizeX);
-                            long height = (long)Math.Min((ulong)level.Height - relativeY, tiles.TileSizeY);
-                            long minX = checked((long)header.DataWindow.MinX + (long)relativeX);
-                            long minY = checked((long)header.DataWindow.MinY + (long)relativeY);
-                            Box2i region = new Box2i(
-                                checked((int)minX),
-                                checked((int)minY),
-                                checked((int)(minX + width - 1L)),
-                                checked((int)(minY + height - 1L)));
-                            geometries[index] = new ParsedBlockGeometry(
-                                isTiled: true,
-                                header.IsDeep,
-                                level.LevelX,
-                                level.LevelY,
-                                tileX,
-                                tileY,
-                                region,
-                                chunkHeaderByteCount,
-                                header.IsDeep ? null : ComputeUncompressedByteCount(header, region));
-                            index++;
-                        }
-                    }
-                }
-
-                if (index != geometries.Length)
-                {
-                    throw Failure(ExrResult.Corrupt);
-                }
-            }
-
-            return geometries;
         }
 
         private static IEnumerable<LevelLayout> EnumerateLevels(Header header)
@@ -965,13 +659,13 @@ namespace TinyEXR.Format
             }
         }
 
-        private static ParsedAttribute Required(
-            Dictionary<string, ParsedAttribute> attributes,
+        private static HeaderAttribute Required(
+            Dictionary<string, HeaderAttribute> attributes,
             string name,
             string typeName,
             int? byteCount = null)
         {
-            if (!attributes.TryGetValue(name, out ParsedAttribute? attribute))
+            if (!attributes.TryGetValue(name, out HeaderAttribute? attribute))
             {
                 throw Failure(ExrResult.Corrupt);
             }
@@ -980,13 +674,13 @@ namespace TinyEXR.Format
             return attribute;
         }
 
-        private static ParsedAttribute? Optional(
-            Dictionary<string, ParsedAttribute> attributes,
+        private static HeaderAttribute? Optional(
+            Dictionary<string, HeaderAttribute> attributes,
             string name,
             string typeName,
             int? byteCount = null)
         {
-            if (!attributes.TryGetValue(name, out ParsedAttribute? attribute))
+            if (!attributes.TryGetValue(name, out HeaderAttribute? attribute))
             {
                 return null;
             }
@@ -995,18 +689,18 @@ namespace TinyEXR.Format
             return attribute;
         }
 
-        private static void ValidateAttribute(ParsedAttribute attribute, string typeName, int? byteCount)
+        private static void ValidateAttribute(HeaderAttribute attribute, string typeName, int? byteCount)
         {
-            if (!string.Equals(attribute.Value.TypeName, typeName, StringComparison.Ordinal) ||
-                (byteCount != null && attribute.Value.ByteLength != byteCount.Value))
+            if (!string.Equals(attribute.TypeName, typeName, StringComparison.Ordinal) ||
+                (byteCount != null && attribute.ByteLength != byteCount.Value))
             {
                 throw Failure(ExrResult.Corrupt);
             }
         }
 
-        private static string DecodeStringValue(ParsedAttribute attribute, bool allowEmpty)
+        private static string DecodeStringValue(HeaderAttribute attribute, bool allowEmpty)
         {
-            ReadOnlySpan<byte> data = attribute.Value.Data;
+            ReadOnlySpan<byte> data = attribute.Data;
             if ((!allowEmpty && data.Length == 0) || data.IndexOf((byte)0) >= 0)
             {
                 throw Failure(ExrResult.Corrupt);
@@ -1022,9 +716,9 @@ namespace TinyEXR.Format
             }
         }
 
-        private static float ParseSingle(ParsedAttribute attribute)
+        private static float ParseSingle(HeaderAttribute attribute)
         {
-            return ReadSingle(attribute.Value.Data);
+            return ReadSingle(attribute.Data);
         }
 
         private static int ReadInt32(ReadOnlySpan<byte> data)
@@ -1040,47 +734,6 @@ namespace TinyEXR.Format
         private static FormatParseException Failure(ExrResult result)
         {
             return new FormatParseException(result);
-        }
-
-        private sealed class PartDraft
-        {
-            public PartDraft(
-                int partIndex,
-                Header header,
-                List<ParsedAttribute> rawAttributes,
-                uint? declaredChunkCount,
-                int chunkCount,
-                int headerStart,
-                int headerEnd)
-            {
-                PartIndex = partIndex;
-                Header = header;
-                RawAttributes = rawAttributes;
-                DeclaredChunkCount = declaredChunkCount;
-                ChunkCount = chunkCount;
-                HeaderStart = headerStart;
-                HeaderEnd = headerEnd;
-            }
-
-            public int PartIndex { get; }
-
-            public Header Header { get; }
-
-            public List<ParsedAttribute> RawAttributes { get; }
-
-            public uint? DeclaredChunkCount { get; }
-
-            public int ChunkCount { get; }
-
-            public int HeaderStart { get; }
-
-            public int HeaderEnd { get; }
-
-            public int OffsetTableStart { get; set; }
-
-            public int OffsetTableEnd { get; set; }
-
-            public ulong[]? Offsets { get; set; }
         }
 
         private readonly struct LevelLayout
@@ -1128,7 +781,10 @@ namespace TinyEXR.Format
                 Position = position;
             }
 
-            public int Position { get; private set; }
+            public int Position
+            {
+                get; private set;
+            }
 
             public int Remaining => _source.Length - Position;
 
@@ -1150,22 +806,6 @@ namespace TinyEXR.Format
                 int value = BinaryPrimitives.ReadInt32LittleEndian(_source.Slice(Position, sizeof(int)));
                 Position += sizeof(int);
                 return value;
-            }
-
-            public ulong ReadUInt64()
-            {
-                Require(sizeof(ulong));
-                ulong value = BinaryPrimitives.ReadUInt64LittleEndian(_source.Slice(Position, sizeof(ulong)));
-                Position += sizeof(ulong);
-                return value;
-            }
-
-            public ReadOnlySpan<byte> ReadBytes(int byteCount)
-            {
-                Require(byteCount);
-                ReadOnlySpan<byte> result = _source.Slice(Position, byteCount);
-                Position += byteCount;
-                return result;
             }
 
             public string ReadCString(int byteLimit, bool allowEmpty)

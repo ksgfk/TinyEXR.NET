@@ -1,6 +1,6 @@
 using System;
 using System.Buffers;
-using TinyEXR.PortV1;
+using TinyEXR.Codecs;
 
 namespace TinyEXR
 {
@@ -29,13 +29,13 @@ namespace TinyEXR
 
         private ArrayPool<byte>? _bytePool =
             ArrayPool<byte>.Create(MaximumPooledByteLength, MaximumArraysPerBucket);
-        private ExrCompressionCodec.EncodeWorkspace? _codecWorkspace =
-            new ExrCompressionCodec.EncodeWorkspace();
+        private CodecWorkspace? _codecWorkspace =
+            new CodecWorkspace();
         private Codecs.Htj2kDecoder.Htj2kBufferPool? _htj2kPool =
             new Codecs.Htj2kDecoder.Htj2kBufferPool();
 
-        /// <summary>The codec scratch workspace reused across blocks by the PortV1 compression codecs.</summary>
-        public ExrCompressionCodec.EncodeWorkspace CodecWorkspace => _codecWorkspace ??
+        /// <summary>The codec scratch workspace reused across blocks by the V3 compression codecs.</summary>
+        public CodecWorkspace CodecWorkspace => _codecWorkspace ??
             throw new ObjectDisposedException(nameof(WriterEncodeResources));
 
         /// <summary>The HTJ2K coefficient-plane pool reused across blocks.</summary>

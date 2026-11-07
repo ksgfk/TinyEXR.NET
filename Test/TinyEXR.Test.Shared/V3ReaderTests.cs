@@ -448,16 +448,16 @@ public sealed class V3ReaderTests
         CollectionAssert.AreEqual(canonical, destination);
     }
 
-    [TestMethod(DisplayName = "[TinyEXR.NET Test] V3 reader decodes legacy lossless compression blocks")]
-    public void Case_V3Reader_DecodeBlockUsesManagedLegacyCodecs()
+    [TestMethod(DisplayName = "[TinyEXR.NET Test] V3 reader decodes lossless compression blocks")]
+    public void Case_V3Reader_DecodeBlockUsesSharedCodecs()
     {
-        CompressionType[] compressions =
+        Compression[] compressions =
         {
-            CompressionType.RLE,
-            CompressionType.ZIPS,
-            CompressionType.ZIP,
-            CompressionType.PIZ,
-            CompressionType.PXR24,
+            Compression.RLE,
+            Compression.ZIPS,
+            Compression.ZIP,
+            Compression.PIZ,
+            Compression.PXR24,
         };
 
         const int width = 32;
@@ -470,21 +470,11 @@ public sealed class V3ReaderTests
                 (ushort)((i * 29) & 0x7bff));
         }
 
-        foreach (CompressionType compression in compressions)
+        foreach (Compression compression in compressions)
         {
-            ExrChannel channel = new ExrChannel("Y", ExrPixelType.Half);
-            ExrImage image = new ExrImage(
-                width,
-                height,
-                new[] { new ExrImageChannel(channel, ExrPixelType.Half, (byte[])plane.Clone()) });
-            ExrHeader header = new ExrHeader
-            {
-                Compression = compression,
-                DataWindow = new ExrBox2i(0, 0, width - 1, height - 1),
-                DisplayWindow = new ExrBox2i(0, 0, width - 1, height - 1),
-            };
-            header.Channels.Add(channel);
-            Assert.AreEqual(ResultCode.Success, Exr.SaveEXRImageToMemory(image, header, out byte[] encoded), compression.ToString());
+            Header header = new(PartType.Scanline, new Box2i(0, 0, width - 1, height - 1), new[] { new Channel("Y", PixelType.Half) }, compression);
+            Part part = ExrTestHelper.Flat(header, new ChannelBuffer("Y", PixelType.Half, plane));
+            Assert.AreEqual(ExrResult.Success, Exr.SaveEXRImageToMemory(part, out byte[] encoded), compression.ToString());
 
             using V3.ExrReader reader = Parse(encoded);
             V3.BlockInfo info = reader.GetBlockInfo(0, 0);
@@ -1205,12 +1195,13 @@ public sealed class V3ReaderTests
         }
     }
 
-    [TestMethod(DisplayName = "[TinyEXR.NET Test] V3 deep counts match v1 on the real deep scanline fixture")]
-    public void Case_V3Reader_DeepCountsMatchV1RealFixture()
+    [TestMethod(DisplayName = "[TinyEXR.NET Test] V3 deep counts match Exr on the real deep scanline fixture")]
+    public void Case_V3Reader_DeepCountsMatchConvenienceRealFixture()
     {
         Assert.AreEqual(
-            ResultCode.Success,
-            Exr.LoadDeepEXR(TestPaths.DeepScanline, out ExrHeader expectedHeader, out ExrDeepImage expectedImage));
+            ExrResult.Success,
+            Exr.LoadDeepEXR(TestPaths.DeepScanline, out Part? expectedImage));
+        Assert.IsNotNull(expectedImage);
         using V3.ExrReader reader = V3.ExrReader.OpenMemory(File.ReadAllBytes(TestPaths.DeepScanline));
         Assert.AreEqual(V3.ExrResult.Success, reader.ParseHeader().Status);
         for (int blockIndex = 0; blockIndex < reader.GetNumBlocks(0); blockIndex++)
@@ -1220,18 +1211,9 @@ public sealed class V3ReaderTests
             V3.ReaderResult result = reader.DecodeDeepCounts(0, blockIndex, actualCounts);
             Assert.AreEqual(V3.ExrResult.Success, result.Status, $"block {blockIndex}: {result.Error}");
 
-            int[] expectedCounts = new int[actualCounts.Length];
-            int target = 0;
-            for (int y = block.Region.MinY; y <= block.Region.MaxY; y++)
-            {
-                int[] offsets = expectedImage.OffsetTable[y - expectedHeader.DataWindow.MinY];
-                int previous = 0;
-                for (int x = 0; x < offsets.Length; x++)
-                {
-                    expectedCounts[target++] = offsets[x] - previous;
-                    previous = offsets[x];
-                }
-            }
+            DeepLevel expectedLevel = (DeepLevel)expectedImage!.Levels[0];
+            int start = checked((int)((block.Region.MinY - expectedLevel.Region.MinY) * expectedLevel.Width));
+            int[] expectedCounts = expectedLevel.SampleCounts.Slice(start, actualCounts.Length).ToArray();
 
             CollectionAssert.AreEqual(expectedCounts, actualCounts, $"block {blockIndex} counts");
         }
@@ -1474,12 +1456,13 @@ public sealed class V3ReaderTests
         }
     }
 
-    [TestMethod(DisplayName = "[TinyEXR.NET Test] V3 deep ReadPart matches block API and v1 counts on the real fixture")]
-    public void Case_V3Reader_DeepReadPartMatchesBlockApiAndV1Counts()
+    [TestMethod(DisplayName = "[TinyEXR.NET Test] V3 deep ReadPart matches block API and Exr counts on the real fixture")]
+    public void Case_V3Reader_DeepReadPartMatchesBlockApiAndConvenienceCounts()
     {
         Assert.AreEqual(
-            ResultCode.Success,
-            Exr.LoadDeepEXR(TestPaths.DeepScanline, out _, out ExrDeepImage expectedImage));
+            ExrResult.Success,
+            Exr.LoadDeepEXR(TestPaths.DeepScanline, out Part? expectedImage));
+        Assert.IsNotNull(expectedImage);
         byte[] encoded = File.ReadAllBytes(TestPaths.DeepScanline);
         using V3.ExrReader reader = V3.ExrReader.OpenMemory(encoded);
         Assert.AreEqual(V3.ExrResult.Success, reader.ParseHeader().Status);
@@ -1489,20 +1472,7 @@ public sealed class V3ReaderTests
         Assert.IsTrue(result.Value.IsComplete);
         V3.DeepLevel level = (V3.DeepLevel)result.Value.GetLevel(0, 0);
 
-        int[] expectedCounts = expectedImage.OffsetTable
-            .SelectMany(static offsets =>
-            {
-                int previous = 0;
-                int[] counts = new int[offsets.Length];
-                for (int index = 0; index < offsets.Length; index++)
-                {
-                    counts[index] = offsets[index] - previous;
-                    previous = offsets[index];
-                }
-
-                return counts;
-            })
-            .ToArray();
+        int[] expectedCounts = ((DeepLevel)expectedImage!.Levels[0]).SampleCounts.ToArray();
         CollectionAssert.AreEqual(expectedCounts, level.SampleCounts.ToArray());
 
         V3.Header header = result.Value.Header;
@@ -1816,8 +1786,8 @@ public sealed class V3ReaderTests
         AssertFlatChannels((V3.FlatLevel)result.Value.GetLevel(0, 0), channels);
     }
 
-    [TestMethod(DisplayName = "[TinyEXR.NET Test] V3 flat materialization matches v1 planar output on real files")]
-    public void Case_V3Reader_ReadPartMatchesV1RealFixtures()
+    [TestMethod(DisplayName = "[TinyEXR.NET Test] V3 flat materialization matches Exr convenience output on real files")]
+    public void Case_V3Reader_ReadPartMatchesConvenienceRealFixtures()
     {
         string[] paths =
         {
@@ -1828,7 +1798,7 @@ public sealed class V3ReaderTests
 
         foreach (string path in paths)
         {
-            (_, _, ExrImage expected) = ExrTestHelper.LoadSinglePart(path);
+            (_, _, Part expected) = ExrTestHelper.LoadSinglePart(path);
             using V3.ExrReader reader = V3.ExrReader.OpenMemory(File.ReadAllBytes(path));
             Assert.AreEqual(V3.ExrResult.Success, reader.ParseHeader().Status, path);
             V3.ReaderResult<V3.Part> result = reader.ReadPart(0);
@@ -1837,24 +1807,24 @@ public sealed class V3ReaderTests
             Assert.IsTrue(result.Value.IsComplete, path);
             Assert.AreEqual(expected.Levels.Count, result.Value.Levels.Count, path);
 
-            foreach (ExrImageLevel expectedLevel in expected.Levels)
+            foreach (PartLevel expectedLevel in expected.Levels)
             {
                 V3.FlatLevel actualLevel = (V3.FlatLevel)result.Value.GetLevel(
                     expectedLevel.LevelX,
                     expectedLevel.LevelY);
                 Assert.AreEqual(expectedLevel.Width, actualLevel.Width, path);
                 Assert.AreEqual(expectedLevel.Height, actualLevel.Height, path);
-                foreach (ExrImageChannel expectedChannel in expectedLevel.Channels)
+                foreach (ChannelBuffer expectedChannel in expectedLevel.Channels)
                 {
-                    V3.ChannelBuffer actualChannel = actualLevel.GetChannel(expectedChannel.Channel.Name);
+                    V3.ChannelBuffer actualChannel = actualLevel.GetChannel(expectedChannel.Name);
                     Assert.AreEqual(
-                        (V3.PixelType)(int)expectedChannel.DataType,
+                        (V3.PixelType)(int)expectedChannel.PixelType,
                         actualChannel.PixelType,
-                        $"{path}: {expectedChannel.Channel.Name}");
+                        $"{path}: {expectedChannel.Name}");
                     CollectionAssert.AreEqual(
-                        expectedChannel.Data,
+                        expectedChannel.Data.ToArray(),
                         actualChannel.Data.ToArray(),
-                        $"{path}: level ({expectedLevel.LevelX}, {expectedLevel.LevelY}) channel {expectedChannel.Channel.Name}");
+                        $"{path}: level ({expectedLevel.LevelX}, {expectedLevel.LevelY}) channel {expectedChannel.Name}");
                 }
             }
         }
@@ -2999,13 +2969,25 @@ public sealed class V3ReaderTests
 
         public long Length => _data.Length;
 
-        public int ReadCallCount { get; private set; }
+        public int ReadCallCount
+        {
+            get; private set;
+        }
 
-        public int MaximumRequestLength { get; private set; }
+        public int MaximumRequestLength
+        {
+            get; private set;
+        }
 
-        public long MaximumRequestedEnd { get; private set; }
+        public long MaximumRequestedEnd
+        {
+            get; private set;
+        }
 
-        public bool IsDisposed { get; private set; }
+        public bool IsDisposed
+        {
+            get; private set;
+        }
 
         public bool TryGetLength(out long length)
         {
@@ -3053,7 +3035,10 @@ public sealed class V3ReaderTests
             _maximumRead = maximumRead;
         }
 
-        public int ReadCallCount { get; private set; }
+        public int ReadCallCount
+        {
+            get; private set;
+        }
 
         public override int Read(Span<byte> buffer)
         {
@@ -3125,15 +3110,30 @@ public sealed class V3ReaderTests
 
         public long Length => _data.Length;
 
-        public int ReadCallCount { get; private set; }
+        public int ReadCallCount
+        {
+            get; private set;
+        }
 
-        public int MaximumConcurrentReads { get; private set; }
+        public int MaximumConcurrentReads
+        {
+            get; private set;
+        }
 
-        public bool IsDisposed { get; private set; }
+        public bool IsDisposed
+        {
+            get; private set;
+        }
 
-        public bool CancelNextRead { get; set; }
+        public bool CancelNextRead
+        {
+            get; set;
+        }
 
-        public Task? ReadGate { get; set; }
+        public Task? ReadGate
+        {
+            get; set;
+        }
 
         public bool TryGetLength(out long length)
         {

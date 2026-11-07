@@ -73,18 +73,19 @@ public sealed class V3WriterTests
         Assert.IsTrue(decoded.Value.IsComplete);
         AssertPartMatches(decoded.Value);
 
-        Assert.AreEqual(ResultCode.Success, Exr.ParseEXRHeaderFromMemory(
+        Assert.AreEqual(ExrResult.Success, Exr.ParseEXRHeaderFromMemory(
             encoded,
-            out ExrVersion v1Version,
-            out ExrHeader v1Header));
-        Assert.AreEqual(2, v1Version.Version);
-        Assert.AreEqual(CompressionType.ZIP, v1Header.Compression);
-        Assert.AreEqual(ResultCode.Success, Exr.LoadEXRImageFromMemory(
+            out uint convenienceVersion,
+            out Header? convenienceHeader));
+        Assert.IsNotNull(convenienceHeader);
+        Assert.AreEqual(2U, convenienceVersion);
+        Assert.AreEqual(Compression.ZIP, convenienceHeader.Compression);
+        Assert.AreEqual(ExrResult.Success, Exr.LoadEXRImageFromMemory(
             encoded,
-            v1Header,
-            out ExrImage v1Image));
-        Assert.AreEqual(dataWindow.Width, v1Image.Width);
-        Assert.AreEqual(dataWindow.Height, v1Image.Height);
+            out Part? convenienceImage));
+        Assert.IsNotNull(convenienceImage);
+        Assert.AreEqual(dataWindow.Width, convenienceImage.Width);
+        Assert.AreEqual(dataWindow.Height, convenienceImage.Height);
     }
 
     [TestMethod(DisplayName = "[TinyEXR.NET Test] V3 writer explicitly frames one part as multipart")]
@@ -404,46 +405,25 @@ public sealed class V3WriterTests
         byte[] encoded = stream.ToArray();
         int[] expectedCounts = CreateDeepCounts(header.DataWindow);
         AssertMaximumSamples(encoded, 0, expectedCounts.Max());
-        using MemoryStream v1Stream = new(encoded, writable: false);
-        Assert.AreEqual(
-            ResultCode.Success,
-            Exr.LoadDeepEXRFromStream(v1Stream, out ExrHeader v1Header, out ExrDeepImage v1Image));
-        Assert.AreEqual(header.DataWindow.Width, v1Image.Width);
-        Assert.AreEqual(header.DataWindow.Height, v1Image.Height);
-        Assert.AreEqual(header.DataWindow.MinX, v1Header.DataWindow.MinX);
-        Assert.AreEqual(header.DataWindow.MinY, v1Header.DataWindow.MinY);
-        Assert.AreEqual(header.DataWindow.MaxX, v1Header.DataWindow.MaxX);
-        Assert.AreEqual(header.DataWindow.MaxY, v1Header.DataWindow.MaxY);
-
-        int countIndex = 0;
-        for (int row = 0; row < v1Image.OffsetTable.Length; row++)
-        {
-            int cumulative = 0;
-            List<float> expectedSamples = new();
-            int y = header.DataWindow.MinY + row;
-            for (int xIndex = 0; xIndex < v1Image.OffsetTable[row].Length; xIndex++)
+        using MemoryStream streamView = new(encoded, writable: false);
+        Assert.AreEqual(ExrResult.Success, Exr.LoadDeepEXRFromStream(streamView, out Part? part));
+        Assert.IsNotNull(part);
+        Assert.AreEqual(header.DataWindow, part.Header.DataWindow);
+        DeepLevel level = (DeepLevel)part.Levels[0];
+        CollectionAssert.AreEqual(expectedCounts, level.SampleCounts.ToArray());
+        List<float> expectedSamples = new();
+        int pixel = 0;
+        for (int y = header.DataWindow.MinY; y <= header.DataWindow.MaxY; y++)
+            for (int x = header.DataWindow.MinX; x <= header.DataWindow.MaxX; x++)
             {
-                int count = expectedCounts[countIndex++];
-                cumulative += count;
-                Assert.AreEqual(cumulative, v1Image.OffsetTable[row][xIndex]);
-                int x = header.DataWindow.MinX + xIndex;
+                int count = expectedCounts[pixel++];
                 for (int sample = 0; sample < count; sample++)
                 {
-                    int seed = unchecked(
-                        (header.Channels[0].Name[0] * 257) +
-                        (x * 17) +
-                        (y * 31) +
-                        (sample * 53));
+                    int seed = unchecked((header.Channels[0].Name[0] * 257) + x * 17 + y * 31 + sample * 53);
                     expectedSamples.Add(seed * 0.125f);
                 }
             }
-
-            CollectionAssert.AreEqual(
-                expectedSamples.ToArray(),
-                v1Image.Channels[0].Rows[row]);
-        }
-
-        Assert.AreEqual(expectedCounts.Length, countIndex);
+        CollectionAssert.AreEqual(ExrTestHelper.ToBytes(expectedSamples.ToArray()), level.Channels[0].Data.ToArray());
     }
 
     [TestMethod(DisplayName = "[TinyEXR.NET Test] V3 writer round-trips multipart deep mip and rip tiles")]
@@ -1068,15 +1048,12 @@ public sealed class V3WriterTests
 
     private static void AssertMaximumSamples(byte[] encoded, int partIndex, int expected)
     {
-        Assert.AreEqual(
-            V3.ExrResult.Success,
-            V3Format.ExrFormatParser.Parse(encoded, out V3Format.ParsedFile? parsed));
-        Assert.IsNotNull(parsed);
-        V3Format.ParsedAttribute attribute = parsed.Parts[partIndex].RawAttributes.Single(
-            static candidate => candidate.Value.Name == "maxSamplesPerPixel");
-        Assert.AreEqual("int", attribute.Value.TypeName);
-        Assert.AreEqual(sizeof(int), attribute.Value.Data.Length);
-        Assert.AreEqual(expected, BinaryPrimitives.ReadInt32LittleEndian(attribute.Value.Data));
+        using V3.ExrReader reader = V3.ExrReader.OpenMemory(encoded);
+        Assert.AreEqual(V3.ExrResult.Success, reader.ParseHeader().Status);
+        V3.HeaderAttribute attribute = reader.GetRawHeaderAttributes(partIndex).Single(a => a.Name == "maxSamplesPerPixel");
+        Assert.AreEqual("int", attribute.TypeName);
+        Assert.AreEqual(sizeof(int), attribute.Data.Length);
+        Assert.AreEqual(expected, BinaryPrimitives.ReadInt32LittleEndian(attribute.Data));
     }
 
     private static ulong CountSamples(V3.Box2i region, int xSampling, int ySampling)
@@ -1136,13 +1113,25 @@ public sealed class V3WriterTests
         private readonly MemoryStream _stream = new();
         private bool _disposed;
 
-        public int? FailNextWriteAfter { get; set; }
+        public int? FailNextWriteAfter
+        {
+            get; set;
+        }
 
-        public int? CancelNextWriteAfter { get; set; }
+        public int? CancelNextWriteAfter
+        {
+            get; set;
+        }
 
-        public bool BlockNextWrite { get; set; }
+        public bool BlockNextWrite
+        {
+            get; set;
+        }
 
-        public bool AmbiguousFailureNextWrite { get; set; }
+        public bool AmbiguousFailureNextWrite
+        {
+            get; set;
+        }
 
         public long Position => _stream.Position;
 

@@ -144,9 +144,7 @@ If both need to run, it is better to execute them explicitly instead of only run
 - Not every feature should require a standalone image fixture. Object-model
   validation, streaming state machines, error mapping, SIMD kernels, color
   transforms, resize filters, tone mapping, and LUT evaluation are primarily
-  algorithmic and are intentionally tested with focused buffers. What remains
-  missing is independent file-level coverage where interoperability matters,
-  especially for newly encoded compression formats.
+  algorithmic and are intentionally tested with focused buffers. Independent file-level coverage is provided by the native V3 cross-checks below.
 
 ## Known Tradeoffs
 
@@ -170,7 +168,7 @@ If both pass, the two main target framework implementations in this repository a
 1.2.0 package, not a project reference. It intentionally stays outside the
 solution so ordinary solution restore does not require an unpublished package.
 It checks the unversioned root and I/O imports, a ZIP spectral-image round trip,
-the legacy spectral facade, and the upstream API-generation constant.
+the V3 spectral convenience API, every supported flat codec, stream-origin restoration, and the upstream API-generation constant.
 
 ```sh
 dotnet pack TinyEXR.NET/TinyEXR.NET.csproj -c Release -p:SignAssemblyKey=false -p:GeneratePackageOnBuild=false -o artifacts/packages
@@ -184,3 +182,25 @@ prerequisites. The smoke-specific NuGet configuration maps `TinyEXR.NET` only
 to the locally generated package feed; the isolated consumer cache prevents
 reusing a previously restored package of the same version. These unsigned checks do not validate the publisher's private
 strong-name signing key or signed release artifacts.
+
+## Pinned native V3 interoperability
+
+`NativeReference` builds the unmodified V3 sources at
+`1b106618644dbf8a0935c2348ba51a2d863dd7c2`; `TinyEXR.Interop` compares 288 codec
+cases, 161 full-file cases and both complete B44 perceptual tables. Run from
+the repository root:
+
+```sh
+cmake -S Test/NativeReference -B .cache/v3-reference -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build .cache/v3-reference
+dotnet run --project Test/TinyEXR.Interop -p:SignAssemblyKey=false -- .cache/v3-reference
+dotnet run --project Test/TinyEXR.Interop -p:SignAssemblyKey=false -p:LibraryFramework=netstandard2.1 -- .cache/v3-reference
+```
+
+The CI job also disables .NET hardware intrinsics to compare the scalar path.
+Native tools are test dependencies only. `file_oracle` compares every block and
+level, including deep counts and samples; the upstream base-image comparator
+alone cannot validate these cases. See [codec provenance and limitations](../docs/codec-port.md),
+including the two reproducible defects in the fixed native deep encoder.
+Native encoding is validated with one-row deep chunks; multi-row deep files
+are compared in the managed-encode/native-decode direction.

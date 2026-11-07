@@ -33,12 +33,13 @@ public sealed class MultiViewTests
             string path = TestPaths.OpenExr(sample.RelativePath);
 
             Assert.IsTrue(Exr.IsEXR(path), sample.RelativePath);
-            Assert.AreEqual(ResultCode.Success, Exr.EXRLayers(path, out string[] layers), sample.RelativePath);
+            Assert.AreEqual(ExrResult.Success, Exr.EXRLayers(path, out string[] layers), sample.RelativePath);
             CollectionAssert.AreEqual(sample.ExpectedLayers, layers, sample.RelativePath);
-            Assert.AreEqual(ResultCode.Success, Exr.ParseEXRVersionFromFile(path, out ExrVersion version), sample.RelativePath);
-            Assert.IsFalse(version.NonImage, sample.RelativePath);
-            Assert.IsFalse(version.Multipart, sample.RelativePath);
-            Assert.AreEqual(ResultCode.Success, Exr.ParseEXRHeaderFromFile(path, out _, out ExrHeader header), sample.RelativePath);
+            Assert.AreEqual(ExrResult.Success, Exr.ParseEXRVersionFromFile(path, out uint version), sample.RelativePath);
+            Assert.IsFalse(((version & (1U << 11)) != 0), sample.RelativePath);
+            Assert.IsFalse(((version & (1U << 12)) != 0), sample.RelativePath);
+            Assert.AreEqual(ExrResult.Success, Exr.ParseEXRHeaderFromFile(path, out _, out Header? header), sample.RelativePath);
+            Assert.IsNotNull(header);
             CollectionAssert.AreEqual(
                 sample.ExpectedRootChannels,
                 header.Channels
@@ -47,7 +48,7 @@ public sealed class MultiViewTests
                     .ToArray(),
                 sample.RelativePath);
 
-            Assert.AreEqual(ResultCode.Success, Exr.LoadEXR(path, out float[] defaultRgba, out int defaultWidth, out int defaultHeight), sample.RelativePath);
+            Assert.AreEqual(ExrResult.Success, Exr.LoadEXR(path, out float[] defaultRgba, out int defaultWidth, out int defaultHeight), sample.RelativePath);
             Assert.AreEqual(header.DataWindow.Width, defaultWidth, sample.RelativePath);
             Assert.AreEqual(header.DataWindow.Height, defaultHeight, sample.RelativePath);
             Assert.AreEqual(defaultWidth * defaultHeight * 4, defaultRgba.Length, sample.RelativePath);
@@ -55,7 +56,7 @@ public sealed class MultiViewTests
             foreach (string layer in layers)
             {
                 Assert.AreEqual(
-                    ResultCode.Success,
+                    ExrResult.Success,
                     Exr.LoadEXRWithLayer(path, layer, out float[] layerRgba, out int layerWidth, out int layerHeight),
                     $"{sample.RelativePath}|{layer}");
                 Assert.AreEqual(defaultWidth, layerWidth, $"{sample.RelativePath}|{layer}");
@@ -65,7 +66,7 @@ public sealed class MultiViewTests
             }
 
             Assert.AreEqual(
-                ResultCode.LayerNotFound,
+                ExrResult.InvalidArgument,
                 Exr.LoadEXRWithLayer(path, "__missing__", out _, out _, out _),
                 sample.RelativePath);
         }
@@ -107,13 +108,13 @@ public sealed class MultiViewTests
         string path = TestPaths.OpenExr("v2/LowResLeftView/composited.exr");
 
         Assert.IsTrue(Exr.IsEXR(path));
-        Assert.AreEqual(ResultCode.Success, Exr.EXRLayers(path, out string[] layers));
+        Assert.AreEqual(ExrResult.Success, Exr.EXRLayers(path, out string[] layers));
         Assert.AreEqual(0, layers.Length);
 
-        (ExrVersion version, ExrHeader header, ExrImage image) = ExrTestHelper.LoadSinglePart(path);
-        Assert.IsFalse(version.Tiled);
-        Assert.IsFalse(version.NonImage);
-        Assert.IsFalse(version.Multipart);
+        (uint version, Header header, Part image) = ExrTestHelper.LoadSinglePart(path);
+        Assert.IsFalse(((version & (1U << 9)) != 0));
+        Assert.IsFalse(((version & (1U << 11)) != 0));
+        Assert.IsFalse(((version & (1U << 12)) != 0));
         CollectionAssert.AreEqual(
             new[] { "A", "B", "G", "R" },
             header.Channels.Select(static channel => channel.Name).ToArray());
@@ -128,29 +129,30 @@ public sealed class MultiViewTests
         string path = TestPaths.OpenExr("v2/Stereo/composited.exr");
 
         Assert.IsTrue(Exr.IsEXR(path));
-        Assert.AreEqual(ResultCode.Success, Exr.ParseEXRVersionFromFile(path, out ExrVersion version));
-        Assert.IsFalse(version.Tiled);
-        Assert.IsFalse(version.NonImage);
-        Assert.IsTrue(version.Multipart);
+        Assert.AreEqual(ExrResult.Success, Exr.ParseEXRVersionFromFile(path, out uint version));
+        Assert.IsFalse(((version & (1U << 9)) != 0));
+        Assert.IsFalse(((version & (1U << 11)) != 0));
+        Assert.IsTrue(((version & (1U << 12)) != 0));
 
-        Assert.AreEqual(ResultCode.Success, Exr.ParseEXRMultipartHeaderFromFile(path, out _, out ExrMultipartHeader headers));
-        Assert.AreEqual(4, headers.Headers.Count);
+        Assert.AreEqual(ExrResult.Success, Exr.ParseEXRMultipartHeaderFromFile(path, out _, out Header[] headers));
+        Assert.AreEqual(4, headers.Length);
         CollectionAssert.AreEqual(
             new[] { "rgba.left", "depth.left", "rgba.right", "depth.right" },
-            headers.Headers.Select(static header => header.Name).ToArray());
+            headers.Select(static header => header.Name).ToArray());
         CollectionAssert.AreEqual(
-            new[] { "scanlineimage", "scanlineimage", "scanlineimage", "scanlineimage" },
-            headers.Headers.Select(static header => header.PartType).ToArray());
+            new[] { PartType.Scanline, PartType.Scanline, PartType.Scanline, PartType.Scanline },
+            headers.Select(static header => header.PartType).ToArray());
         CollectionAssert.AreEqual(
             new[] { 4, 1, 4, 1 },
-            headers.Headers.Select(static header => header.Channels.Count).ToArray());
+            headers.Select(static header => header.Channels.Count).ToArray());
 
-        Assert.AreEqual(ResultCode.Success, Exr.LoadEXRMultipartImageFromFile(path, headers, out ExrMultipartImage images));
-        Assert.AreEqual(4, images.Images.Count);
-        for (int index = 0; index < headers.Headers.Count; index++)
+        Assert.AreEqual(ExrResult.Success, Exr.LoadEXRMultipartImageFromFile(path, out Image? images));
+        Assert.IsNotNull(images);
+        Assert.AreEqual(4, images.Parts.Count);
+        for (int index = 0; index < headers.Length; index++)
         {
-            Assert.AreEqual(headers.Headers[index].DataWindow.Width, images.Images[index].Width, $"part[{index}]");
-            Assert.AreEqual(headers.Headers[index].DataWindow.Height, images.Images[index].Height, $"part[{index}]");
+            Assert.AreEqual(headers[index].DataWindow.Width, images.Parts[index].Width, $"part[{index}]");
+            Assert.AreEqual(headers[index].DataWindow.Height, images.Parts[index].Height, $"part[{index}]");
         }
     }
 
@@ -168,22 +170,22 @@ public sealed class MultiViewTests
             string path = TestPaths.OpenExr(relativePath);
 
             Assert.IsTrue(Exr.IsEXR(path), relativePath);
-            Assert.AreEqual(ResultCode.Success, Exr.ParseEXRVersionFromFile(path, out ExrVersion version), relativePath);
-            Assert.IsFalse(version.Tiled, relativePath);
-            Assert.IsTrue(version.NonImage, relativePath);
-            Assert.IsTrue(version.Multipart, relativePath);
+            Assert.AreEqual(ExrResult.Success, Exr.ParseEXRVersionFromFile(path, out uint version), relativePath);
+            Assert.IsFalse(((version & (1U << 9)) != 0), relativePath);
+            Assert.IsTrue(((version & (1U << 11)) != 0), relativePath);
+            Assert.IsTrue(((version & (1U << 12)) != 0), relativePath);
 
-            Assert.AreEqual(ResultCode.Success, Exr.ParseEXRMultipartHeaderFromFile(path, out _, out ExrMultipartHeader headers), relativePath);
-            Assert.AreEqual(2, headers.Headers.Count, relativePath);
+            Assert.AreEqual(ExrResult.Success, Exr.ParseEXRMultipartHeaderFromFile(path, out _, out Header[] headers), relativePath);
+            Assert.AreEqual(2, headers.Length, relativePath);
             CollectionAssert.AreEqual(
                 new[] { "rgba.left", "rgba.right" },
-                headers.Headers.Select(static header => header.Name).ToArray(),
+                headers.Select(static header => header.Name).ToArray(),
                 relativePath);
             CollectionAssert.AreEqual(
-                new[] { "deepscanline", "deepscanline" },
-                headers.Headers.Select(static header => header.PartType).ToArray(),
+                new[] { PartType.DeepScanline, PartType.DeepScanline },
+                headers.Select(static header => header.PartType).ToArray(),
                 relativePath);
-            foreach (ExrHeader header in headers.Headers)
+            foreach (Header header in headers)
             {
                 CollectionAssert.AreEqual(
                     new[] { "A", "B", "G", "R", "Z" },
@@ -191,8 +193,9 @@ public sealed class MultiViewTests
                     relativePath);
             }
 
-            Assert.AreEqual(ResultCode.UnsupportedFeature, Exr.LoadEXRMultipartImageFromFile(path, headers, out ExrMultipartImage images), relativePath);
-            Assert.AreEqual(0, images.Images.Count, relativePath);
+            Assert.AreEqual(ExrResult.Success, Exr.LoadEXRMultipartImageFromFile(path, out Image? images), relativePath);
+            Assert.IsNotNull(images);
+            Assert.IsTrue(images.Parts.All(p => p.Header.IsDeep));
         }
     }
 
@@ -201,27 +204,29 @@ public sealed class MultiViewTests
         string path = TestPaths.OpenExr(sample.RelativePath);
 
         Assert.IsTrue(Exr.IsEXR(path), sample.RelativePath);
-        Assert.AreEqual(ResultCode.Success, Exr.ParseEXRVersionFromFile(path, out ExrVersion version), sample.RelativePath);
-        Assert.IsFalse(version.Tiled, sample.RelativePath);
-        Assert.IsTrue(version.NonImage, sample.RelativePath);
-        Assert.IsFalse(version.Multipart, sample.RelativePath);
-        Assert.AreEqual(ResultCode.Success, Exr.ParseEXRHeaderFromFile(path, out _, out ExrHeader parsedHeader), sample.RelativePath);
-        Assert.AreEqual("deepscanline", parsedHeader.PartType, sample.RelativePath);
+        Assert.AreEqual(ExrResult.Success, Exr.ParseEXRVersionFromFile(path, out uint version), sample.RelativePath);
+        Assert.IsFalse(((version & (1U << 9)) != 0), sample.RelativePath);
+        Assert.IsTrue(((version & (1U << 11)) != 0), sample.RelativePath);
+        Assert.IsFalse(((version & (1U << 12)) != 0), sample.RelativePath);
+        Assert.AreEqual(ExrResult.Success, Exr.ParseEXRHeaderFromFile(path, out _, out Header? parsedHeader), sample.RelativePath);
+        Assert.IsNotNull(parsedHeader);
+        Assert.AreEqual(PartType.DeepScanline, parsedHeader.PartType, sample.RelativePath);
         CollectionAssert.AreEqual(
             new[] { "A", "B", "G", "R", "Z" },
             parsedHeader.Channels.Select(static channel => channel.Name).ToArray(),
             sample.RelativePath);
 
-        Assert.AreEqual(ResultCode.Success, Exr.LoadDeepEXR(path, out ExrHeader header, out ExrDeepImage image), sample.RelativePath);
-        Assert.IsTrue(header.IsDeep, sample.RelativePath);
-        Assert.AreEqual("deepscanline", header.PartType, sample.RelativePath);
+        Assert.AreEqual(ExrResult.Success, Exr.LoadDeepEXR(path, out Part? image), sample.RelativePath);
+        Assert.IsNotNull(image);
+        Assert.IsTrue(image!.Header.IsDeep, sample.RelativePath);
+        Assert.AreEqual(PartType.DeepScanline, image!.Header.PartType, sample.RelativePath);
         Assert.AreEqual(sample.Width, image.Width, sample.RelativePath);
         Assert.AreEqual(sample.Height, image.Height, sample.RelativePath);
-        Assert.AreEqual(sample.Height, image.OffsetTable.Length, sample.RelativePath);
-        Assert.AreEqual(header.Channels.Count, image.Channels.Count, sample.RelativePath);
+        Assert.AreEqual(sample.Width * sample.Height, ((DeepLevel)image!.Levels[0]).SampleCounts.Length, sample.RelativePath);
+        Assert.AreEqual(parsedHeader!.Channels.Count, image!.Header.Channels.Count, sample.RelativePath);
         CollectionAssert.AreEqual(
             new[] { "A", "B", "G", "R", "Z" },
-            image.Channels.Select(static channel => channel.Name).ToArray(),
+            image.Header.Channels.Select(static channel => channel.Name).ToArray(),
             sample.RelativePath);
     }
 

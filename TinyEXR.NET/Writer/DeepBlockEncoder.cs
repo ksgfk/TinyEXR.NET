@@ -1,7 +1,6 @@
 using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
-using TinyEXR.PortV1;
 using TinyEXR.Codecs;
 
 namespace TinyEXR
@@ -28,7 +27,7 @@ namespace TinyEXR
             IReadOnlyList<ChannelBuffer> channels,
             bool multipart,
             WriterLimits limits,
-            ExrCompressionCodec.EncodeWorkspace workspace)
+            CodecWorkspace workspace)
         {
             if (!part.Header.IsDeep || !info.IsDeep)
             {
@@ -196,8 +195,8 @@ namespace TinyEXR
                 part.Header.Compression == Compression.ZIPS ||
                 part.Header.Compression == Compression.ZIP)
             {
-                packedCounts = EncodeLegacyPayload(part.Header.Compression, countRaw, workspace);
-                packedSamples = EncodeLegacyPayload(part.Header.Compression, sampleRaw, workspace);
+                packedCounts = EncodePayload(part.Header.Compression, countRaw, workspace);
+                packedSamples = EncodePayload(part.Header.Compression, sampleRaw, workspace);
             }
 
             int chunkLength = checked(
@@ -240,28 +239,12 @@ namespace TinyEXR
             return new DeepEncodedBlock(chunk, maximumSamplesPerPixel);
         }
 
-        private static byte[] EncodeLegacyPayload(
+        private static byte[] EncodePayload(
             Compression compression,
             byte[] raw,
-            ExrCompressionCodec.EncodeWorkspace workspace)
+            CodecWorkspace workspace)
         {
-            ResultCode result = ExrCompressionCodec.TryEncodeDeepPayload(
-                (CompressionType)(int)compression,
-                raw,
-                workspace,
-                out byte[] payload);
-            switch (result)
-            {
-                case ResultCode.Success:
-                    return payload;
-                case ResultCode.DataTooLarge:
-                    throw Unsupported("The deep payload is too large for the selected compression codec.");
-                case ResultCode.UnsupportedFeature:
-                case ResultCode.UnsupportedFormat:
-                    throw Unsupported($"Compression '{compression}' is not supported for deep payloads.");
-                default:
-                    throw Invalid($"The selected deep compression codec rejected the payload ({result}).");
-            }
+            return BlockCodec.EncodeDeep(compression, raw, workspace);
         }
 
         private static void WriteInt32(byte[] destination, ref int offset, int value)

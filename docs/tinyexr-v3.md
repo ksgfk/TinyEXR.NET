@@ -34,7 +34,7 @@ JPEG 2000 Part 1.
 ## Managed mapping
 
 As of TinyEXR.NET 1.2.0, the modern managed surface lives in the unversioned
-`TinyEXR` namespace alongside the v1-compatible facade. Data-source and sink
+`TinyEXR` namespace, including the V3-based `Exr` convenience interface. Data-source and sink
 contracts live in `TinyEXR.IO`. The v3 label in these notes refers to the
 upstream API generation, not the managed namespace or NuGet package version.
 `ExrFile.ApiVersionMajor` therefore remains `3`.
@@ -139,12 +139,10 @@ global thread count.
 
 ### Compression matrix
 
-"Raw fallback" means the file retains the requested compression tag but stores
-the canonical block bytes when no encoded representation is available or
-smaller. OpenEXR readers recognize this by the packed and canonical sizes being
-equal for codecs that permit raw fallback. B44/B44A are decoded as codec data
-even when their packed size equals the canonical size. Raw fallback is valid
-storage, but it is not an implementation of the selected codec.
+Raw fallback retains the compression tag and stores canonical bytes when
+compression is not smaller. Equal packed and canonical sizes denote raw data,
+including B44/B44A edge tiles. Unsupported codecs are never silently encoded
+using a different implementation.
 
 | Compression | Flat decode | Flat encode | Deep decode | Deep encode |
 | --- | --- | --- | --- | --- |
@@ -166,52 +164,23 @@ compresses the cumulative count table and sample payload independently. The
 writer uses canonical raw fallback separately for either payload when the
 encoded form is not smaller.
 
-## V1 facade migration
+## Exr convenience interface
 
-The public v1 facade remains available. Migration to the modern core based on
-upstream v3 is currently incremental:
+The V1 implementation, adapter, public models and status codes are removed.
+`Exr` keeps familiar method names and `out` parameters, using the same V3
+`Header`, `Part`, `Image` and `ExrResult` as the stateful APIs. Parsing always
+uses `ExrReader`, except magic/version probes, which read four/eight bytes.
+There is no retry through a legacy parser or codec.
 
-- Single-part and multipart memory headers use the modern format parser; seekable
-  stream and file headers use the incremental modern reader. Files with legacy
-  unknown part-type strings continue through `PortV1`.
-- Flat scanline and tiled memory, stream, and file image loads use `ExrReader`
-  for both single-part and multipart files, including one-level, mipmap, and
-  ripmap parts. The bridge reconstructs the legacy per-level and per-tile
-  channel views from modern planar levels. Caller-owned streams retain their
-  original position and may use a non-zero EXR origin.
-- `LoadEXR`, `LoadEXRWithLayer`, and `EXRLayers` use the same modern flat image
-  path, while retaining the v1 layer selection and RGBA expansion rules.
-- HALF-to-FLOAT conversion on migrated read paths uses the modern SIMD
-  implementation.
-- Single-part deep scanline and one-level deep-tiled memory, seekable-stream,
-  and file loads use `ExrReader`. The bridge rebuilds the legacy per-row
-  cumulative offset table, splits each planar deep channel into row sample
-  arrays, and converts UINT, HALF, and FLOAT samples to the v1 `float`
-  representation. Raw deep attributes such as `version`,
-  `maxSamplesPerPixel`, `chromaticities`, and custom values are retained
-  exactly. This path preserves non-zero stream origins and caller stream
-  positions. Deep tiled mipmap/ripmap files
-  return `UnsupportedFeature` because `ExrDeepImage` has no level dimension.
-- Eligible flat memory/file saves use `ExrWriter` for both single-part and
-  multipart scanline or tiled images, including single-entry multipart
-  containers and mipmap/ripmap levels. The bridge slices legacy planar levels
-  into streaming blocks and tiles, preserves part names and custom metadata,
-  and maps the v1 `chromaticities` attribute to the first-class modern field for
-  exact round trips.
-- Save-time UINT/HALF/FLOAT conversion is performed before each modern writer
-  block; HALF conversion uses the modern SIMD implementation. Flat scanline
-  channels may be subsampled when their sampling grid aligns with the data window. Tiled
-  channels retain the OpenEXR unit-sampling requirement.
-- The v1 multipart image model contains only `ExrImage`, so mixed or all-deep
-  multipart image loads return `UnsupportedFeature`; multipart header parsing
-  still exposes every part. Subsampled deep data and deep saves also remain
-  unsupported. Non-aligned legacy scanline sampling, legacy unknown part types,
-  and metadata that cannot be migrated without changing the v1 output contract
-  continue through `PortV1` where that implementation can represent them.
-- The legacy DWAA/DWAB `UnsupportedFeature` behavior is preserved.
-
-This preserves the v1 facade contract while allowing individual facade paths to be
-moved only after their compatibility behavior is covered by shared tests.
+The convenience layer selects layers, expands RGBA and normalizes flat
+scanline saves to `IncreasingY` without mutating the input. `ExrWriter` and
+`ExrFile` continue respecting the supplied line order. Single-part methods
+reject the multipart flag even for one part. Multipart saves always emit it.
+Deep multilevel and mixed multipart files use the same `Part` / `Image` models.
+All stream reads begin at the current position, leave the stream open, and
+restore its position on success or failure. Default reader/writer resource
+limits apply. See [migration-v3-only.md](migration-v3-only.md) for signatures
+and [codec-port.md](codec-port.md) for provenance and native validation.
 
 ## HTJ2K implementation
 

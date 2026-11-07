@@ -1,1128 +1,610 @@
 using System.Buffers.Binary;
-using System.Globalization;
-using TinyEXR.PortV1;
+using TinyEXR.Format;
+using TinyEXR.IO;
 
 namespace TinyEXR
 {
+    /// <summary>
+    /// Convenience entry points over ExrReader and ExrWriter. All models and status codes
+    /// use the V3 API. Caller-owned streams remain open and retain their position.
+    /// </summary>
     public static class Exr
     {
-        private const string SpectralLayoutVersionAttribute = "spectralLayoutVersion";
-        private const string ReflectiveUnitsAttribute = "ROOT/units";
-        private const string EmissiveUnitsAttribute = "emissiveUnits";
-        private const string PolarisationHandednessAttribute = "polarisationHandedness";
+        private const uint MultipartFlag = 1U << 12;
+        private delegate ExrResult ReadOperation<T>(ExrReader reader, out T? value) where T : class;
 
-        public static ResultCode LoadEXR(string filename, out float[] rgba, out int width, out int height)
+        public static ExrResult LoadEXRImageFromFile(string filename, out Part? part)
+            => ReadFile(filename, ReadFlat, out part);
+
+        public static ExrResult LoadDeepEXR(string filename, out Part? part)
+            => ReadFile(filename, ReadDeep, out part);
+
+        public static ExrResult LoadEXRMultipartImageFromFile(string filename, out Image? image)
+            => ReadFile(filename, ReadMultipart, out image);
+
+        public static ExrResult ParseEXRHeaderFromFile(string filename, out uint rawVersionField, out Header? header)
         {
-            return TryReadRgba(filename, out rgba, out width, out height);
+            ExrResult status = ReadFile(filename, ReadSingleHeader, out HeaderSet? parsed);
+            rawVersionField = parsed?.Version ?? 0;
+            header = parsed?.Headers[0];
+            return status;
         }
 
-        public static ResultCode LoadEXRWithLayer(string filename, string? layer, out float[] rgba, out int width, out int height)
+        public static ExrResult ParseEXRMultipartHeaderFromFile(string filename, out uint rawVersionField, out Header[] headers)
         {
-            return TryReadRgba(filename, layer, out rgba, out width, out height);
+            ExrResult status = ReadFile(filename, ReadMultipartHeaders, out HeaderSet? parsed);
+            rawVersionField = parsed?.Version ?? 0;
+            headers = parsed?.Headers ?? Array.Empty<Header>();
+            return status;
         }
 
-        public static ResultCode LoadEXRFromMemory(ReadOnlySpan<byte> data, out float[] rgba, out int width, out int height)
+        public static ExrResult LoadEXRImageFromMemory(ReadOnlySpan<byte> data, out Part? part)
+            => ReadMemory(data, ReadFlat, out part);
+
+        public static ExrResult LoadDeepEXRFromMemory(ReadOnlySpan<byte> data, out Part? part)
+            => ReadMemory(data, ReadDeep, out part);
+
+        public static ExrResult LoadEXRMultipartImageFromMemory(ReadOnlySpan<byte> data, out Image? image)
+            => ReadMemory(data, ReadMultipart, out image);
+
+        public static ExrResult ParseEXRHeaderFromMemory(ReadOnlySpan<byte> data, out uint rawVersionField, out Header? header)
         {
-            return TryReadRgba(data, out rgba, out width, out height);
+            ExrResult status = ReadMemory(data, ReadSingleHeader, out HeaderSet? parsed);
+            rawVersionField = parsed?.Version ?? 0;
+            header = parsed?.Headers[0];
+            return status;
         }
 
-        public static ResultCode LoadEXRFromStream(Stream stream, out float[] rgba, out int width, out int height)
+        public static ExrResult ParseEXRMultipartHeaderFromMemory(ReadOnlySpan<byte> data, out uint rawVersionField, out Header[] headers)
         {
-            return TryReadRgba(stream, out rgba, out width, out height);
+            ExrResult status = ReadMemory(data, ReadMultipartHeaders, out HeaderSet? parsed);
+            rawVersionField = parsed?.Version ?? 0;
+            headers = parsed?.Headers ?? Array.Empty<Header>();
+            return status;
         }
 
-        public static ResultCode LoadEXRWithLayerFromStream(Stream stream, string? layer, out float[] rgba, out int width, out int height)
+        public static ExrResult LoadEXRImageFromStream(Stream stream, out Part? part)
+            => ReadStream(stream, ReadFlat, out part);
+
+        public static ExrResult LoadDeepEXRFromStream(Stream stream, out Part? part)
+            => ReadStream(stream, ReadDeep, out part);
+
+        public static ExrResult LoadEXRMultipartImageFromStream(Stream stream, out Image? image)
+            => ReadStream(stream, ReadMultipart, out image);
+
+        public static ExrResult ParseEXRHeaderFromStream(Stream stream, out uint rawVersionField, out Header? header)
         {
-            return TryReadRgba(stream, layer, out rgba, out width, out height);
+            ExrResult status = ReadStream(stream, ReadSingleHeader, out HeaderSet? parsed);
+            rawVersionField = parsed?.Version ?? 0;
+            header = parsed?.Headers[0];
+            return status;
         }
 
-        public static ResultCode SaveEXRToMemory(
-            ReadOnlySpan<float> data,
-            int width,
-            int height,
-            int components,
-            bool asFp16,
-            out byte[] outBuffer)
+        public static ExrResult ParseEXRMultipartHeaderFromStream(Stream stream, out uint rawVersionField, out Header[] headers)
         {
-            return TryWriteRgba(data, width, height, components, asFp16, out outBuffer);
+            ExrResult status = ReadStream(stream, ReadMultipartHeaders, out HeaderSet? parsed);
+            rawVersionField = parsed?.Version ?? 0;
+            headers = parsed?.Headers ?? Array.Empty<Header>();
+            return status;
         }
 
-        public static ResultCode SaveEXR(
-            ReadOnlySpan<float> data,
-            int width,
-            int height,
-            int components,
-            bool asFp16,
-            string filename)
+        public static ExrResult ParseEXRVersionFromMemory(ReadOnlySpan<byte> data, out uint rawVersionField)
         {
-            return TryWriteRgba(data, width, height, components, asFp16, filename);
+            rawVersionField = 0;
+            if (data.Length < 8 || !ExrFile.IsExr(data))
+                return ExrResult.InvalidFile;
+            uint version = BinaryPrimitives.ReadUInt32LittleEndian(data.Slice(4));
+            ExrResult status = ExrFormatParser.InterpretVersionField(version, out _, out _);
+            if (status == ExrResult.Success)
+                rawVersionField = version;
+            return status;
         }
 
-        public static ResultCode EXRLayers(string filename, out string[] layers)
+        public static ExrResult ParseEXRVersionFromStream(Stream stream, out uint rawVersionField)
         {
-            return TryReadLayers(filename, out layers);
+            ExrResult status = ReadPrefix(stream, 8, out byte[] prefix);
+            rawVersionField = 0;
+            return status == ExrResult.Success ? ParseEXRVersionFromMemory(prefix, out rawVersionField) : status;
         }
 
-        public static ResultCode EXRLayersFromStream(Stream stream, out string[] layers)
+        public static ExrResult ParseEXRVersionFromFile(string filename, out uint rawVersionField)
         {
-            return TryReadLayers(stream, out layers);
+            rawVersionField = 0;
+            try
+            {
+                using FileStream stream = File.OpenRead(filename);
+                return ParseEXRVersionFromStream(stream, out rawVersionField);
+            }
+            catch (Exception exception) when (IsExpected(exception))
+            {
+                return Status(exception);
+            }
         }
 
+        public static bool IsEXRFromMemory(ReadOnlySpan<byte> data) => ExrFile.IsExr(data);
+        public static bool IsEXRFromStream(Stream stream)
+            => ReadPrefix(stream, 4, out byte[] prefix) == ExrResult.Success && ExrFile.IsExr(prefix);
         public static bool IsEXR(string filename)
         {
-            return TryReadVersion(filename, out _) == ResultCode.Success;
-        }
-
-        public static bool IsEXRFromMemory(ReadOnlySpan<byte> data)
-        {
-            return TryReadVersion(data, out _) == ResultCode.Success;
-        }
-
-        public static bool IsEXRFromStream(Stream stream)
-        {
-            return TryReadVersion(stream, out _) == ResultCode.Success;
-        }
-
-        public static ResultCode ParseEXRVersionFromFile(string filename, out ExrVersion version)
-        {
-            return TryReadVersion(filename, out version);
-        }
-
-        public static ResultCode ParseEXRVersionFromMemory(ReadOnlySpan<byte> data, out ExrVersion version)
-        {
-            return TryReadVersion(data, out version);
-        }
-
-        public static ResultCode ParseEXRVersionFromStream(Stream stream, out ExrVersion version)
-        {
-            return TryReadVersion(stream, out version);
-        }
-
-        public static ResultCode ParseEXRHeaderFromFile(string filename, out ExrVersion version, out ExrHeader header)
-        {
-            return TryReadHeader(filename, out version, out header);
-        }
-
-        public static ResultCode ParseEXRHeaderFromMemory(ReadOnlySpan<byte> data, out ExrVersion version, out ExrHeader header)
-        {
-            return TryReadHeader(data, out version, out header);
-        }
-
-        public static ResultCode ParseEXRHeaderFromStream(Stream stream, out ExrVersion version, out ExrHeader header)
-        {
-            return TryReadHeader(stream, out version, out header);
-        }
-
-        public static ResultCode ParseEXRMultipartHeaderFromFile(string filename, out ExrVersion version, out ExrMultipartHeader headers)
-        {
-            if (!TryOpenReadFile(filename, out FileStream? stream, out ResultCode fileResult))
+            try
             {
-                version = new ExrVersion();
-                headers = new ExrMultipartHeader(Array.Empty<ExrHeader>());
-                return fileResult;
+                using FileStream stream = File.OpenRead(filename);
+                return IsEXRFromStream(stream);
             }
-
-            using (stream)
+            catch (Exception exception) when (IsExpected(exception))
             {
-                return ParseEXRMultipartHeaderFromStream(stream!, out version, out headers);
+                return false;
             }
         }
 
-        public static ResultCode ParseEXRMultipartHeaderFromMemory(ReadOnlySpan<byte> data, out ExrVersion version, out ExrMultipartHeader headers)
+        public static ExrResult LoadEXR(string filename, out float[] rgba, out int width, out int height)
+            => LoadEXRWithLayer(filename, null, out rgba, out width, out height);
+        public static ExrResult LoadEXRWithLayer(string filename, string? layer, out float[] rgba, out int width, out int height)
+            => BuildRgba(LoadEXRImageFromFile(filename, out Part? part), part, layer, out rgba, out width, out height);
+        public static ExrResult LoadEXRFromMemory(ReadOnlySpan<byte> data, out float[] rgba, out int width, out int height)
+            => LoadEXRWithLayerFromMemory(data, null, out rgba, out width, out height);
+        public static ExrResult LoadEXRWithLayerFromMemory(ReadOnlySpan<byte> data, string? layer, out float[] rgba, out int width, out int height)
+            => BuildRgba(LoadEXRImageFromMemory(data, out Part? part), part, layer, out rgba, out width, out height);
+        public static ExrResult LoadEXRFromStream(Stream stream, out float[] rgba, out int width, out int height)
+            => LoadEXRWithLayerFromStream(stream, null, out rgba, out width, out height);
+        public static ExrResult LoadEXRWithLayerFromStream(Stream stream, string? layer, out float[] rgba, out int width, out int height)
+            => BuildRgba(LoadEXRImageFromStream(stream, out Part? part), part, layer, out rgba, out width, out height);
+
+        public static ExrResult EXRLayers(string filename, out string[] layers)
+            => BuildLayers(ParseEXRHeaderFromFile(filename, out _, out Header? header), header, out layers);
+        public static ExrResult EXRLayersFromMemory(ReadOnlySpan<byte> data, out string[] layers)
+            => BuildLayers(ParseEXRHeaderFromMemory(data, out _, out Header? header), header, out layers);
+        public static ExrResult EXRLayersFromStream(Stream stream, out string[] layers)
+            => BuildLayers(ParseEXRHeaderFromStream(stream, out _, out Header? header), header, out layers);
+
+        public static ExrResult SaveEXRToMemory(ReadOnlySpan<float> data, int width, int height, int components, bool asFp16, out byte[] outBuffer)
         {
-            if (V1FacadeAdapter.TryParseMultipartHeaders(
-                data,
-                out ResultCode adapterResult,
-                out version,
-                out ExrHeader[] adapterHeaders))
+            outBuffer = Array.Empty<byte>();
+            try
             {
-                headers = new ExrMultipartHeader(adapterHeaders);
-                return adapterResult;
+                return SaveEXRImageToMemory(CreateSimplePart(data, width, height, components, asFp16), out outBuffer);
             }
-
-            ResultCode result = ExrImplementation.TryReadMultipartHeaders(data, out version, out ExrHeader[] parsedHeaders);
-            headers = new ExrMultipartHeader(parsedHeaders);
-            return result;
-        }
-
-        public static ResultCode ParseEXRMultipartHeaderFromStream(Stream stream, out ExrVersion version, out ExrMultipartHeader headers)
-        {
-            if (V1FacadeAdapter.TryParseMultipartHeaders(
-                stream,
-                out ResultCode adapterResult,
-                out version,
-                out ExrHeader[] adapterHeaders))
+            catch (Exception exception) when (IsExpected(exception))
             {
-                headers = new ExrMultipartHeader(adapterHeaders);
-                return adapterResult;
-            }
-
-            ResultCode result = ExrImplementation.TryReadMultipartHeaders(stream, out version, out ExrHeader[] parsedHeaders);
-            headers = new ExrMultipartHeader(parsedHeaders);
-            return result;
-        }
-
-        public static ResultCode LoadEXRImageFromFile(string filename, ExrHeader header, out ExrImage image)
-        {
-            if (!TryOpenReadFile(filename, out FileStream? stream, out ResultCode fileResult))
-            {
-                image = new ExrImage(0, 0, Array.Empty<ExrImageChannel>());
-                return fileResult;
-            }
-
-            using (stream)
-            {
-                return LoadEXRImageFromStream(stream!, header, out image);
+                return Status(exception);
             }
         }
 
-        public static ResultCode LoadEXRImageFromMemory(ReadOnlySpan<byte> data, ExrHeader header, out ExrImage image)
+        public static ExrResult SaveEXR(ReadOnlySpan<float> data, int width, int height, int components, bool asFp16, string filename)
         {
-            if (header == null)
+            try
             {
-                image = new ExrImage(0, 0, Array.Empty<ExrImageChannel>());
-                return ResultCode.InvalidArgument;
+                return SaveEXRImageToFile(CreateSimplePart(data, width, height, components, asFp16), filename);
             }
-
-            if (V1FacadeAdapter.TryReadFlatImage(data, header, out ResultCode result, out image))
+            catch (Exception exception) when (IsExpected(exception))
             {
-                return result;
-            }
-
-            return ExrImplementation.TryReadImage(data, header, out image);
-        }
-
-        public static ResultCode LoadEXRImageFromStream(Stream stream, ExrHeader header, out ExrImage image)
-        {
-            if (header == null)
-            {
-                image = new ExrImage(0, 0, Array.Empty<ExrImageChannel>());
-                return ResultCode.InvalidArgument;
-            }
-
-            if (V1FacadeAdapter.TryReadFlatImage(stream, header, out ResultCode result, out image))
-            {
-                return result;
-            }
-
-            return ExrImplementation.TryReadImage(stream, header, out image);
-        }
-
-        public static ResultCode LoadEXRMultipartImageFromFile(string filename, ExrMultipartHeader headers, out ExrMultipartImage images)
-        {
-            if (!TryOpenReadFile(filename, out FileStream? stream, out ResultCode fileResult))
-            {
-                images = new ExrMultipartImage(Array.Empty<ExrImage>());
-                return fileResult;
-            }
-
-            using (stream)
-            {
-                return LoadEXRMultipartImageFromStream(stream!, headers, out images);
+                return Status(exception);
             }
         }
 
-        public static ResultCode LoadEXRMultipartImageFromMemory(ReadOnlySpan<byte> data, ExrMultipartHeader headers, out ExrMultipartImage images)
-        {
-            if (headers == null)
-            {
-                images = new ExrMultipartImage(Array.Empty<ExrImage>());
-                return ResultCode.InvalidArgument;
-            }
-
-            if (V1FacadeAdapter.TryReadMultipartImages(
-                data,
-                headers.Headers.ToArray(),
-                out ResultCode adapterResult,
-                out ExrImage[] adapterImages))
-            {
-                images = new ExrMultipartImage(adapterImages);
-                return adapterResult;
-            }
-
-            ResultCode result = ExrImplementation.TryReadMultipartImages(data, headers.Headers.ToArray(), out ExrImage[] decodedImages);
-            images = new ExrMultipartImage(decodedImages);
-            return result;
-        }
-
-        public static ResultCode LoadEXRMultipartImageFromStream(Stream stream, ExrMultipartHeader headers, out ExrMultipartImage images)
-        {
-            if (headers == null)
-            {
-                images = new ExrMultipartImage(Array.Empty<ExrImage>());
-                return ResultCode.InvalidArgument;
-            }
-
-            if (V1FacadeAdapter.TryReadMultipartImages(
-                stream,
-                headers.Headers.ToArray(),
-                out ResultCode adapterResult,
-                out ExrImage[] adapterImages))
-            {
-                images = new ExrMultipartImage(adapterImages);
-                return adapterResult;
-            }
-
-            ResultCode result = ExrImplementation.TryReadMultipartImages(stream, headers.Headers.ToArray(), out ExrImage[] decodedImages);
-            images = new ExrMultipartImage(decodedImages);
-            return result;
-        }
-
-        public static ResultCode SaveEXRImageToMemory(ExrImage image, ExrHeader header, out byte[] encoded)
-        {
-            if (header == null)
-            {
-                encoded = Array.Empty<byte>();
-                return ResultCode.InvalidArgument;
-            }
-
-            return TryWriteImage(image, header, out encoded);
-        }
-
-        public static ResultCode SaveEXRImageToFile(ExrImage image, ExrHeader header, string filename)
-        {
-            ResultCode result = SaveEXRImageToMemory(image, header, out byte[] encoded);
-            if (result != ResultCode.Success)
-            {
-                return result;
-            }
-
-            return TryWriteFile(filename, encoded);
-        }
-
-        public static ResultCode SaveEXRMultipartImageToMemory(ExrMultipartImage images, ExrMultipartHeader headers, out byte[] encoded)
+        public static ExrResult SaveEXRImageToMemory(Part part, out byte[] encoded)
         {
             encoded = Array.Empty<byte>();
-            if (images == null || headers == null)
+            try
             {
-                return ResultCode.InvalidArgument;
+                return SaveMemory(new Image(new[] { Normalize(part) }), false, out encoded);
             }
-
-            if (V1FacadeAdapter.TryWriteMultipartImages(
-                images.Images.ToArray(),
-                headers.Headers.ToArray(),
-                out ResultCode result,
-                out encoded))
+            catch (Exception exception) when (IsExpected(exception))
             {
-                return result;
-            }
-
-            return ExrImplementation.TryWriteMultipartImages(images.Images.ToArray(), headers.Headers.ToArray(), out encoded);
-        }
-
-        public static ResultCode SaveEXRMultipartImageToFile(ExrMultipartImage images, ExrMultipartHeader headers, string filename)
-        {
-            ResultCode result = SaveEXRMultipartImageToMemory(images, headers, out byte[] encoded);
-            if (result != ResultCode.Success)
-            {
-                return result;
-            }
-
-            return TryWriteFile(filename, encoded);
-        }
-
-        public static ResultCode LoadDeepEXR(string filename, out ExrHeader header, out ExrDeepImage image)
-        {
-            return TryReadDeepImage(filename, out header, out image);
-        }
-
-        public static ResultCode LoadDeepEXRFromStream(Stream stream, out ExrHeader header, out ExrDeepImage image)
-        {
-            return TryReadDeepImage(stream, out header, out image);
-        }
-
-        public static int EXRNumLevels(ExrImage image)
-        {
-            return image?.Levels.Count ?? 0;
-        }
-
-        public static void EXRSetNameAttr(ExrHeader header, string? name)
-        {
-            if (header != null)
-            {
-                header.Name = name;
+                return Status(exception);
             }
         }
 
-        internal static ResultCode TryReadVersion(string filename, out ExrVersion version)
+        public static ExrResult SaveEXRImageToFile(Part part, string filename)
         {
-            if (!TryOpenReadFile(filename, out FileStream? stream, out ResultCode fileResult))
+            try
             {
-                version = new ExrVersion();
-                return fileResult;
+                return ExrFile.SaveToFile(new Image(new[] { Normalize(part) }), filename).Status;
             }
-
-            using (stream)
+            catch (Exception exception) when (IsExpected(exception))
             {
-                return TryReadVersion(stream!, out version);
+                return Status(exception);
             }
         }
 
-        internal static ResultCode TryReadVersion(ReadOnlySpan<byte> data, out ExrVersion version)
-        {
-            return ExrImplementation.TryReadVersion(data, out version);
-        }
-
-        internal static ResultCode TryReadVersion(Stream stream, out ExrVersion version)
-        {
-            return ExrImplementation.TryReadVersion(stream, out version);
-        }
-
-        internal static ResultCode TryReadHeader(string filename, out ExrVersion version, out ExrHeader header)
-        {
-            if (!TryOpenReadFile(filename, out FileStream? stream, out ResultCode fileResult))
-            {
-                version = new ExrVersion();
-                header = new ExrHeader();
-                return fileResult;
-            }
-
-            using (stream)
-            {
-                return TryReadHeader(stream!, out version, out header);
-            }
-        }
-
-        internal static ResultCode TryReadHeader(ReadOnlySpan<byte> data, out ExrVersion version, out ExrHeader header)
-        {
-            if (V1FacadeAdapter.TryParseSingleHeader(data, out ResultCode result, out version, out header))
-            {
-                return result;
-            }
-
-            return ExrImplementation.TryReadHeader(data, out version, out header);
-        }
-
-        internal static ResultCode TryReadHeader(Stream stream, out ExrVersion version, out ExrHeader header)
-        {
-            if (V1FacadeAdapter.TryParseSingleHeader(stream, out ResultCode result, out version, out header))
-            {
-                return result;
-            }
-
-            return ExrImplementation.TryReadHeader(stream, out version, out header);
-        }
-
-        internal static ResultCode TryReadHeader(string filename, out ExrHeader header)
-        {
-            ResultCode result = TryReadHeader(filename, out _, out header);
-            return result;
-        }
-
-        internal static ResultCode TryReadHeader(ReadOnlySpan<byte> data, out ExrHeader header)
-        {
-            ResultCode result = TryReadHeader(data, out _, out header);
-            return result;
-        }
-
-        internal static ResultCode TryReadHeader(Stream stream, out ExrHeader header)
-        {
-            ResultCode result = TryReadHeader(stream, out _, out header);
-            return result;
-        }
-
-        internal static ResultCode TryReadImage(string filename, out ExrHeader header, out ExrImage image)
-        {
-            if (!TryOpenReadFile(filename, out FileStream? stream, out ResultCode fileResult))
-            {
-                header = new ExrHeader();
-                image = new ExrImage(0, 0, Array.Empty<ExrImageChannel>());
-                return fileResult;
-            }
-
-            using (stream)
-            {
-                return TryReadImage(stream!, out header, out image);
-            }
-        }
-
-        internal static ResultCode TryReadImage(ReadOnlySpan<byte> data, out ExrHeader header, out ExrImage image)
-        {
-            if (V1FacadeAdapter.TryReadFlatImage(data, out ResultCode result, out header, out image))
-            {
-                return result;
-            }
-
-            return ExrImplementation.TryReadImage(data, out header, out image);
-        }
-
-        internal static ResultCode TryReadImage(Stream stream, out ExrHeader header, out ExrImage image)
-        {
-            if (V1FacadeAdapter.TryReadFlatImage(stream, out ResultCode result, out header, out image))
-            {
-                return result;
-            }
-
-            return ExrImplementation.TryReadImage(stream, out header, out image);
-        }
-
-        internal static ResultCode TryReadDeepImage(string filename, out ExrHeader header, out ExrDeepImage image)
-        {
-            if (!TryOpenReadFile(filename, out FileStream? stream, out ResultCode fileResult))
-            {
-                header = new ExrHeader();
-                image = new ExrDeepImage(0, 0, Array.Empty<int[]>(), Array.Empty<ExrDeepChannel>());
-                return fileResult;
-            }
-
-            using (stream)
-            {
-                return TryReadDeepImage(stream!, out header, out image);
-            }
-        }
-
-        internal static ResultCode TryReadDeepImage(ReadOnlySpan<byte> data, out ExrHeader header, out ExrDeepImage image)
-        {
-            if (V1FacadeAdapter.TryReadDeepImage(data, out ResultCode result, out header, out image))
-            {
-                return result;
-            }
-
-            return ExrImplementation.TryReadDeepImage(data, out header, out image);
-        }
-
-        internal static ResultCode TryReadDeepImage(Stream stream, out ExrHeader header, out ExrDeepImage image)
-        {
-            if (V1FacadeAdapter.TryReadDeepImage(stream, out ResultCode result, out header, out image))
-            {
-                return result;
-            }
-
-            return ExrImplementation.TryReadDeepImage(stream, out header, out image);
-        }
-
-        internal static ResultCode TryReadLayers(string filename, out string[] layers)
-        {
-            if (!TryOpenReadFile(filename, out FileStream? stream, out ResultCode fileResult))
-            {
-                layers = Array.Empty<string>();
-                return fileResult;
-            }
-
-            using (stream)
-            {
-                return TryReadLayers(stream!, out layers);
-            }
-        }
-
-        internal static ResultCode TryReadLayers(ReadOnlySpan<byte> data, out string[] layers)
-        {
-            if (V1FacadeAdapter.TryReadLayers(data, out ResultCode result, out layers))
-            {
-                return result;
-            }
-
-            return ExrImplementation.TryReadLayers(data, out layers);
-        }
-
-        internal static ResultCode TryReadLayers(Stream stream, out string[] layers)
-        {
-            if (V1FacadeAdapter.TryReadLayers(stream, out ResultCode result, out layers))
-            {
-                return result;
-            }
-
-            return ExrImplementation.TryReadLayers(stream, out layers);
-        }
-
-        internal static ResultCode TryReadRgba(string filename, out float[] rgba, out int width, out int height)
-        {
-            return TryReadRgba(filename, layerName: null, out rgba, out width, out height);
-        }
-
-        internal static ResultCode TryReadRgba(string filename, string? layerName, out float[] rgba, out int width, out int height)
-        {
-            if (!TryOpenReadFile(filename, out FileStream? stream, out ResultCode fileResult))
-            {
-                rgba = Array.Empty<float>();
-                width = 0;
-                height = 0;
-                return fileResult;
-            }
-
-            using (stream)
-            {
-                return TryReadRgba(stream!, layerName, out rgba, out width, out height);
-            }
-        }
-
-        internal static ResultCode TryReadRgba(ReadOnlySpan<byte> data, out float[] rgba, out int width, out int height)
-        {
-            return TryReadRgba(data, layerName: null, out rgba, out width, out height);
-        }
-
-        internal static ResultCode TryReadRgba(ReadOnlySpan<byte> data, string? layerName, out float[] rgba, out int width, out int height)
-        {
-            if (V1FacadeAdapter.TryReadRgba(
-                data,
-                layerName,
-                out ResultCode result,
-                out rgba,
-                out width,
-                out height))
-            {
-                return result;
-            }
-
-            return ExrImplementation.TryReadRgba(data, layerName, out rgba, out width, out height);
-        }
-
-        internal static ResultCode TryReadRgba(Stream stream, out float[] rgba, out int width, out int height)
-        {
-            return TryReadRgba(stream, layerName: null, out rgba, out width, out height);
-        }
-
-        internal static ResultCode TryReadRgba(Stream stream, string? layerName, out float[] rgba, out int width, out int height)
-        {
-            if (V1FacadeAdapter.TryReadRgba(
-                stream,
-                layerName,
-                out ResultCode result,
-                out rgba,
-                out width,
-                out height))
-            {
-                return result;
-            }
-
-            return ExrImplementation.TryReadRgba(stream, layerName, out rgba, out width, out height);
-        }
-
-        internal static ResultCode TryWriteImage(ExrImage image, out byte[] encoded)
-        {
-            return TryWriteImage(image, header: null, out encoded);
-        }
-
-        internal static ResultCode TryWriteImage(ExrImage image, ExrHeader? header, out byte[] encoded)
-        {
-            if (V1FacadeAdapter.TryWriteFlatImage(image, header, out ResultCode result, out encoded))
-            {
-                return result;
-            }
-
-            return ExrImplementation.TryWriteImage(image, header, out encoded);
-        }
-
-        internal static ResultCode TryWriteImage(string filename, ExrImage image, ExrHeader? header = null)
-        {
-            ResultCode result = TryWriteImage(image, header, out byte[] encoded);
-            if (result != ResultCode.Success)
-            {
-                return result;
-            }
-
-            return TryWriteFile(filename, encoded);
-        }
-
-        internal static ResultCode TryWriteRgba(
-            ReadOnlySpan<float> data,
-            int width,
-            int height,
-            int components,
-            bool asFp16,
-            out byte[] encoded)
+        public static ExrResult SaveEXRMultipartImageToMemory(Image image, out byte[] encoded)
         {
             encoded = Array.Empty<byte>();
-            ResultCode result = TryBuildRgbaImage(data, width, height, components, asFp16, out ExrImage image, out ExrHeader header);
-            if (result != ResultCode.Success)
+            try
             {
-                return result;
+                return SaveMemory(Normalize(image), true, out encoded);
             }
-
-            return TryWriteImage(image, header, out encoded);
-        }
-
-        internal static ResultCode TryWriteRgba(
-            ReadOnlySpan<float> data,
-            int width,
-            int height,
-            int components,
-            bool asFp16,
-            string filename)
-        {
-            ResultCode result = TryWriteRgba(data, width, height, components, asFp16, out byte[] encoded);
-            if (result != ResultCode.Success)
+            catch (Exception exception) when (IsExpected(exception))
             {
-                return result;
+                return Status(exception);
             }
-
-            return TryWriteFile(filename, encoded);
         }
 
-        internal static bool IsExr(string filename)
+        public static ExrResult SaveEXRMultipartImageToFile(Image image, string filename)
         {
-            return IsEXR(filename);
+            try
+            {
+                return ExrFile.SaveToFile(Normalize(image), filename, new WriterOptions(forceMultipart: true)).Status;
+            }
+            catch (Exception exception) when (IsExpected(exception))
+            {
+                return Status(exception);
+            }
         }
 
-        internal static bool IsExr(ReadOnlySpan<byte> data)
-        {
-            return TryReadVersion(data, out _) == ResultCode.Success;
-        }
+        public static int EXRNumLevels(Part part) => part?.Levels.Count ?? 0;
 
-        internal static bool IsExrFromMemory(ReadOnlySpan<byte> data)
+        public static ExrResult EXRSetNameAttr(Header header, string? name, out Header? updated)
         {
-            return IsEXRFromMemory(data);
+            updated = null;
+            if (header == null)
+                return ExrResult.InvalidArgument;
+            try
+            {
+                updated = CopyHeader(header, header.LineOrder, name ?? string.Empty);
+                return ExrResult.Success;
+            }
+            catch (Exception exception) when (IsExpected(exception))
+            {
+                return Status(exception);
+            }
         }
 
         public static bool IsSpectralEXR(string filename)
-        {
-            return TryReadHeader(filename, out ExrHeader header) == ResultCode.Success &&
-                FindCustomAttribute(header, SpectralLayoutVersionAttribute) != null;
-        }
-
+            => ParseEXRHeaderFromFile(filename, out _, out Header? header) == ExrResult.Success && Spectral.IsSpectral(header!);
         public static bool IsSpectralEXRFromMemory(ReadOnlySpan<byte> data)
-        {
-            return TryReadHeader(data, out ExrHeader header) == ResultCode.Success &&
-                FindCustomAttribute(header, SpectralLayoutVersionAttribute) != null;
-        }
-
+            => ParseEXRHeaderFromMemory(data, out _, out Header? header) == ExrResult.Success && Spectral.IsSpectral(header!);
         public static bool IsSpectralEXRFromStream(Stream stream)
-        {
-            return TryReadHeader(stream, out ExrHeader header) == ResultCode.Success &&
-                FindCustomAttribute(header, SpectralLayoutVersionAttribute) != null;
-        }
-
-        public static SpectrumType? EXRGetSpectrumType(ExrHeader header)
-        {
-            if (header == null)
-            {
-                return null;
-            }
-
-            if (FindCustomAttribute(header, SpectralLayoutVersionAttribute) == null)
-            {
-                return null;
-            }
-
-            bool hasReflective = false;
-            bool hasEmissive = false;
-            bool hasStokes = false;
-            foreach (ExrChannel channel in header.Channels)
-            {
-                if (channel.Name.StartsWith("T.", StringComparison.Ordinal))
-                {
-                    hasReflective = true;
-                }
-                else if (channel.Name.Length >= 3 &&
-                    channel.Name[0] == 'S' &&
-                    channel.Name[1] >= '0' &&
-                    channel.Name[1] <= '3' &&
-                    channel.Name[2] == '.')
-                {
-                    hasEmissive = true;
-                    if (channel.Name[1] != '0')
-                    {
-                        hasStokes = true;
-                    }
-                }
-            }
-
-            if (hasReflective)
-            {
-                return SpectrumType.Reflective;
-            }
-
-            if (hasStokes)
-            {
-                return SpectrumType.Polarised;
-            }
-
-            if (hasEmissive)
-            {
-                return SpectrumType.Emissive;
-            }
-
-            return null;
-        }
-
+            => ParseEXRHeaderFromStream(stream, out _, out Header? header) == ExrResult.Success && Spectral.IsSpectral(header!);
+        public static SpectralType EXRGetSpectrumType(Header header) => Spectral.GetSpectrumType(header);
         public static string EXRFormatWavelength(float wavelengthNm)
         {
-            int whole = (int)wavelengthNm;
-            int fraction = (int)((wavelengthNm - whole) * 1000000.0f + 0.5f);
-            return string.Format(CultureInfo.InvariantCulture, "{0},{1:000000}", whole, fraction);
+            string channel = Spectral.GetChannelName(SpectralType.Reflective, wavelengthNm);
+            return channel.Substring(2, channel.Length - 4);
         }
-
         public static string EXRSpectralChannelName(float wavelengthNm, int stokesComponent)
-        {
-            return string.Format(
-                CultureInfo.InvariantCulture,
-                "S{0}.{1}nm",
-                stokesComponent,
-                EXRFormatWavelength(wavelengthNm));
-        }
-
+            => Spectral.GetChannelName(SpectralType.Emissive, wavelengthNm, stokesComponent);
         public static string EXRReflectiveChannelName(float wavelengthNm)
-        {
-            return string.Format(
-                CultureInfo.InvariantCulture,
-                "T.{0}nm",
-                EXRFormatWavelength(wavelengthNm));
-        }
-
+            => Spectral.GetChannelName(SpectralType.Reflective, wavelengthNm);
         public static float EXRParseSpectralChannelWavelength(string channelName)
-        {
-            if (string.IsNullOrEmpty(channelName))
-            {
-                return -1.0f;
-            }
-
-            ReadOnlySpan<char> remaining = channelName.AsSpan();
-            if (remaining.Length >= 3 &&
-                remaining[0] == 'S' &&
-                remaining[1] >= '0' &&
-                remaining[1] <= '3' &&
-                remaining[2] == '.')
-            {
-                remaining = remaining.Slice(3);
-            }
-            else if (remaining.Length >= 2 &&
-                remaining[0] == 'T' &&
-                remaining[1] == '.')
-            {
-                remaining = remaining.Slice(2);
-            }
-            else
-            {
-                return -1.0f;
-            }
-
-            int nmIndex = remaining.IndexOf("nm".AsSpan(), StringComparison.Ordinal);
-            if (nmIndex <= 0)
-            {
-                return -1.0f;
-            }
-
-            string wavelength = remaining.Slice(0, nmIndex).ToString().Replace(',', '.');
-            if (!float.TryParse(wavelength, NumberStyles.Float, CultureInfo.InvariantCulture, out float result))
-            {
-                return -1.0f;
-            }
-
-            return result;
-        }
-
+            => Spectral.TryParseChannelWavelength(channelName, out float value) ? value : -1;
         public static int EXRGetStokesComponent(string channelName)
-        {
-            if (string.IsNullOrEmpty(channelName) || channelName.Length < 3)
-            {
-                return -1;
-            }
-
-            if (channelName[0] == 'S' &&
-                channelName[1] >= '0' &&
-                channelName[1] <= '3' &&
-                channelName[2] == '.')
-            {
-                return channelName[1] - '0';
-            }
-
-            return -1;
-        }
-
+            => Spectral.TryGetStokesComponent(channelName, out int value) ? value : -1;
         public static bool EXRIsSpectralChannel(string channelName)
+            => Spectral.TryParseChannelWavelength(channelName, out _);
+        public static float[] EXRGetWavelengths(Header header) => Spectral.GetWavelengths(header);
+        public static string? EXRGetSpectralUnits(Header header) => Spectral.GetUnits(header);
+        public static ExrResult EXRSetSpectralAttributes(Header header, SpectralType spectrumType, string units, out Header? updated)
         {
-            return EXRParseSpectralChannelWavelength(channelName) > 0.0f;
+            updated = null;
+            try
+            {
+                updated = Spectral.WithSpectralAttributes(header, spectrumType, units);
+                return ExrResult.Success;
+            }
+            catch (Exception exception) when (IsExpected(exception))
+            {
+                return Status(exception);
+            }
         }
 
-        public static float[] EXRGetWavelengths(ExrHeader header)
+        private static Part CreateSimplePart(ReadOnlySpan<float> data, int width, int height, int components, bool half)
         {
-            if (header == null || header.Channels.Count == 0)
+            if (components != 1 && components != 3 && components != 4)
+                throw new ArgumentOutOfRangeException(nameof(components));
+            Part part = PartConversion.FromInterleavedFloat(data, width, height, components,
+                half ? PixelType.Half : PixelType.Float, width < 16 && height < 16 ? Compression.None : Compression.ZIP);
+            if (components != 1)
+                return part;
+            Channel channel = new Channel("A", half ? PixelType.Half : PixelType.Float);
+            Header header = new Header(PartType.Scanline, part.Header.DataWindow, new[] { channel }, part.Header.Compression);
+            FlatLevel level = (FlatLevel)part.Levels[0];
+            return new Part(header, new[] { new FlatLevel(0, 0, level.Region,
+                new[] { new ChannelBuffer("A", channel.PixelType, level.GetChannel("Y").Data) }) }, isComplete: true);
+        }
+
+        private static ExrResult SaveMemory(Image image, bool multipart, out byte[] encoded)
+        {
+            WriterResult<byte[]> result = ExrFile.SaveToMemory(image, new WriterOptions(forceMultipart: multipart));
+            encoded = result.Status == ExrResult.Success ? result.Value! : Array.Empty<byte>();
+            return result.Status;
+        }
+
+        private static Image Normalize(Image image)
+        {
+            if (image == null)
+                throw new ArgumentNullException(nameof(image));
+            return new Image(image.Parts.Select(Normalize));
+        }
+
+        private static Part Normalize(Part part)
+        {
+            if (part == null)
+                throw new ArgumentNullException(nameof(part));
+            Header header = part.Header;
+            return header.PartType == PartType.Scanline && header.LineOrder != LineOrder.IncreasingY
+                ? new Part(CopyHeader(header, LineOrder.IncreasingY, header.Name), part.Levels, part.IsComplete) : part;
+        }
+
+        private static Header CopyHeader(Header header, LineOrder lineOrder, string name)
+            => new Header(header.PartType, header.DataWindow, header.Channels, header.Compression,
+                lineOrder, header.DisplayWindow, header.PixelAspectRatio, header.ScreenWindowCenter,
+                header.ScreenWindowWidth, header.Tiles, name, header.Chromaticities, header.Attributes);
+
+        private sealed class HeaderSet
+        {
+            internal uint Version { get; }
+            internal Header[] Headers { get; }
+            internal HeaderSet(uint version, Header[] headers)
             {
-                return Array.Empty<float>();
+                Version = version;
+                Headers = headers;
             }
+        }
 
-            List<float> wavelengths = new List<float>();
-            foreach (ExrChannel channel in header.Channels)
+        private static ExrResult ReadSingleHeader(ExrReader reader, out HeaderSet? value) => ReadHeaders(reader, false, out value);
+        private static ExrResult ReadMultipartHeaders(ExrReader reader, out HeaderSet? value) => ReadHeaders(reader, true, out value);
+        private static ExrResult ReadHeaders(ExrReader reader, bool multipart, out HeaderSet? value)
+        {
+            value = null;
+            ExrResult status = reader.ParseHeader().Status;
+            if (status != ExrResult.Success)
+                return status;
+            uint version = reader.GetRawVersionField();
+            if (((version & MultipartFlag) != 0) != multipart)
+                return ExrResult.Unsupported;
+            Header[] headers = new Header[reader.NumParts];
+            for (int i = 0; i < headers.Length; i++)
+                headers[i] = reader.GetHeader(i);
+            value = new HeaderSet(version, headers);
+            return ExrResult.Success;
+        }
+
+        private static ExrResult ReadFlat(ExrReader reader, out Part? part) => ReadSingle(reader, false, out part);
+        private static ExrResult ReadDeep(ExrReader reader, out Part? part) => ReadSingle(reader, true, out part);
+        private static ExrResult ReadSingle(ExrReader reader, bool deep, out Part? part)
+        {
+            part = null;
+            ExrResult status = ReadSingleHeader(reader, out HeaderSet? headers);
+            if (status != ExrResult.Success)
+                return status;
+            if (headers!.Headers[0].IsDeep != deep)
+                return ExrResult.Unsupported;
+            ReaderResult<Part> result = reader.ReadPart(0);
+            if (result.Status == ExrResult.Success)
+                part = result.Value;
+            return result.Status;
+        }
+
+        private static ExrResult ReadMultipart(ExrReader reader, out Image? image)
+        {
+            image = null;
+            ExrResult status = ReadMultipartHeaders(reader, out HeaderSet? headers);
+            if (status != ExrResult.Success)
+                return status;
+            Part[] parts = new Part[headers!.Headers.Length];
+            for (int i = 0; i < parts.Length; i++)
             {
-                float wavelength = EXRParseSpectralChannelWavelength(channel.Name);
-                if (wavelength <= 0.0f)
-                {
-                    continue;
-                }
+                ReaderResult<Part> result = reader.ReadPart(i);
+                if (result.Status != ExrResult.Success)
+                    return result.Status;
+                parts[i] = result.Value!;
+            }
+            image = new Image(parts);
+            return ExrResult.Success;
+        }
 
-                bool exists = false;
-                foreach (float existing in wavelengths)
+        private static ExrResult ReadMemory<T>(ReadOnlySpan<byte> data, ReadOperation<T> operation, out T? value) where T : class
+        {
+            value = null;
+            try
+            {
+                using ExrReader reader = ExrReader.OpenMemory(data.ToArray());
+                ExrResult status = operation(reader, out T? result);
+                if (status == ExrResult.Success)
+                    value = result;
+                return status;
+            }
+            catch (Exception exception) when (IsExpected(exception))
+            {
+                return Status(exception);
+            }
+        }
+
+        private static ExrResult ReadFile<T>(string filename, ReadOperation<T> operation, out T? value) where T : class
+        {
+            value = null;
+            try
+            {
+                using FileStream stream = File.OpenRead(filename);
+                return ReadStream(stream, operation, out value);
+            }
+            catch (Exception exception) when (IsExpected(exception))
+            {
+                value = null;
+                return Status(exception);
+            }
+        }
+
+        private static ExrResult ReadStream<T>(Stream stream, ReadOperation<T> operation, out T? value) where T : class
+        {
+            value = null;
+            try
+            {
+                if (stream == null || !stream.CanRead || !stream.CanSeek)
+                    return ExrResult.InvalidArgument;
+                long position = stream.Position;
+                T? result;
+                ExrResult status;
+                try
                 {
-                    if (Math.Abs(existing - wavelength) < 0.01f)
+                    using StreamDataSource source = new StreamDataSource(stream, position, leaveOpen: true);
+                    using ExrReader reader = ExrReader.OpenSource(source);
+                    status = operation(reader, out result);
+                }
+                finally
+                {
+                    stream.Position = position;
+                }
+                if (status == ExrResult.Success)
+                    value = result;
+                return status;
+            }
+            catch (Exception exception) when (IsExpected(exception))
+            {
+                return Status(exception);
+            }
+        }
+
+        private static ExrResult ReadPrefix(Stream stream, int length, out byte[] prefix)
+        {
+            prefix = Array.Empty<byte>();
+            try
+            {
+                if (stream == null || !stream.CanRead || !stream.CanSeek)
+                    return ExrResult.InvalidArgument;
+                long position = stream.Position;
+                byte[] bytes = new byte[length];
+                try
+                {
+                    int offset = 0;
+                    while (offset < length)
                     {
-                        exists = true;
-                        break;
+                        int count = stream.Read(bytes, offset, length - offset);
+                        if (count == 0)
+                            return ExrResult.InvalidFile;
+                        offset += count;
                     }
                 }
-
-                if (!exists)
+                finally
                 {
-                    wavelengths.Add(wavelength);
+                    stream.Position = position;
                 }
+                prefix = bytes;
+                return ExrResult.Success;
             }
-
-            wavelengths.Sort();
-            return wavelengths.ToArray();
-        }
-
-        public static ResultCode EXRSetSpectralAttributes(ExrHeader header, SpectrumType spectrumType, string units)
-        {
-            if (header == null)
+            catch (Exception exception) when (IsExpected(exception))
             {
-                return ResultCode.InvalidArgument;
-            }
-
-            SetOrReplaceCustomAttribute(header, ExrAttribute.FromString(SpectralLayoutVersionAttribute, "1.0"));
-            RemoveCustomAttribute(header, ReflectiveUnitsAttribute);
-            RemoveCustomAttribute(header, EmissiveUnitsAttribute);
-            RemoveCustomAttribute(header, PolarisationHandednessAttribute);
-
-            if (!string.IsNullOrEmpty(units))
-            {
-                string unitsAttributeName = spectrumType == SpectrumType.Reflective
-                    ? ReflectiveUnitsAttribute
-                    : EmissiveUnitsAttribute;
-                SetOrReplaceCustomAttribute(header, ExrAttribute.FromString(unitsAttributeName, units));
-            }
-
-            if (spectrumType == SpectrumType.Polarised)
-            {
-                SetOrReplaceCustomAttribute(header, ExrAttribute.FromString(PolarisationHandednessAttribute, "left"));
-            }
-
-            return ResultCode.Success;
-        }
-
-        public static string? EXRGetSpectralUnits(ExrHeader header)
-        {
-            return FindCustomAttribute(header, ReflectiveUnitsAttribute)?.GetStringValue() ??
-                FindCustomAttribute(header, EmissiveUnitsAttribute)?.GetStringValue();
-        }
-
-        internal static int TypeSize(ExrPixelType type)
-        {
-            switch (type)
-            {
-                case ExrPixelType.UInt:
-                    return 4;
-                case ExrPixelType.Half:
-                    return 2;
-                case ExrPixelType.Float:
-                    return 4;
-                default:
-                    return 0;
+                return Status(exception);
             }
         }
 
-        internal static float ReadSingleLittleEndian(ReadOnlySpan<byte> data)
+        private static ExrResult BuildLayers(ExrResult status, Header? header, out string[] layers)
         {
-            return BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(data));
-        }
-
-        internal static void WriteSingleLittleEndian(Span<byte> destination, float value)
-        {
-            BinaryPrimitives.WriteInt32LittleEndian(destination, BitConverter.SingleToInt32Bits(value));
-        }
-
-        private static ResultCode TryBuildRgbaImage(
-            ReadOnlySpan<float> data,
-            int width,
-            int height,
-            int components,
-            bool asFp16,
-            out ExrImage image,
-            out ExrHeader header)
-        {
-            image = new ExrImage(0, 0, Array.Empty<ExrImageChannel>());
-            header = new ExrHeader();
-
-            if (width <= 0 || height <= 0)
-            {
-                return ResultCode.InvalidArgument;
-            }
-
-            if (components != 1 && components != 3 && components != 4)
-            {
-                return ResultCode.InvalidArgument;
-            }
-
-            int pixelCount = checked(width * height);
-            if (pixelCount * components != data.Length)
-            {
-                return ResultCode.InvalidArgument;
-            }
-
-            ExrPixelType saveType = asFp16 ? ExrPixelType.Half : ExrPixelType.Float;
-            string[] channelNames;
-            int[] componentIndices;
-            switch (components)
-            {
-                case 4:
-                    channelNames = new[] { "A", "B", "G", "R" };
-                    componentIndices = new[] { 3, 2, 1, 0 };
-                    break;
-                case 3:
-                    channelNames = new[] { "B", "G", "R" };
-                    componentIndices = new[] { 2, 1, 0 };
-                    break;
-                default:
-                    channelNames = new[] { "A" };
-                    componentIndices = new[] { 0 };
-                    break;
-            }
-
-            ExrImageChannel[] channels = new ExrImageChannel[channelNames.Length];
-            for (int channelIndex = 0; channelIndex < channelNames.Length; channelIndex++)
-            {
-                byte[] channelData = new byte[pixelCount * sizeof(float)];
-                int componentIndex = componentIndices[channelIndex];
-                for (int pixelIndex = 0; pixelIndex < pixelCount; pixelIndex++)
-                {
-                    float value = data[pixelIndex * components + componentIndex];
-                    WriteSingleLittleEndian(channelData.AsSpan(pixelIndex * sizeof(float), sizeof(float)), value);
-                }
-
-                channels[channelIndex] = new ExrImageChannel(
-                    new ExrChannel(channelNames[channelIndex], saveType),
-                    ExrPixelType.Float,
-                    channelData);
-            }
-
-            image = new ExrImage(width, height, channels);
-            header = new ExrHeader
-            {
-                Compression = (width < 16 && height < 16) ? CompressionType.None : CompressionType.ZIP,
-            };
-            return ResultCode.Success;
-        }
-
-        private static bool TryOpenReadFile(string filename, out FileStream? stream, out ResultCode result)
-        {
-            stream = null;
-            if (string.IsNullOrWhiteSpace(filename))
-            {
-                result = ResultCode.InvalidArgument;
-                return false;
-            }
-
+            layers = Array.Empty<string>();
+            if (status != ExrResult.Success)
+                return status;
             try
             {
-                stream = new FileStream(filename, FileMode.Open, FileAccess.Read, FileShare.Read);
-                result = ResultCode.Success;
-                return true;
+                List<string> result = new List<string>();
+                foreach (Channel channel in header!.Channels)
+                {
+                    int separator = channel.Name.LastIndexOf('.');
+                    if (separator > 0 && separator + 1 < channel.Name.Length)
+                    {
+                        string layer = channel.Name.Substring(0, separator);
+                        if (!result.Contains(layer, StringComparer.Ordinal))
+                            result.Add(layer);
+                    }
+                }
+                layers = result.ToArray();
+                return ExrResult.Success;
             }
-            catch (ArgumentException)
+            catch (Exception exception) when (IsExpected(exception))
             {
-                result = ResultCode.InvalidArgument;
-                return false;
-            }
-            catch (NotSupportedException)
-            {
-                result = ResultCode.InvalidArgument;
-                return false;
-            }
-            catch (UnauthorizedAccessException)
-            {
-                result = ResultCode.CannotOpenFile;
-                return false;
-            }
-            catch (DirectoryNotFoundException)
-            {
-                result = ResultCode.CannotOpenFile;
-                return false;
-            }
-            catch (FileNotFoundException)
-            {
-                result = ResultCode.CannotOpenFile;
-                return false;
-            }
-            catch (IOException)
-            {
-                result = ResultCode.CannotOpenFile;
-                return false;
+                return Status(exception);
             }
         }
 
-        private static ResultCode TryWriteFile(string filename, byte[] data)
+        private static ExrResult BuildRgba(ExrResult status, Part? part, string? layer, out float[] rgba, out int width, out int height)
         {
-            if (string.IsNullOrWhiteSpace(filename))
-            {
-                return ResultCode.InvalidArgument;
-            }
-
+            rgba = Array.Empty<float>();
+            width = 0;
+            height = 0;
+            if (status != ExrResult.Success)
+                return status;
             try
             {
-                File.WriteAllBytes(filename, data);
-                return ResultCode.Success;
-            }
-            catch (ArgumentException)
-            {
-                return ResultCode.InvalidArgument;
-            }
-            catch (NotSupportedException)
-            {
-                return ResultCode.InvalidArgument;
-            }
-            catch (UnauthorizedAccessException)
-            {
-                return ResultCode.CannotWriteFile;
-            }
-            catch (DirectoryNotFoundException)
-            {
-                return ResultCode.CannotWriteFile;
-            }
-            catch (IOException)
-            {
-                return ResultCode.CannotWriteFile;
-            }
-        }
-
-        private static ExrAttribute? FindCustomAttribute(ExrHeader header, string name)
-        {
-            if (header == null)
-            {
-                return null;
-            }
-
-            foreach (ExrAttribute attribute in header.CustomAttributes)
-            {
-                if (string.Equals(attribute.Name, name, StringComparison.Ordinal))
+                List<(int Index, string Name)> selected = new List<(int, string)>();
+                string prefix = string.IsNullOrWhiteSpace(layer) ? string.Empty : layer + ".";
+                for (int i = 0; i < part!.Header.Channels.Count; i++)
                 {
-                    return attribute;
+                    string name = part.Header.Channels[i].Name;
+                    if (prefix.Length == 0)
+                    {
+                        int separator = name.LastIndexOf('.');
+                        if (separator > 0)
+                            continue;
+                        if (separator == 0 && name.Length > 1)
+                            name = name.Substring(1);
+                    }
+                    else
+                    {
+                        if (!name.StartsWith(prefix, StringComparison.Ordinal))
+                            continue;
+                        name = name.Substring(prefix.Length);
+                    }
+                    selected.Add((i, name));
                 }
-            }
-
-            return null;
-        }
-
-        private static void SetOrReplaceCustomAttribute(ExrHeader header, ExrAttribute attribute)
-        {
-            int existingIndex = FindCustomAttributeIndex(header, attribute.Name);
-            if (existingIndex >= 0)
-            {
-                header.CustomAttributes[existingIndex] = attribute;
-            }
-            else
-            {
-                header.CustomAttributes.Add(attribute);
-            }
-        }
-
-        private static void RemoveCustomAttribute(ExrHeader header, string name)
-        {
-            int existingIndex = FindCustomAttributeIndex(header, name);
-            if (existingIndex >= 0)
-            {
-                header.CustomAttributes.RemoveAt(existingIndex);
-            }
-        }
-
-        private static int FindCustomAttributeIndex(ExrHeader header, string name)
-        {
-            for (int i = 0; i < header.CustomAttributes.Count; i++)
-            {
-                if (string.Equals(header.CustomAttributes[i].Name, name, StringComparison.Ordinal))
+                if (selected.Count == 0)
+                    return ExrResult.InvalidArgument;
+                int r = -1, g = -1, b = -1, a = -1;
+                foreach ((int index, string name) in selected)
                 {
-                    return i;
+                    switch (name)
+                    {
+                        case "R":
+                            r = index;
+                            break;
+                        case "G":
+                            g = index;
+                            break;
+                        case "B":
+                            b = index;
+                            break;
+                        case "A":
+                            a = index;
+                            break;
+                    }
                 }
+                if (selected.Count > 1 && (r < 0 || g < 0 || b < 0))
+                    return ExrResult.InvalidArgument;
+                InterleavedFloatImage pixels = PartConversion.ToInterleavedFloat(part);
+                int count = checked(pixels.Width * pixels.Height);
+                float[] result = new float[checked(count * 4)];
+                for (int pixel = 0; pixel < count; pixel++)
+                {
+                    int source = pixel * pixels.Channels, target = pixel * 4;
+                    if (selected.Count == 1)
+                    {
+                        float value = pixels.Data[source + selected[0].Index];
+                        result[target] = result[target + 1] = result[target + 2] = result[target + 3] = value;
+                    }
+                    else
+                    {
+                        result[target] = pixels.Data[source + r];
+                        result[target + 1] = pixels.Data[source + g];
+                        result[target + 2] = pixels.Data[source + b];
+                        result[target + 3] = a < 0 ? 1 : pixels.Data[source + a];
+                    }
+                }
+                rgba = result;
+                width = pixels.Width;
+                height = pixels.Height;
+                return ExrResult.Success;
             }
-
-            return -1;
+            catch (Exception exception) when (IsExpected(exception))
+            {
+                return Status(exception);
+            }
         }
+
+        private static bool IsExpected(Exception exception)
+            => exception is ArgumentException || exception is IOException || exception is UnauthorizedAccessException ||
+                exception is NotSupportedException || exception is ObjectDisposedException || exception is OutOfMemoryException || exception is OverflowException;
+        private static ExrResult Status(Exception exception)
+            => exception is OutOfMemoryException ? ExrResult.OutOfMemory :
+                exception is IOException || exception is UnauthorizedAccessException || exception is ObjectDisposedException ? ExrResult.IO :
+                exception is NotSupportedException ? ExrResult.Unsupported : ExrResult.InvalidArgument;
     }
 }

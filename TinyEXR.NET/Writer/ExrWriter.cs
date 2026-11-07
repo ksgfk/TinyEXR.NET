@@ -4,7 +4,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using TinyEXR.PortV1;
 using TinyEXR.Codecs;
 using TinyEXR.Format;
 using TinyEXR.IO;
@@ -1877,7 +1876,10 @@ namespace TinyEXR
             public PendingOutput Output { get; }
 
             /// <summary>True when <see cref="PendingOutput.Data"/> was rented and must be returned after writing.</summary>
-            public bool PooledChunk { get; set; }
+            public bool PooledChunk
+            {
+                get; set;
+            }
         }
 
         private sealed class EndOperation
@@ -1889,9 +1891,15 @@ namespace TinyEXR
 
             public PendingOutput[] Patches { get; }
 
-            public int PatchIndex { get; set; }
+            public int PatchIndex
+            {
+                get; set;
+            }
 
-            public bool EndPositionRestored { get; set; }
+            public bool EndPositionRestored
+            {
+                get; set;
+            }
         }
 
         private sealed class PendingOutput
@@ -1916,11 +1924,20 @@ namespace TinyEXR
             /// <summary>The number of bytes to write, which can be shorter than <see cref="Data"/>.</summary>
             public int Length { get; }
 
-            public int Offset { get; set; }
+            public int Offset
+            {
+                get; set;
+            }
 
-            public bool SeekCompleted { get; set; }
+            public bool SeekCompleted
+            {
+                get; set;
+            }
 
-            public long InvocationBytesWritten { get; set; }
+            public long InvocationBytesWritten
+            {
+                get; set;
+            }
         }
     }
 }

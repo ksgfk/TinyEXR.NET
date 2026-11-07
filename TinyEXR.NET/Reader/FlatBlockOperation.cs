@@ -1,7 +1,6 @@
 using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
-using TinyEXR.PortV1;
 using TinyEXR.Codecs;
 
 namespace TinyEXR
@@ -38,7 +37,10 @@ namespace TinyEXR
             Reset(info);
         }
 
-        public BlockInfo Info { get; private set; }
+        public BlockInfo Info
+        {
+            get; private set;
+        }
 
         /// <summary>The part this operation is bound to; rebinding across parts requires a new operation.</summary>
         public ReaderPartData Part => _part;
@@ -290,30 +292,18 @@ namespace TinyEXR
                 return Unsupported($"Compression '{_header.Compression}' is not implemented by the managed block decoder.");
             }
 
-            ResultCode result = ExrCompressionCodec.TryDecodePayload(
-                (CompressionType)(int)_header.Compression,
-                _part.CodecChannels,
-                Info.Region.MinX,
-                Info.Region.MinY,
-                checked((int)Info.Region.Width),
-                checked((int)Info.Region.Height),
-                _payload!,
-                _payloadLength,
-                expectedSize,
-                _resources.CodecWorkspace,
-                out byte[] decoded,
-                out int decodedLength);
-            if (result == ResultCode.UnsupportedFeature || result == ResultCode.UnsupportedFormat)
+            ExrResult result = BlockCodec.Decode(
+                _header.Compression,
+                new CodecContext(_header.Channels, Info.Region),
+                _payload!.AsSpan(0, _payloadLength),
+                destination.Slice(0, expectedSize),
+                _resources.CodecWorkspace);
+            if (result != ExrResult.Success)
             {
-                return Unsupported($"Compression '{_header.Compression}' is not supported for this block layout.");
+                return new ReaderResult(result, null,
+                    new InvalidDataException($"The compressed EXR block could not be decoded ({result})."));
             }
 
-            if (result != ResultCode.Success || decodedLength != expectedSize)
-            {
-                return Corrupt($"The compressed EXR block could not be decoded ({result}).");
-            }
-
-            decoded.AsSpan(0, decodedLength).CopyTo(destination);
             return new ReaderResult(ExrResult.Success, null, null, expectedSize);
         }
 

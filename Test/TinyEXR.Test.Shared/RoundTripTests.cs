@@ -38,29 +38,30 @@ public sealed class RoundTripTests
     public void Case_Saving_multipart()
     {
         string path = TestPaths.OpenExr("Beachball/multipart.0001.exr");
-        (ExrVersion _, ExrMultipartHeader headers1, ExrMultipartImage images1) = ExrTestHelper.LoadMultipart(path);
+        (uint _, Header[] headers1, Image images1) = ExrTestHelper.LoadMultipart(path);
 
-        Assert.AreEqual(ResultCode.Success, Exr.SaveEXRMultipartImageToMemory(images1, headers1, out byte[] encoded));
+        Assert.AreEqual(ExrResult.Success, Exr.SaveEXRMultipartImageToMemory(images1, out byte[] encoded));
         Assert.IsTrue(encoded.Length > 0);
-        Assert.AreEqual(ResultCode.Success, Exr.ParseEXRVersionFromMemory(encoded, out ExrVersion version2));
-        Assert.IsTrue(version2.Multipart);
-        Assert.AreEqual(ResultCode.Success, Exr.ParseEXRMultipartHeaderFromMemory(encoded, out _, out ExrMultipartHeader headers2));
-        Assert.AreEqual(ResultCode.Success, Exr.LoadEXRMultipartImageFromMemory(encoded, headers2, out ExrMultipartImage images2));
+        Assert.AreEqual(ExrResult.Success, Exr.ParseEXRVersionFromMemory(encoded, out uint version2));
+        Assert.IsTrue(((version2 & (1U << 12)) != 0));
+        Assert.AreEqual(ExrResult.Success, Exr.ParseEXRMultipartHeaderFromMemory(encoded, out _, out Header[] headers2));
+        Assert.AreEqual(ExrResult.Success, Exr.LoadEXRMultipartImageFromMemory(encoded, out Image? images2));
+        Assert.IsNotNull(images2);
 
-        Assert.AreEqual(headers1.Headers.Count, headers2.Headers.Count);
-        Assert.AreEqual(images1.Images.Count, images2.Images.Count);
-        for (int i = 0; i < headers1.Headers.Count; i++)
+        Assert.AreEqual(headers1.Length, headers2.Length);
+        Assert.AreEqual(images1.Parts.Count, images2.Parts.Count);
+        for (int i = 0; i < headers1.Length; i++)
         {
-            ExrTestHelper.EqualHeaders(headers1.Headers[i], headers2.Headers[i]);
-            ExrTestHelper.EqualImages(images1.Images[i], images2.Images[i]);
+            ExrTestHelper.EqualHeaders(headers1[i], headers2[i]);
+            ExrTestHelper.EqualImages(images1.Parts[i], images2.Parts[i]);
         }
     }
 
     [TestMethod(DisplayName = "Saving multipart|Combine")]
     public void Case_Saving_multipart_Combine()
     {
-        List<ExrHeader> headers1 = new();
-        List<ExrImage> images1 = new();
+        List<Header> headers1 = new();
+        List<Part> images1 = new();
         string[] relativePaths =
         {
             "MultiResolution/Kapaa.exr",
@@ -72,40 +73,45 @@ public sealed class RoundTripTests
         foreach (string relativePath in relativePaths)
         {
             string path = TestPaths.OpenExr(relativePath);
-            (ExrVersion _, ExrHeader header, ExrImage image) = ExrTestHelper.LoadSinglePart(path);
-            Exr.EXRSetNameAttr(header, relativePath);
+            (uint _, Header header, Part image) = ExrTestHelper.LoadSinglePart(path);
+            Assert.AreEqual(ExrResult.Success, Exr.EXRSetNameAttr(header, relativePath, out Header? named));
+            Assert.IsNotNull(named);
+            header = named!;
+            image = new Part(header, image.Levels, image.IsComplete);
             headers1.Add(header);
             images1.Add(image);
         }
 
-        ExrMultipartHeader multipartHeaders = new(headers1);
-        ExrMultipartImage multipartImages = new(images1);
-        Assert.AreEqual(ResultCode.Success, Exr.SaveEXRMultipartImageToMemory(multipartImages, multipartHeaders, out byte[] encoded));
+        Image multipartImages = new(images1);
+        Assert.AreEqual(ExrResult.Success, Exr.SaveEXRMultipartImageToMemory(multipartImages, out byte[] encoded));
         Assert.IsTrue(encoded.Length > 0);
-        Assert.AreEqual(ResultCode.Success, Exr.ParseEXRVersionFromMemory(encoded, out ExrVersion version2));
-        Assert.IsTrue(version2.Multipart);
-        Assert.AreEqual(ResultCode.Success, Exr.ParseEXRMultipartHeaderFromMemory(encoded, out _, out ExrMultipartHeader headers2));
-        Assert.AreEqual(ResultCode.Success, Exr.LoadEXRMultipartImageFromMemory(encoded, headers2, out ExrMultipartImage images2));
+        Assert.AreEqual(ExrResult.Success, Exr.ParseEXRVersionFromMemory(encoded, out uint version2));
+        Assert.IsTrue(((version2 & (1U << 12)) != 0));
+        Assert.AreEqual(ExrResult.Success, Exr.ParseEXRMultipartHeaderFromMemory(encoded, out _, out Header[] headers2));
+        Assert.AreEqual(ExrResult.Success, Exr.LoadEXRMultipartImageFromMemory(encoded, out Image? images2));
+        Assert.IsNotNull(images2);
 
-        Assert.AreEqual(headers1.Count, headers2.Headers.Count);
-        Assert.AreEqual(images1.Count, images2.Images.Count);
+        Assert.AreEqual(headers1.Count, headers2.Length);
+        Assert.AreEqual(images1.Count, images2.Parts.Count);
         for (int i = 0; i < headers1.Count; i++)
         {
-            ExrTestHelper.EqualHeaders(headers1[i], headers2.Headers[i], ignoreMultipartState: true);
-            ExrTestHelper.EqualImages(images1[i], images2.Images[i]);
+            ExrTestHelper.EqualHeaders(headers1[i], headers2[i], ignoreMultipartState: true);
+            ExrTestHelper.EqualImages(images1[i], images2.Parts[i]);
         }
     }
 
     private static void AssertSinglePartRoundTrip(string relativePath)
     {
         string path = TestPaths.OpenExr(relativePath);
-        (ExrVersion _, ExrHeader header1, ExrImage image1) = ExrTestHelper.LoadSinglePart(path);
+        (uint _, Header header1, Part image1) = ExrTestHelper.LoadSinglePart(path);
 
-        Assert.AreEqual(ResultCode.Success, Exr.SaveEXRImageToMemory(image1, header1, out byte[] encoded), relativePath);
+        Assert.AreEqual(ExrResult.Success, Exr.SaveEXRImageToMemory(image1, out byte[] encoded), relativePath);
         Assert.IsTrue(encoded.Length > 0, relativePath);
-        Assert.AreEqual(ResultCode.Success, Exr.ParseEXRVersionFromMemory(encoded, out _), relativePath);
-        Assert.AreEqual(ResultCode.Success, Exr.ParseEXRHeaderFromMemory(encoded, out _, out ExrHeader header2), relativePath);
-        Assert.AreEqual(ResultCode.Success, Exr.LoadEXRImageFromMemory(encoded, header2, out ExrImage image2), relativePath);
+        Assert.AreEqual(ExrResult.Success, Exr.ParseEXRVersionFromMemory(encoded, out _), relativePath);
+        Assert.AreEqual(ExrResult.Success, Exr.ParseEXRHeaderFromMemory(encoded, out _, out Header? header2), relativePath);
+        Assert.IsNotNull(header2);
+        Assert.AreEqual(ExrResult.Success, Exr.LoadEXRImageFromMemory(encoded, out Part? image2), relativePath);
+        Assert.IsNotNull(image2);
 
         ExrTestHelper.EqualHeaders(header1, header2);
         ExrTestHelper.EqualImages(image1, image2);

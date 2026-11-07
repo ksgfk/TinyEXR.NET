@@ -201,380 +201,118 @@ internal static class TestPaths
 
 internal static class ExrTestHelper
 {
-    private const float Pxr24Tolerance = 0.01f;
-    private const float B44Tolerance = 0.5f;
-
-    private static readonly ConditionalWeakTable<ExrImage, ImageComparisonSettings> ImageComparisonSettingsByImage = new();
-    private static readonly ConditionalWeakTable<ExrHeader, HeaderComparisonSettings> HeaderComparisonSettingsByHeader = new();
-
-    public static (ExrVersion Version, ExrHeader Header, ExrImage Image) LoadSinglePart(string path)
+    public static (uint Version, Header Header, Part Image) LoadSinglePart(string path)
     {
-        Assert.AreEqual(ResultCode.Success, Exr.ParseEXRVersionFromFile(path, out ExrVersion version));
-        Assert.AreEqual(ResultCode.Success, Exr.ParseEXRHeaderFromFile(path, out _, out ExrHeader header));
-        Assert.AreEqual(ResultCode.Success, Exr.LoadEXRImageFromFile(path, header, out ExrImage image));
-        TrackHeader(header);
-        TrackCompression(image, header.Compression);
-        return (version, header, image);
+        Assert.AreEqual(ExrResult.Success, Exr.ParseEXRHeaderFromFile(path, out uint version, out Header? header));
+        Assert.IsNotNull(header);
+        Assert.AreEqual(ExrResult.Success, Exr.LoadEXRImageFromFile(path, out Part? part));
+        Assert.IsNotNull(part);
+        Assert.IsNotNull(header);
+        Assert.IsNotNull(part);
+        return (version, header, part);
     }
 
-    public static (ExrVersion Version, ExrMultipartHeader Headers, ExrMultipartImage Images) LoadMultipart(string path)
+    public static (uint Version, Header[] Headers, Image Images) LoadMultipart(string path)
     {
-        Assert.AreEqual(ResultCode.Success, Exr.ParseEXRVersionFromFile(path, out ExrVersion version));
-        Assert.AreEqual(ResultCode.Success, Exr.ParseEXRMultipartHeaderFromFile(path, out _, out ExrMultipartHeader headers));
-        Assert.AreEqual(ResultCode.Success, Exr.LoadEXRMultipartImageFromFile(path, headers, out ExrMultipartImage images));
-        Assert.AreEqual(headers.Headers.Count, images.Images.Count);
-        for (int i = 0; i < headers.Headers.Count; i++)
-        {
-            TrackHeader(headers.Headers[i]);
-            TrackCompression(images.Images[i], headers.Headers[i].Compression);
-        }
-
-        return (version, headers, images);
+        Assert.AreEqual(ExrResult.Success, Exr.ParseEXRMultipartHeaderFromFile(path, out uint version, out Header[] headers));
+        Assert.AreEqual(ExrResult.Success, Exr.LoadEXRMultipartImageFromFile(path, out Image? image));
+        Assert.IsNotNull(image);
+        return (version, headers, image);
     }
 
-    public static void EqualHeaders(ExrHeader expected, ExrHeader actual, bool ignoreMultipartState = false)
-    {
-        LineOrderType expectedLineOrder = HeaderComparisonSettingsByHeader.TryGetValue(expected, out HeaderComparisonSettings? settings)
-            ? settings.EncodedLineOrder
-            : expected.LineOrder;
+    public static Header CopyHeader(Header h, string? name = null, Compression? compression = null,
+        LineOrder? lineOrder = null, IEnumerable<HeaderAttribute>? attributes = null)
+        => new(h.PartType, h.DataWindow, h.Channels, compression ?? h.Compression, lineOrder ?? h.LineOrder,
+            h.DisplayWindow, h.PixelAspectRatio, h.ScreenWindowCenter, h.ScreenWindowWidth, h.Tiles,
+            name ?? h.Name, h.Chromaticities, attributes ?? h.Attributes);
 
+    public static void EqualHeaders(Header? expected, Header? actual, bool ignoreMultipartState = false)
+    {
+        Assert.IsNotNull(expected);
+        Assert.IsNotNull(actual);
         Assert.AreEqual(expected.Compression, actual.Compression);
-        Assert.AreEqual(expectedLineOrder, actual.LineOrder);
-        Assert.AreEqual(expected.PixelAspectRatio, actual.PixelAspectRatio);
-        Assert.AreEqual(expected.ScreenWindowCenter.X, actual.ScreenWindowCenter.X);
-        Assert.AreEqual(expected.ScreenWindowCenter.Y, actual.ScreenWindowCenter.Y);
-        Assert.AreEqual(expected.ScreenWindowWidth, actual.ScreenWindowWidth);
-        Assert.AreEqual(expected.Channels.Count, actual.Channels.Count);
-        EqualBoxes(expected.DataWindow, actual.DataWindow, nameof(ExrHeader.DataWindow));
-        EqualBoxes(expected.DisplayWindow, actual.DisplayWindow, nameof(ExrHeader.DisplayWindow));
-        Assert.AreEqual(expected.Tiles is not null, actual.Tiles is not null);
+        Assert.AreEqual(expected.PartType == PartType.Scanline ? LineOrder.IncreasingY : expected.LineOrder, actual.LineOrder);
+        Assert.AreEqual(expected.DataWindow, actual.DataWindow);
+        Assert.AreEqual(expected.DisplayWindow, actual.DisplayWindow);
         Assert.AreEqual(expected.Name, actual.Name);
-        string? expectedPartType = expected.PartType;
-        if (ignoreMultipartState && string.IsNullOrEmpty(expectedPartType))
-        {
-            expectedPartType = expected.Tiles is null ? "scanlineimage" : "tiledimage";
-        }
-
-        Assert.AreEqual(expectedPartType, actual.PartType);
-        Assert.AreEqual(expected.IsDeep, actual.IsDeep);
-        if (!ignoreMultipartState)
-        {
-            Assert.AreEqual(expected.IsMultipart, actual.IsMultipart);
-        }
-
-        Assert.AreEqual(expected.HasLongNames, actual.HasLongNames);
-
-        if (expected.Tiles is not null)
-        {
-            Assert.IsNotNull(actual.Tiles);
-            Assert.AreEqual(expected.Tiles!.TileSizeX, actual.Tiles!.TileSizeX);
-            Assert.AreEqual(expected.Tiles.TileSizeY, actual.Tiles.TileSizeY);
-            Assert.AreEqual(expected.Tiles.LevelMode, actual.Tiles.LevelMode);
-            Assert.AreEqual(expected.Tiles.RoundingMode, actual.Tiles.RoundingMode);
-        }
-
+        Assert.AreEqual(expected.PixelAspectRatio, actual.PixelAspectRatio);
+        Assert.AreEqual(expected.ScreenWindowCenter, actual.ScreenWindowCenter);
+        Assert.AreEqual(expected.ScreenWindowWidth, actual.ScreenWindowWidth);
+        Assert.AreEqual(expected.Chromaticities, actual.Chromaticities);
+        Assert.AreEqual(expected.Tiles?.TileSizeX, actual.Tiles?.TileSizeX);
+        Assert.AreEqual(expected.Tiles?.TileSizeY, actual.Tiles?.TileSizeY);
+        Assert.AreEqual(expected.Tiles?.LevelMode, actual.Tiles?.LevelMode);
+        Assert.AreEqual(expected.Tiles?.RoundingMode, actual.Tiles?.RoundingMode);
+        Assert.AreEqual(expected.Channels.Count, actual.Channels.Count);
         for (int i = 0; i < expected.Channels.Count; i++)
         {
-            ExrChannel expectedChannel = expected.Channels[i];
-            ExrChannel actualChannel = actual.Channels[i];
-            Assert.AreEqual(expectedChannel.Name, actualChannel.Name);
-            Assert.AreEqual(expectedChannel.Type, actualChannel.Type);
-            Assert.AreEqual(expectedChannel.SamplingX, actualChannel.SamplingX);
-            Assert.AreEqual(expectedChannel.SamplingY, actualChannel.SamplingY);
-            Assert.AreEqual(expectedChannel.Linear, actualChannel.Linear);
-            Assert.AreEqual(expectedChannel.RequestedPixelType, actualChannel.RequestedPixelType);
+            Channel a = expected.Channels[i], b = actual.Channels[i];
+            Assert.AreEqual(a.Name, b.Name);
+            Assert.AreEqual(a.PixelType, b.PixelType);
+            Assert.AreEqual(a.XSampling, b.XSampling);
+            Assert.AreEqual(a.YSampling, b.YSampling);
+            Assert.AreEqual(a.PerceptuallyLinear, b.PerceptuallyLinear);
         }
-
-        Assert.AreEqual(expected.CustomAttributes.Count, actual.CustomAttributes.Count);
-        ExrAttribute[] expectedAttributes = expected.CustomAttributes
-            .OrderBy(static attribute => attribute.Name, StringComparer.Ordinal)
-            .ThenBy(static attribute => attribute.TypeName, StringComparer.Ordinal)
-            .ToArray();
-        ExrAttribute[] actualAttributes = actual.CustomAttributes
-            .OrderBy(static attribute => attribute.Name, StringComparer.Ordinal)
-            .ThenBy(static attribute => attribute.TypeName, StringComparer.Ordinal)
-            .ToArray();
-        for (int i = 0; i < expectedAttributes.Length; i++)
+        foreach (HeaderAttribute attribute in expected.Attributes)
         {
-            ExrAttribute expectedAttribute = expectedAttributes[i];
-            ExrAttribute actualAttribute = actualAttributes[i];
-            Assert.AreEqual(expectedAttribute.Name, actualAttribute.Name);
-            Assert.AreEqual(expectedAttribute.TypeName, actualAttribute.TypeName, expectedAttribute.Name);
-            CollectionAssert.AreEqual(expectedAttribute.Value, actualAttribute.Value, expectedAttribute.Name);
+            HeaderAttribute other = actual.Attributes.Single(a => a.Name == attribute.Name);
+            Assert.AreEqual(attribute.TypeName, other.TypeName);
+            CollectionAssert.AreEqual(attribute.Data.ToArray(), other.Data.ToArray());
         }
     }
 
-    public static void EqualImages(ExrImage expected, ExrImage actual)
+    public static void EqualImages(Part? expected, Part? actual)
     {
-        CompressionType? compression = ImageComparisonSettingsByImage.TryGetValue(expected, out ImageComparisonSettings? settings)
-            ? settings.Compression
-            : null;
-
-        Assert.AreEqual(expected.Width, actual.Width);
-        Assert.AreEqual(expected.Height, actual.Height);
-        Assert.AreEqual(expected.Channels.Count, actual.Channels.Count);
+        Assert.IsNotNull(expected);
+        Assert.IsNotNull(actual);
         Assert.AreEqual(expected.Levels.Count, actual.Levels.Count);
-
-        for (int levelIndex = 0; levelIndex < expected.Levels.Count; levelIndex++)
+        foreach (PartLevel a in expected.Levels)
         {
-            ExrImageLevel expectedLevel = expected.Levels[levelIndex];
-            ExrImageLevel actualLevel = actual.Levels[levelIndex];
-            Assert.AreEqual(expectedLevel.LevelX, actualLevel.LevelX);
-            Assert.AreEqual(expectedLevel.LevelY, actualLevel.LevelY);
-            Assert.AreEqual(expectedLevel.Width, actualLevel.Width);
-            Assert.AreEqual(expectedLevel.Height, actualLevel.Height);
-            Assert.AreEqual(expectedLevel.Channels.Count, actualLevel.Channels.Count);
-            Assert.AreEqual(expectedLevel.Tiles.Count, actualLevel.Tiles.Count);
-
-            for (int channelIndex = 0; channelIndex < expectedLevel.Channels.Count; channelIndex++)
+            PartLevel b = actual.GetLevel(a.LevelX, a.LevelY);
+            Assert.AreEqual(a.Region, b.Region);
+            Assert.AreEqual(a.Channels.Count, b.Channels.Count);
+            if (a is DeepLevel ad)
             {
-                ExrImageChannel expectedChannel = expectedLevel.Channels[channelIndex];
-                ExrImageChannel actualChannel = actualLevel.Channels[channelIndex];
-                EqualImageChannels(
-                    expectedChannel,
-                    actualChannel,
-                    compression,
-                    $"level ({expectedLevel.LevelX}, {expectedLevel.LevelY}) channel {channelIndex}");
+                Assert.IsInstanceOfType<DeepLevel>(b);
+                CollectionAssert.AreEqual(ad.SampleCounts.ToArray(), ((DeepLevel)b).SampleCounts.ToArray());
             }
-
-            for (int tileIndex = 0; tileIndex < expectedLevel.Tiles.Count; tileIndex++)
+            foreach (ChannelBuffer channel in a.Channels)
             {
-                ExrTile expectedTile = expectedLevel.Tiles[tileIndex];
-                ExrTile actualTile = actualLevel.Tiles[tileIndex];
-                Assert.AreEqual(expectedTile.OffsetX, actualTile.OffsetX);
-                Assert.AreEqual(expectedTile.OffsetY, actualTile.OffsetY);
-                Assert.AreEqual(expectedTile.LevelX, actualTile.LevelX);
-                Assert.AreEqual(expectedTile.LevelY, actualTile.LevelY);
-                Assert.AreEqual(expectedTile.Width, actualTile.Width);
-                Assert.AreEqual(expectedTile.Height, actualTile.Height);
-                Assert.AreEqual(expectedTile.Channels.Count, actualTile.Channels.Count);
-
-                for (int channelIndex = 0; channelIndex < expectedTile.Channels.Count; channelIndex++)
-                {
-                    EqualImageChannels(
-                        expectedTile.Channels[channelIndex],
-                        actualTile.Channels[channelIndex],
-                        compression,
-                        $"level ({expectedLevel.LevelX}, {expectedLevel.LevelY}) tile {tileIndex} channel {channelIndex}");
-                }
+                ChannelBuffer other = b.GetChannel(channel.Name);
+                Assert.AreEqual(channel.PixelType, other.PixelType);
+                CollectionAssert.AreEqual(channel.Data.ToArray(), other.Data.ToArray(), $"{a.LevelX},{a.LevelY}:{channel.Name}");
             }
         }
     }
 
-    private static void TrackCompression(ExrImage image, CompressionType compression)
+    public static byte[] ToBytes(float[] samples) => MemoryMarshal.AsBytes(samples.AsSpan()).ToArray();
+    public static byte[] ToBytes(uint[] samples) => MemoryMarshal.AsBytes(samples.AsSpan()).ToArray();
+    public static ChannelBuffer FloatChannel(string name, PixelType type, float[] samples)
     {
-        ImageComparisonSettingsByImage.Add(image, new ImageComparisonSettings(compression));
-    }
-
-    private static void TrackHeader(ExrHeader header)
-    {
-        LineOrderType encodedLineOrder = header.Tiles is null
-            ? LineOrderType.IncreasingY
-            : header.LineOrder;
-        HeaderComparisonSettingsByHeader.Add(header, new HeaderComparisonSettings(encodedLineOrder));
-    }
-
-    private static void EqualBoxes(ExrBox2i expected, ExrBox2i actual, string name)
-    {
-        Assert.AreEqual(expected.MinX, actual.MinX, $"{name}.MinX");
-        Assert.AreEqual(expected.MinY, actual.MinY, $"{name}.MinY");
-        Assert.AreEqual(expected.MaxX, actual.MaxX, $"{name}.MaxX");
-        Assert.AreEqual(expected.MaxY, actual.MaxY, $"{name}.MaxY");
-    }
-
-    private static void EqualImageChannels(
-        ExrImageChannel expected,
-        ExrImageChannel actual,
-        CompressionType? compression,
-        string context)
-    {
-        Assert.AreEqual(expected.Channel.Name, actual.Channel.Name, context);
-        Assert.AreEqual(expected.Channel.Type, actual.Channel.Type, context);
-        Assert.AreEqual(expected.Channel.RequestedPixelType, actual.Channel.RequestedPixelType, context);
-        Assert.AreEqual(expected.Channel.SamplingX, actual.Channel.SamplingX, context);
-        Assert.AreEqual(expected.Channel.SamplingY, actual.Channel.SamplingY, context);
-        Assert.AreEqual(expected.Channel.Linear, actual.Channel.Linear, context);
-        Assert.AreEqual(expected.DataType, actual.DataType, context);
-        Assert.AreEqual(expected.Data.Length, actual.Data.Length, context);
-
-        if (expected.Data.AsSpan().SequenceEqual(actual.Data))
+        if (type == PixelType.Float)
+            return new ChannelBuffer(name, type, ToBytes(samples));
+        if (type == PixelType.Half)
         {
-            return;
+            ushort[] halves = new ushort[samples.Length];
+            PixelConversion.FloatToHalf(samples, halves);
+            return new ChannelBuffer(name, type, MemoryMarshal.AsBytes(halves.AsSpan()));
         }
-
-        float? tolerance = GetLossyTolerance(compression, expected.Channel.Type);
-        if (tolerance is null)
-        {
-            CollectionAssert.AreEqual(expected.Data, actual.Data, context);
-            return;
-        }
-
-        AssertLossyChannelData(expected, actual, tolerance.Value, context);
+        return new ChannelBuffer(name, type, ToBytes(samples.Select(x => (uint)x).ToArray()));
     }
 
-    private static float? GetLossyTolerance(CompressionType? compression, ExrPixelType storedType)
+    public static Part Flat(Header header, params ChannelBuffer[] buffers)
+        => new(header, new[] { new FlatLevel(0, 0, header.DataWindow, buffers) }, isComplete: true);
+
+    public static float[] ReadFloatChannel(Part part, string name)
     {
-        if (compression == CompressionType.PXR24 && storedType == ExrPixelType.Float)
-        {
-            return Pxr24Tolerance;
-        }
-
-        if ((compression == CompressionType.B44 || compression == CompressionType.B44A) &&
-            storedType == ExrPixelType.Half)
-        {
-            return B44Tolerance;
-        }
-
-        return null;
-    }
-
-    private static void AssertLossyChannelData(
-        ExrImageChannel expected,
-        ExrImageChannel actual,
-        float tolerance,
-        string context)
-    {
-        switch (expected.DataType)
-        {
-            case ExrPixelType.Half:
-                ReadOnlySpan<ushort> expectedHalf = MemoryMarshal.Cast<byte, ushort>(expected.Data);
-                ReadOnlySpan<ushort> actualHalf = MemoryMarshal.Cast<byte, ushort>(actual.Data);
-                for (int i = 0; i < expectedHalf.Length; i++)
-                {
-                    AssertLossySampleEqual(
-                        (float)BitConverter.UInt16BitsToHalf(expectedHalf[i]),
-                        (float)BitConverter.UInt16BitsToHalf(actualHalf[i]),
-                        tolerance,
-                        context,
-                        i);
-                }
-
-                break;
-            case ExrPixelType.Float:
-                ReadOnlySpan<float> expectedFloat = MemoryMarshal.Cast<byte, float>(expected.Data);
-                ReadOnlySpan<float> actualFloat = MemoryMarshal.Cast<byte, float>(actual.Data);
-                for (int i = 0; i < expectedFloat.Length; i++)
-                {
-                    AssertLossySampleEqual(expectedFloat[i], actualFloat[i], tolerance, context, i);
-                }
-
-                break;
-            case ExrPixelType.UInt:
-                CollectionAssert.AreEqual(expected.Data, actual.Data, context);
-                break;
-            default:
-                Assert.Fail($"{context}: unsupported decoded pixel type {expected.DataType}.");
-                break;
-        }
-    }
-
-    private static void AssertLossySampleEqual(
-        float expected,
-        float actual,
-        float tolerance,
-        string context,
-        int sampleIndex)
-    {
-        if (expected.Equals(actual) || (float.IsNaN(expected) && float.IsNaN(actual)))
-        {
-            return;
-        }
-
-        float error = MathF.Abs(expected - actual);
-        Assert.IsTrue(
-            float.IsFinite(error) && error <= tolerance,
-            $"{context}: sample {sampleIndex} expected {expected}, actual {actual}, error {error}, tolerance {tolerance}.");
-    }
-
-    private sealed class ImageComparisonSettings
-    {
-        public ImageComparisonSettings(CompressionType compression)
-        {
-            Compression = compression;
-        }
-
-        public CompressionType Compression { get; }
-    }
-
-    private sealed class HeaderComparisonSettings
-    {
-        public HeaderComparisonSettings(LineOrderType encodedLineOrder)
-        {
-            EncodedLineOrder = encodedLineOrder;
-        }
-
-        public LineOrderType EncodedLineOrder { get; }
-    }
-
-    public static ExrImageChannel FloatChannel(string name, ExrPixelType storedType, float[] samples)
-    {
-        return new ExrImageChannel(new ExrChannel(name, storedType), ExrPixelType.Float, ToBytes(samples));
-    }
-
-    public static ExrImageChannel UIntChannel(string name, ExrPixelType storedType, uint[] samples)
-    {
-        return new ExrImageChannel(new ExrChannel(name, storedType), ExrPixelType.UInt, ToBytes(samples));
-    }
-
-    public static byte[] ToBytes(float[] values)
-    {
-        byte[] bytes = new byte[checked(values.Length * sizeof(float))];
-        Buffer.BlockCopy(values, 0, bytes, 0, bytes.Length);
-        return bytes;
-    }
-
-    public static byte[] ToBytes(uint[] values)
-    {
-        byte[] bytes = new byte[checked(values.Length * sizeof(uint))];
-        Buffer.BlockCopy(values, 0, bytes, 0, bytes.Length);
-        return bytes;
-    }
-
-    public static float[] ReadFloatChannel(ExrImage image, string channelName)
-    {
-        return ReadFloatChannel(image.GetChannel(channelName));
-    }
-
-    public static float[] ReadFloatChannel(ExrImageChannel channel)
-    {
-        Assert.AreEqual(ExrPixelType.Float, channel.DataType);
-        return MemoryMarshal.Cast<byte, float>(channel.Data).ToArray();
-    }
-
-    public static uint[] ReadUIntChannel(ExrImage image, string channelName)
-    {
-        ExrImageChannel channel = image.GetChannel(channelName);
-        Assert.AreEqual(ExrPixelType.UInt, channel.DataType);
-        return MemoryMarshal.Cast<byte, uint>(channel.Data).ToArray();
-    }
-
-    public static void SetRequestedPixelTypes(ExrHeader header, Func<ExrChannel, ExrPixelType> selector)
-    {
-        foreach (ExrChannel channel in header.Channels)
-        {
-            channel.RequestedPixelType = selector(channel);
-        }
-    }
-
-    public static void AssertMaxError(float[] expected, float[] actual, float tolerance, string channelName)
-    {
-        Assert.AreEqual(expected.Length, actual.Length);
-
-        float maxError = 0.0f;
-        int maxErrorIndex = 0;
-        for (int i = 0; i < expected.Length; i++)
-        {
-            float error = MathF.Abs(expected[i] - actual[i]);
-            if (error > maxError)
-            {
-                maxError = error;
-                maxErrorIndex = i;
-            }
-        }
-
-        Assert.IsTrue(
-            maxError <= tolerance,
-            $"Channel '{channelName}' exceeded tolerance {tolerance} with max error {maxError} at sample {maxErrorIndex}.");
+        ChannelBuffer channel = part.GetLevel(0, 0).GetChannel(name);
+        if (channel.PixelType == PixelType.Float)
+            return MemoryMarshal.Cast<byte, float>(channel.Data).ToArray();
+        if (channel.PixelType == PixelType.UInt)
+            return MemoryMarshal.Cast<byte, uint>(channel.Data).ToArray().Select(x => (float)x).ToArray();
+        float[] result = new float[channel.Data.Length / 2];
+        PixelConversion.HalfToFloat(MemoryMarshal.Cast<byte, ushort>(channel.Data), result);
+        return result;
     }
 }
 

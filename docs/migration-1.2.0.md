@@ -1,7 +1,9 @@
 # Migrating to TinyEXR.NET 1.2.0
 
 TinyEXR.NET 1.2.0 is a deliberate breaking minor release. The modern managed
-API uses unversioned namespaces alongside the existing v1-compatible facade.
+API uses unversioned namespaces. The subsequent V3-only refactor also changes
+`Exr` and removes the V1 models; read [that migration guide](migration-v3-only.md)
+as well. The version has not been bumped during the refactor.
 The NuGet package version is `1.2.0`; `AssemblyVersion` and `FileVersion` are
 `1.2.0.0`. `ExrFile.ApiVersionMajor` remains `3`: it identifies the upstream
 API generation, not the package version or managed namespace.
@@ -13,7 +15,8 @@ API generation, not the package version or managed namespace.
    aliases, fully qualified type names, and reflection or configuration strings
    that contain the old names.
 2. Rename references to the modern `TinyEXR.V3.SpectrumType` to
-   `TinyEXR.SpectralType`. Do not rename the legacy `TinyEXR.SpectrumType`.
+   `TinyEXR.SpectralType`. The former legacy `TinyEXR.SpectrumType` is now removed; use
+   `SpectralType` with explicit enum member names, not numeric casts.
 3. Rebuild every dependent assembly against 1.2.0, including libraries and
    plugins, and deploy the rebuilt dependency set together. Update any
    persisted assembly-qualified type names used by your application.
@@ -23,22 +26,17 @@ fully qualified type identities no longer exist, so replacing the DLL or
 adding an assembly binding redirect cannot make an old modern-API consumer
 compatible. This release is not a binary drop-in replacement.
 
-Consumers using only the legacy facade keep its source names, but should
-still rebuild and validate their dependencies against the new assembly version.
-If you cannot migrate yet, constrain the NuGet dependency to `[1.1.0,1.2.0)`:
-
-```xml
-<PackageReference Include="TinyEXR.NET" Version="[1.1.0,1.2.0)" />
-```
+Consumers of the former facade must also migrate its DTOs, result codes and
+method signatures as described in [migration-v3-only.md](migration-v3-only.md).
 
 ## Spectral enum distinction
 
-Only the modern enum type is renamed. Its values do not change:
+The modern enum retains its values. The legacy enum has been removed:
 
 | 1.1.x type | 1.2.0 type | Values |
 | --- | --- | --- |
 | `TinyEXR.V3.SpectrumType` | `TinyEXR.SpectralType` | `None = 0`, `Reflective = 1`, `Emissive = 2`, `Polarised = 3` |
-| `TinyEXR.SpectrumType` (legacy) | `TinyEXR.SpectrumType` (unchanged) | `Reflective = 0`, `Emissive = 1`, `Polarised = 2` |
+| `TinyEXR.SpectrumType` (legacy) | Removed; migrate to `TinyEXR.SpectralType` | `Reflective = 0`, `Emissive = 1`, `Polarised = 2` |
 
 These enums are not numerically interchangeable. Avoid casting between them
 or applying a blind `SpectrumType` replacement across legacy code.
@@ -61,7 +59,7 @@ if (type == SpectralType.None)
 All 69 modern public types are listed below: 57 in the root namespace and
 12 in the I/O namespace. Generic and non-generic result types are separate
 entries; `<T>` denotes generic arity 1, while entries without it have arity 0.
-No legacy facade types are moved.
+The removed legacy types are listed separately in the V3-only migration guide.
 
 ### Root namespace (57 types)
 
@@ -149,7 +147,7 @@ under `TinyEXR.NET/`, preserving their subfolders such as `IO/`, `Reader/`,
 `Writer/`, `Simd/`, `Format/`, and `Compression/`. Internal format types use
 `TinyEXR.Format`; internal compression types use `TinyEXR.Codecs` (the source
 folder remains `Compression/`). These are implementation details, not new
-public APIs. The legacy `PortV1` implementation remains in place.
+public APIs. The V1 implementation and adapter are removed; all I/O uses the V3 core.
 
 References to upstream tinyexr v3, its native C API, historical benchmark runs,
 and existing v3-named test or benchmark identifiers still refer to that API

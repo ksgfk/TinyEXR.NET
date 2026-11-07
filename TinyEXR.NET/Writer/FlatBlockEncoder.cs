@@ -1,7 +1,6 @@
 using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
-using TinyEXR.PortV1;
 using TinyEXR.Codecs;
 
 namespace TinyEXR
@@ -21,7 +20,7 @@ namespace TinyEXR
             WriterEncodeResources resources,
             out int chunkLength)
         {
-            ExrCompressionCodec.EncodeWorkspace workspace = resources.CodecWorkspace;
+            CodecWorkspace workspace = resources.CodecWorkspace;
             if (part.Header.IsDeep || info.IsDeep)
             {
                 throw new WriterPlanException(
@@ -203,14 +202,14 @@ namespace TinyEXR
             WriterEncodeResources resources,
             out int payloadLength)
         {
-            ExrCompressionCodec.EncodeWorkspace workspace = resources.CodecWorkspace;
+            CodecWorkspace workspace = resources.CodecWorkspace;
             if (part.Header.Compression == Compression.HTJ2K256 ||
                 part.Header.Compression == Compression.HTJ2K32)
             {
                 Htj2kEncodeStatus status = Htj2kDecoder.Encode(
                     part.Header,
                     info.Region,
-                    raw,
+                    raw.Length == rawLength ? raw : raw.AsSpan(0, rawLength).ToArray(),
                     resources.Htj2kPool,
                     out byte[] htj2kPayload,
                     out string? error);
@@ -240,33 +239,18 @@ namespace TinyEXR
                     $"Compression '{part.Header.Compression}' has no managed flat encoder.");
             }
 
-            ResultCode result = ExrCompressionCodec.TryEncodePayload(
-                (CompressionType)(int)part.Header.Compression,
-                part.CodecChannels,
-                info.Region.MinX,
-                info.Region.MinY,
-                checked((int)info.Region.Width),
-                checked((int)info.Region.Height),
-                raw,
+            ExrResult result = BlockCodec.Encode(
+                part.Header.Compression,
+                new CodecContext(part.Header.Channels, info.Region),
+                raw.AsSpan(0, rawLength),
                 workspace,
-                out byte[] payload,
-                out int encodedLength);
-            switch (result)
+                out byte[] payload);
+            if (result != ExrResult.Success)
             {
-                case ResultCode.Success:
-                    payloadLength = encodedLength;
-                    return payload;
-                case ResultCode.UnsupportedFeature:
-                case ResultCode.UnsupportedFormat:
-                    payloadLength = rawLength;
-                    return raw;
-                case ResultCode.DataTooLarge:
-                    throw new WriterPlanException(
-                        ExrResult.Unsupported,
-                        "The block is too large for the selected compression codec.");
-                default:
-                    throw Invalid($"The selected compression codec rejected the block ({result}).");
+                throw new WriterPlanException(result, $"The selected compression codec rejected the block ({result}).");
             }
+            payloadLength = payload.Length;
+            return payload;
         }
 
         private static void WriteInt32(byte[] destination, ref int offset, int value)

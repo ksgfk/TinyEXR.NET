@@ -8,9 +8,9 @@ internal sealed record SampleBuffer(string Id, string Kind, string FullPath, byt
 
 internal sealed record RgbaPrepared(float[] Rgba, int Width, int Height, int Components, bool AsFp16);
 
-internal sealed record SinglePartPrepared(ExrVersion Version, ExrHeader Header, ExrImage Image);
+internal sealed record SinglePartPrepared(uint Version, Header Header, Part Image);
 
-internal sealed record MultipartPrepared(ExrVersion Version, ExrMultipartHeader Headers, ExrMultipartImage Images);
+internal sealed record MultipartPrepared(uint Version, Header[] Headers, Image Images);
 
 internal static class BenchmarkSamples
 {
@@ -168,39 +168,39 @@ internal sealed class SampleRepository
     private static SinglePartPrepared PrepareSinglePart(SampleBuffer sample)
     {
         BenchmarkGuard.Success(
-            Exr.ParseEXRVersionFromMemory(sample.Bytes, out ExrVersion version),
+            Exr.ParseEXRVersionFromMemory(sample.Bytes, out uint version),
             $"ParseEXRVersionFromMemory setup failed for {sample.Id}");
         BenchmarkGuard.Success(
-            Exr.ParseEXRHeaderFromMemory(sample.Bytes, out _, out ExrHeader header),
+            Exr.ParseEXRHeaderFromMemory(sample.Bytes, out _, out Header? header),
             $"ParseEXRHeaderFromMemory setup failed for {sample.Id}");
         BenchmarkGuard.Success(
-            Exr.LoadEXRImageFromMemory(sample.Bytes, header, out ExrImage image),
+            Exr.LoadEXRImageFromMemory(sample.Bytes, out Part? image),
             $"LoadEXRImageFromMemory setup failed for {sample.Id}");
 
-        return new SinglePartPrepared(version, header, image);
+        return new SinglePartPrepared(version, header!, image!);
     }
 
     private static MultipartPrepared PrepareMultipart(SampleBuffer sample)
     {
         BenchmarkGuard.Success(
-            Exr.ParseEXRVersionFromMemory(sample.Bytes, out ExrVersion version),
+            Exr.ParseEXRVersionFromMemory(sample.Bytes, out uint version),
             $"ParseEXRVersionFromMemory setup failed for {sample.Id}");
         BenchmarkGuard.Success(
-            Exr.ParseEXRMultipartHeaderFromMemory(sample.Bytes, out _, out ExrMultipartHeader headers),
+            Exr.ParseEXRMultipartHeaderFromMemory(sample.Bytes, out _, out Header[] headers),
             $"ParseEXRMultipartHeaderFromMemory setup failed for {sample.Id}");
         BenchmarkGuard.Success(
-            Exr.LoadEXRMultipartImageFromMemory(sample.Bytes, headers, out ExrMultipartImage images),
+            Exr.LoadEXRMultipartImageFromMemory(sample.Bytes, out Image? images),
             $"LoadEXRMultipartImageFromMemory setup failed for {sample.Id}");
 
-        return new MultipartPrepared(version, headers, images);
+        return new MultipartPrepared(version, headers, images!);
     }
 }
 
 internal static class BenchmarkGuard
 {
-    public static void Success(ResultCode result, string context)
+    public static void Success(ExrResult result, string context)
     {
-        if (result != ResultCode.Success)
+        if (result != ExrResult.Success)
         {
             throw new InvalidOperationException($"{context}: {result}");
         }

@@ -9,15 +9,15 @@ public sealed class DeepTests
 {
     public static IEnumerable<object[]> SupportedDeepCompressions()
     {
-        yield return new object[] { CompressionType.None };
-        yield return new object[] { CompressionType.RLE };
-        yield return new object[] { CompressionType.ZIPS };
-        yield return new object[] { CompressionType.ZIP };
+        yield return new object[] { Compression.None };
+        yield return new object[] { Compression.RLE };
+        yield return new object[] { Compression.ZIPS };
+        yield return new object[] { Compression.ZIP };
     }
 
     [TestMethod(DisplayName = "[TinyEXR.NET Test] Deep scanline compression matrix")]
     [DynamicData(nameof(SupportedDeepCompressions))]
-    public void Case_Deep_supported_scanline_compressions(CompressionType compression)
+    public void Case_Deep_supported_scanline_compressions(Compression compression)
     {
         DeepFixture fixture = CreateDeepFixture(compression);
         byte[] encoded = CreateDeepScanlineFile(fixture);
@@ -27,8 +27,9 @@ public sealed class DeepTests
         {
             File.WriteAllBytes(path, encoded);
 
-            Assert.AreEqual(ResultCode.Success, Exr.LoadDeepEXR(path, out ExrHeader header, out ExrDeepImage image), compression.ToString());
-            AssertDeepFixture(fixture, header, image, compression.ToString());
+            Assert.AreEqual(ExrResult.Success, Exr.LoadDeepEXR(path, out Part? image), compression.ToString());
+            Assert.IsNotNull(image);
+            AssertDeepFixture(fixture, image!, compression.ToString());
         }
         finally
         {
@@ -42,15 +43,15 @@ public sealed class DeepTests
     [TestMethod(DisplayName = "[TinyEXR.NET Test] deepscanline.piz.exr|LoadDeep|RejectUnsupportedCompression")]
     public void Case_Deep_PIZ_scanline_rejected()
     {
-        DeepFixture fixture = CreateDeepFixture(CompressionType.PIZ);
-        byte[] encoded = CreateDeepScanlineFile(fixture, payloadCompressionOverride: CompressionType.RLE);
+        DeepFixture fixture = CreateDeepFixture(Compression.PIZ);
+        byte[] encoded = CreateDeepScanlineFile(fixture, payloadCompressionOverride: Compression.RLE);
 
         string path = Path.Combine(Path.GetTempPath(), $"tinyexr-deep-piz-{Guid.NewGuid():N}.exr");
         try
         {
             File.WriteAllBytes(path, encoded);
 
-            Assert.AreEqual(ResultCode.UnsupportedFeature, Exr.LoadDeepEXR(path, out _, out _));
+            Assert.AreEqual(ExrResult.Unsupported, Exr.LoadDeepEXR(path, out _));
         }
         finally
         {
@@ -61,46 +62,24 @@ public sealed class DeepTests
         }
     }
 
-    [TestMethod(DisplayName = "[TinyEXR.NET Test] deeptile.exr|LoadDeep|RejectUnsupportedFeature")]
-    public void Case_DeepTile_single_part_rejected()
+    [TestMethod(DisplayName = "Deep tiled fixture uses the same Part model")]
+    public void DeepTiledFixtureLoads()
     {
-        byte[] encoded = CreateDeepScanlineFile(CreateDeepFixture(CompressionType.ZIP));
-        ExrBinaryMutationHelper.ReplaceHeaderCStringAttributeValue(encoded, headerIndex: 0, "type", "string", "deeptile\0pad");
-        encoded[5] = (byte)(encoded[5] | 0x2);
-
-        Assert.AreEqual(ResultCode.Success, Exr.ParseEXRVersionFromMemory(encoded, out ExrVersion version));
-        Assert.IsTrue(version.NonImage);
-        Assert.IsFalse(version.Multipart);
-        Assert.IsTrue(version.Tiled);
-
-        Assert.AreEqual(ResultCode.Success, Exr.ParseEXRHeaderFromMemory(encoded, out _, out ExrHeader header));
-        Assert.IsTrue(header.IsDeep);
-        StringAssert.StartsWith(header.PartType ?? string.Empty, "deeptile");
-
-        string path = Path.Combine(Path.GetTempPath(), $"tinyexr-deeptile-{Guid.NewGuid():N}.exr");
-        try
-        {
-            File.WriteAllBytes(path, encoded);
-
-            Assert.AreEqual(ResultCode.UnsupportedFeature, Exr.LoadDeepEXR(path, out _, out _));
-        }
-        finally
-        {
-            if (File.Exists(path))
-            {
-                File.Delete(path);
-            }
-        }
+        string path = Path.Combine(TestPaths.NativeDataRoot, "deep_tiled_sample.exr");
+        Assert.AreEqual(ExrResult.Success, Exr.LoadDeepEXR(path, out Part? part));
+        Assert.IsNotNull(part);
+        Assert.AreEqual(PartType.DeepTiled, part.Header.PartType);
+        Assert.IsInstanceOfType<DeepLevel>(part.Levels[0]);
     }
 
-    private static DeepFixture CreateDeepFixture(CompressionType compression)
+    private static DeepFixture CreateDeepFixture(Compression compression)
     {
-        return compression == CompressionType.ZIP
+        return compression == Compression.ZIP || compression == Compression.PIZ
             ? new DeepFixture(
                 compression,
-                new ExrBox2i(10, 20, 12, 20),
-                new ExrBox2i(8, 18, 14, 23),
-                new[] { "Z", "A" },
+                new Box2i(10, 20, 12, 20),
+                new Box2i(8, 18, 14, 23),
+                new[] { "A", "Z" },
                 new[]
                 {
                     new DeepRow(
@@ -112,9 +91,9 @@ public sealed class DeepTests
                 })
             : new DeepFixture(
                 compression,
-                new ExrBox2i(10, 20, 12, 21),
-                new ExrBox2i(8, 18, 14, 23),
-                new[] { "Z", "A" },
+                new Box2i(10, 20, 12, 21),
+                new Box2i(8, 18, 14, 23),
+                new[] { "A", "Z" },
                 new[]
                 {
                     new DeepRow(
@@ -132,58 +111,34 @@ public sealed class DeepTests
                 });
     }
 
-    private static void AssertDeepFixture(DeepFixture fixture, ExrHeader header, ExrDeepImage image, string message)
+    private static void AssertDeepFixture(DeepFixture fixture, Part part, string message)
     {
-        Assert.IsTrue(header.IsDeep, message);
-        Assert.AreEqual("deepscanline", header.PartType, message);
-        Assert.AreEqual(fixture.Compression, header.Compression, message);
-        Assert.AreEqual(fixture.DataWindow.MinX, header.DataWindow.MinX, message);
-        Assert.AreEqual(fixture.DataWindow.MinY, header.DataWindow.MinY, message);
-        Assert.AreEqual(fixture.DataWindow.MaxX, header.DataWindow.MaxX, message);
-        Assert.AreEqual(fixture.DataWindow.MaxY, header.DataWindow.MaxY, message);
-        Assert.AreEqual(fixture.DisplayWindow.MinX, header.DisplayWindow.MinX, message);
-        Assert.AreEqual(fixture.DisplayWindow.MinY, header.DisplayWindow.MinY, message);
-        Assert.AreEqual(fixture.DisplayWindow.MaxX, header.DisplayWindow.MaxX, message);
-        Assert.AreEqual(fixture.DisplayWindow.MaxY, header.DisplayWindow.MaxY, message);
-        Assert.AreEqual(fixture.Width, image.Width, message);
-        Assert.AreEqual(fixture.Height, image.Height, message);
-        Assert.AreEqual(fixture.ChannelNames.Length, header.Channels.Count, message);
-        Assert.AreEqual(fixture.ChannelNames.Length, image.Channels.Count, message);
-        CollectionAssert.AreEqual(fixture.ChannelNames, header.Channels.Select(static channel => channel.Name).ToArray(), message);
-        CollectionAssert.AreEqual(fixture.ChannelNames, image.Channels.Select(static channel => channel.Name).ToArray(), message);
-
-        for (int rowIndex = 0; rowIndex < fixture.Rows.Length; rowIndex++)
+        Assert.AreEqual(PartType.DeepScanline, part.Header.PartType, message);
+        Assert.AreEqual(fixture.Compression, part.Header.Compression, message);
+        Assert.AreEqual(fixture.DataWindow, part.Header.DataWindow, message);
+        Assert.AreEqual(fixture.DisplayWindow, part.Header.DisplayWindow, message);
+        DeepLevel level = (DeepLevel)part.Levels[0];
+        CollectionAssert.AreEqual(fixture.Rows.SelectMany(GetSampleCounts).ToArray(), level.SampleCounts.ToArray(), message);
+        for (int channel = 0; channel < fixture.ChannelNames.Length; channel++)
         {
-            DeepRow row = fixture.Rows[rowIndex];
-            int[] expectedCounts = GetSampleCounts(row);
-            int[] expectedOffsets = ToCumulativeOffsets(expectedCounts);
-
-            CollectionAssert.AreEqual(expectedOffsets, image.OffsetTable[rowIndex], $"{message}|row[{rowIndex}]|offsets");
-
-            for (int channelIndex = 0; channelIndex < fixture.ChannelNames.Length; channelIndex++)
-            {
-                float[] actualSamples = image.Channels[channelIndex].Rows[rowIndex];
-                for (int pixelIndex = 0; pixelIndex < expectedCounts.Length; pixelIndex++)
-                {
-                    float[] expectedPixelSamples = row.ChannelPixels[channelIndex][pixelIndex];
-                    float[] actualPixelSamples = SlicePixelSamples(actualSamples, expectedOffsets, pixelIndex);
-                    CollectionAssert.AreEqual(
-                        expectedPixelSamples,
-                        actualPixelSamples,
-                        $"{message}|row[{rowIndex}]|channel[{fixture.ChannelNames[channelIndex]}]|pixel[{pixelIndex}]");
-                }
-            }
+            float[] expected = fixture.Rows.SelectMany(r => r.ChannelPixels[channel].SelectMany(v => v)).ToArray();
+            byte[] actual = level.GetChannel(fixture.ChannelNames[channel]).Data.ToArray();
+            CollectionAssert.AreEqual(ExrTestHelper.ToBytes(expected), actual, message);
         }
+        Assert.AreEqual(ExrResult.Success, Exr.SaveEXRImageToMemory(part, out byte[] encoded));
+        Assert.AreEqual(ExrResult.Success, Exr.LoadDeepEXRFromMemory(encoded, out Part? decoded));
+        Assert.IsNotNull(decoded);
+        ExrTestHelper.EqualImages(part, decoded);
     }
 
-    private static byte[] CreateDeepScanlineFile(DeepFixture fixture, CompressionType? payloadCompressionOverride = null)
+    private static byte[] CreateDeepScanlineFile(DeepFixture fixture, Compression? payloadCompressionOverride = null)
     {
         if (fixture.Rows.Length != fixture.Height)
         {
             throw new InvalidOperationException("Deep fixture row count must match the data window height.");
         }
 
-        CompressionType payloadCompression = payloadCompressionOverride ?? fixture.Compression;
+        Compression payloadCompression = payloadCompressionOverride ?? fixture.Compression;
         List<byte[]> chunks = new List<byte[]>(fixture.Height);
         for (int rowIndex = 0; rowIndex < fixture.Rows.Length; rowIndex++)
         {
@@ -209,14 +164,15 @@ public sealed class DeepTests
         WriteVersion(header, version: 2, flags: 0x8);
         WriteAttribute(header, "name", "string", EncodeCString("deep-part"));
         WriteAttribute(header, "type", "string", EncodeCString("deepscanline"));
-        WriteAttribute(header, "channels", "chlist", EncodeChannels(fixture.ChannelNames.Select(static name => (name, ExrPixelType.Float))));
+        WriteAttribute(header, "channels", "chlist", EncodeChannels(fixture.ChannelNames.Select(static name => (name, PixelType.Float))));
         WriteAttribute(header, "compression", "compression", new[] { (byte)fixture.Compression });
         WriteAttribute(header, "dataWindow", "box2i", EncodeBox(fixture.DataWindow.MinX, fixture.DataWindow.MinY, fixture.DataWindow.MaxX, fixture.DataWindow.MaxY));
         WriteAttribute(header, "displayWindow", "box2i", EncodeBox(fixture.DisplayWindow.MinX, fixture.DisplayWindow.MinY, fixture.DisplayWindow.MaxX, fixture.DisplayWindow.MaxY));
-        WriteAttribute(header, "lineOrder", "lineOrder", new[] { (byte)LineOrderType.IncreasingY });
+        WriteAttribute(header, "lineOrder", "lineOrder", new[] { (byte)LineOrder.IncreasingY });
         WriteAttribute(header, "pixelAspectRatio", "float", EncodeSingle(1.0f));
         WriteAttribute(header, "screenWindowCenter", "v2f", EncodeVector2(0.0f, 0.0f));
         WriteAttribute(header, "screenWindowWidth", "float", EncodeSingle(1.0f));
+        WriteAttribute(header, "version", "int", EncodeInt32(1));
         WriteAttribute(header, "chunkCount", "int", EncodeInt32(chunks.Count));
         header.WriteByte(0);
 
@@ -322,17 +278,19 @@ public sealed class DeepTests
         return pixelSamples;
     }
 
-    private static byte[] EncodeDeepPayload(CompressionType compression, ReadOnlySpan<byte> raw)
+    private static byte[] EncodeDeepPayload(Compression compression, ReadOnlySpan<byte> raw)
     {
         switch (compression)
         {
-            case CompressionType.None:
+            case Compression.None:
                 return raw.ToArray();
-            case CompressionType.RLE:
-                return EncodeDeepRlePayload(raw);
-            case CompressionType.ZIPS:
-            case CompressionType.ZIP:
-                return EncodeDeepZipPayload(raw);
+            case Compression.RLE:
+                byte[] rle = EncodeDeepRlePayload(raw);
+                return rle.Length < raw.Length ? rle : raw.ToArray();
+            case Compression.ZIPS:
+            case Compression.ZIP:
+                byte[] zip = EncodeDeepZipPayload(raw);
+                return zip.Length < raw.Length ? zip : raw.ToArray();
             default:
                 throw new InvalidOperationException($"Compression '{compression}' is not supported by the deep test encoder.");
         }
@@ -359,10 +317,10 @@ public sealed class DeepTests
         stream.Write(value);
     }
 
-    private static byte[] EncodeChannels(IEnumerable<(string Name, ExrPixelType Type)> channels)
+    private static byte[] EncodeChannels(IEnumerable<(string Name, PixelType Type)> channels)
     {
         using MemoryStream stream = new MemoryStream();
-        foreach ((string name, ExrPixelType type) in channels)
+        foreach ((string name, PixelType type) in channels)
         {
             stream.Write(Encoding.UTF8.GetBytes(name));
             stream.WriteByte(0);
@@ -406,7 +364,7 @@ public sealed class DeepTests
 
     private static byte[] EncodeCString(string value)
     {
-        return Encoding.UTF8.GetBytes(value + "\0");
+        return Encoding.UTF8.GetBytes(value);
     }
 
     private static byte[] EncodeInt32(int value)
@@ -535,15 +493,15 @@ public sealed class DeepTests
     private static float[][] Channel(params float[][] pixels) => pixels;
 
     private readonly record struct DeepFixture(
-        CompressionType Compression,
-        ExrBox2i DataWindow,
-        ExrBox2i DisplayWindow,
+        Compression Compression,
+        Box2i DataWindow,
+        Box2i DisplayWindow,
         string[] ChannelNames,
         DeepRow[] Rows)
     {
-        public int Width => DataWindow.Width;
+        public int Width => (int)DataWindow.Width;
 
-        public int Height => DataWindow.Height;
+        public int Height => (int)DataWindow.Height;
     }
 
     private readonly record struct DeepRow(float[][][] ChannelPixels);

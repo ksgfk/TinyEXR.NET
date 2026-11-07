@@ -1,5 +1,4 @@
 using System;
-using TinyEXR.PortV1;
 using TinyEXR.Codecs;
 
 namespace TinyEXR
@@ -10,6 +9,7 @@ namespace TinyEXR
             Compression compression,
             byte[] payload,
             int expectedSize,
+            CodecWorkspace workspace,
             out byte[] decoded)
         {
             decoded = Array.Empty<byte>();
@@ -43,23 +43,12 @@ namespace TinyEXR
                 return Unsupported($"Compression '{compression}' is not permitted for compressed deep payloads.");
             }
 
-            ResultCode result = ExrCompressionCodec.TryDecodeDeepPayload(
-                (CompressionType)(int)compression,
-                payload,
-                expectedSize,
-                out decoded);
-            if (result == ResultCode.Success && decoded.Length == expectedSize)
-            {
+            decoded = new byte[expectedSize];
+            ExrResult result = BlockCodec.DecodeDeep(compression, payload, decoded, workspace);
+            if (result == ExrResult.Success)
                 return null;
-            }
-
             decoded = Array.Empty<byte>();
-            if (result == ResultCode.UnsupportedFeature || result == ResultCode.UnsupportedFormat)
-            {
-                return Unsupported($"Compression '{compression}' is not supported for deep payloads.");
-            }
-
-            return Corrupt($"The compressed deep payload could not be decoded ({result}).");
+            return new ReaderResult(result, null, new InvalidDataException($"The compressed deep payload could not be decoded ({result})."));
         }
 
         private static ReaderResult Corrupt(string message)

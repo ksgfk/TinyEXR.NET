@@ -32,6 +32,31 @@ jobs:
     - name: Test netstandard fallback target
       run: dotnet test --project ./Test/TinyEXR.NetStandardFallback.Test/TinyEXR.NetStandardFallback.Test.csproj --configuration Release --report-trx --report-trx-filename TinyEXR.NetStandardFallback.Test.trx -p:SignAssemblyKey=false
 
+  native-v3-interop:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        framework: [net8.0, netstandard2.1]
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: 'true'
+    - uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '10.0.x'
+    - name: Build pinned native V3 reference
+      run: |
+        cmake -S Test/NativeReference -B .cache/v3-reference -G Ninja -DCMAKE_BUILD_TYPE=Release
+        cmake --build .cache/v3-reference --parallel 4
+    - name: Cross-check codecs, complete levels, deep samples and B44 tables
+      run: dotnet run --project Test/TinyEXR.Interop/TinyEXR.Interop.csproj -c Release -p:SignAssemblyKey=false -p:LibraryFramework=${{ matrix.framework }} -- .cache/v3-reference
+    - name: Cross-check with managed hardware intrinsics disabled
+      if: matrix.framework == 'net8.0'
+      env:
+        DOTNET_EnableHWIntrinsic: '0'
+      run: dotnet run --project Test/TinyEXR.Interop/TinyEXR.Interop.csproj -c Release -p:SignAssemblyKey=false -p:LibraryFramework=net8.0 --no-build -- .cache/v3-reference
+
   package-aot-smoke:
     runs-on: ubuntu-latest
     steps:
@@ -53,6 +78,9 @@ jobs:
 
     - name: Publish package consumer with NativeAOT
       run: dotnet publish ./Test/TinyEXR.PackageSmoke/TinyEXR.PackageSmoke.csproj --configuration Release --runtime linux-x64 -p:PublishAot=true --no-restore --output ./artifacts/aot-smoke -p:RestorePackagesPath=${{ github.workspace }}/artifacts/consumer-packages
+
+    - name: Run ordinary package consumer
+      run: dotnet run --project ./Test/TinyEXR.PackageSmoke/TinyEXR.PackageSmoke.csproj --configuration Release --runtime linux-x64 --no-restore -p:RestorePackagesPath=${{ github.workspace }}/artifacts/consumer-packages
 
     - name: Run NativeAOT package consumer
       run: ./artifacts/aot-smoke/TinyEXR.PackageSmoke

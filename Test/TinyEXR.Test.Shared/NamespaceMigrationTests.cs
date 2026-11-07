@@ -110,23 +110,27 @@ public sealed class NamespaceMigrationTests
     }
 
     [TestMethod]
-    public void LegacyAndModernSpectralEnumsKeepDistinctValuesAndAbsenceSemantics()
+    public void RemovedTypesAndImplementationsAreAbsent()
     {
-        Assert.AreEqual(0, Convert.ToInt32(Enum.Parse(typeof(SpectrumType), nameof(SpectrumType.Reflective))));
-        Assert.AreEqual(1, Convert.ToInt32(Enum.Parse(typeof(SpectrumType), nameof(SpectrumType.Emissive))));
-        Assert.AreEqual(2, Convert.ToInt32(Enum.Parse(typeof(SpectrumType), nameof(SpectrumType.Polarised))));
-        Assert.AreEqual(0, Convert.ToInt32(Enum.Parse(typeof(SpectralType), nameof(SpectralType.None))));
-        Assert.AreEqual(1, Convert.ToInt32(Enum.Parse(typeof(SpectralType), nameof(SpectralType.Reflective))));
-        Assert.AreEqual(2, Convert.ToInt32(Enum.Parse(typeof(SpectralType), nameof(SpectralType.Emissive))));
-        Assert.AreEqual(3, Convert.ToInt32(Enum.Parse(typeof(SpectralType), nameof(SpectralType.Polarised))));
-        Assert.IsNull(Exr.EXRGetSpectrumType(new ExrHeader()));
+        string[] removed = { "ExrVersion", "ExrHeader", "ExrImage", "ExrDeepImage", "ExrMultipartHeader",
+            "ExrMultipartImage", "ExrChannel", "ExrAttribute", "ResultCode", "ExrPixelType", "CompressionType",
+            "LineOrderType", "SpectrumType", "ExrBox2i", "ExrTile", "ExrImageLevel", "ExrImageChannel",
+            "ExrDeepChannel", "ExrTileDescription", "ExrTileLevelMode", "ExrTileRoundingMode",
+            "SinglePartExrReader", "ScanlineExrWriter", "V1FacadeAdapter", "ExrImplementation" };
+        Type[] types = typeof(Exr).Assembly.GetTypes();
+        Assert.IsFalse(types.Any(t => t.Namespace?.Contains("PortV1", StringComparison.Ordinal) == true));
+        foreach (string name in removed)
+            Assert.IsFalse(types.Any(t => t.Name == name), name);
         Header rgb = new(PartType.Scanline, new Box2i(0, 0, 0, 0), new[] { new Channel("R", PixelType.Float) });
-        Assert.AreEqual(SpectralType.None, Spectral.GetSpectrumType(rgb));
-        Assert.AreEqual(typeof(SpectralType), typeof(SpectralImage).GetProperty(nameof(SpectralImage.SpectrumType))!.PropertyType);
-        Assert.AreEqual(typeof(SpectralType), typeof(Spectral).GetMethod(nameof(Spectral.GetSpectrumType))!.ReturnType);
-        ExrHeader legacy = new();
-        legacy.Channels.Add(new ExrChannel("S0.550,000000nm", ExrPixelType.Float));
-        Assert.AreEqual(ResultCode.Success, Exr.EXRSetSpectralAttributes(legacy, SpectrumType.Emissive, "radiance"));
-        Assert.AreEqual(SpectrumType.Emissive, Exr.EXRGetSpectrumType(legacy));
+        Assert.AreEqual(SpectralType.None, Exr.EXRGetSpectrumType(rgb));
+        Assert.AreEqual(typeof(SpectralType), typeof(Exr).GetMethod(nameof(Exr.EXRGetSpectrumType))!.ReturnType);
+        foreach (string path in Directory.EnumerateFiles(Path.Combine(TinyEXR.Test.TestPaths.RepoRoot, "TinyEXR.NET"), "*.cs", SearchOption.AllDirectories))
+        {
+            if (path.Contains(Path.DirectorySeparatorChar + "obj" + Path.DirectorySeparatorChar))
+                continue;
+            string source = File.ReadAllText(path);
+            Assert.IsFalse(source.Contains("PortV1", StringComparison.Ordinal), path);
+            Assert.IsFalse(source.Contains("ResultCode", StringComparison.Ordinal), path);
+        }
     }
 }

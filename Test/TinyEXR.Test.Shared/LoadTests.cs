@@ -6,8 +6,9 @@ public sealed class LoadTests
     [TestMethod(DisplayName = "asakusa")]
     public void Case_asakusa()
     {
-        Assert.AreEqual(ResultCode.Success, Exr.ParseEXRVersionFromFile(TestPaths.Asakusa, out _));
-        Assert.AreEqual(ResultCode.Success, Exr.ParseEXRHeaderFromFile(TestPaths.Asakusa, out _, out ExrHeader header));
+        Assert.AreEqual(ExrResult.Success, Exr.ParseEXRVersionFromFile(TestPaths.Asakusa, out _));
+        Assert.AreEqual(ExrResult.Success, Exr.ParseEXRHeaderFromFile(TestPaths.Asakusa, out _, out Header? header));
+        Assert.IsNotNull(header);
         Assert.IsTrue(header.Channels.Count > 0);
     }
 
@@ -15,8 +16,9 @@ public sealed class LoadTests
     public void Case_utf8filename()
     {
         string path = TestPaths.Regression("日本語.exr");
-        Assert.AreEqual(ResultCode.Success, Exr.ParseEXRVersionFromFile(path, out _));
-        Assert.AreEqual(ResultCode.Success, Exr.ParseEXRHeaderFromFile(path, out _, out ExrHeader header));
+        Assert.AreEqual(ExrResult.Success, Exr.ParseEXRVersionFromFile(path, out _));
+        Assert.AreEqual(ExrResult.Success, Exr.ParseEXRHeaderFromFile(path, out _, out Header? header));
+        Assert.IsNotNull(header);
         Assert.IsTrue(header.Channels.Count > 0);
     }
 
@@ -94,27 +96,27 @@ public sealed class LoadTests
     public void Case_Tiles_GoldenGate_exr_Version()
     {
         string path = TestPaths.OpenExr("Tiles/GoldenGate.exr");
-        Assert.AreEqual(ResultCode.Success, Exr.ParseEXRVersionFromFile(path, out ExrVersion version));
-        Assert.IsTrue(version.Tiled);
+        Assert.AreEqual(ExrResult.Success, Exr.ParseEXRVersionFromFile(path, out uint version));
+        Assert.IsTrue(((version & (1U << 9)) != 0));
     }
 
     [TestMethod(DisplayName = "Tiles/GoldenGate.exr|Load")]
     public void Case_Tiles_GoldenGate_exr_Load()
     {
         string path = TestPaths.OpenExr("Tiles/GoldenGate.exr");
-        (ExrVersion version, ExrHeader header, ExrImage image) = ExrTestHelper.LoadSinglePart(path);
+        (uint version, Header header, Part image) = ExrTestHelper.LoadSinglePart(path);
 
-        Assert.IsTrue(version.Tiled);
-        Assert.IsFalse(version.NonImage);
-        Assert.IsFalse(version.Multipart);
+        Assert.IsTrue(((version & (1U << 9)) != 0));
+        Assert.IsFalse(((version & (1U << 11)) != 0));
+        Assert.IsFalse(((version & (1U << 12)) != 0));
         Assert.IsNotNull(header.Tiles);
-        Assert.AreEqual(ExrTileLevelMode.OneLevel, header.Tiles!.LevelMode);
-        Assert.AreEqual(128, header.Tiles.TileSizeX);
-        Assert.AreEqual(128, header.Tiles.TileSizeY);
+        Assert.AreEqual(TileLevelMode.OneLevel, header.Tiles!.LevelMode);
+        Assert.AreEqual(128U, header.Tiles.TileSizeX);
+        Assert.AreEqual(128U, header.Tiles.TileSizeY);
         Assert.AreEqual(1, Exr.EXRNumLevels(image));
         Assert.AreEqual(0, image.Levels[0].LevelX);
         Assert.AreEqual(0, image.Levels[0].LevelY);
-        Assert.IsTrue(image.Levels[0].Tiles.Count > 0);
+        Assert.IsTrue(image.Header.IsTiled && image.Levels[0].Channels.Count > 0);
     }
 
     [TestMethod(DisplayName = "LuminanceChroma/Garden.exr|Load")]
@@ -133,14 +135,14 @@ public sealed class LoadTests
     public void Case_MultiResolution_Bonita_exr()
     {
         string path = TestPaths.OpenExr("MultiResolution/Bonita.exr");
-        (ExrVersion version, ExrHeader header, ExrImage image) = ExrTestHelper.LoadSinglePart(path);
+        (uint version, Header header, Part image) = ExrTestHelper.LoadSinglePart(path);
 
-        Assert.IsTrue(version.Tiled);
-        Assert.IsFalse(version.NonImage);
-        Assert.IsFalse(version.Multipart);
+        Assert.IsTrue(((version & (1U << 9)) != 0));
+        Assert.IsFalse(((version & (1U << 11)) != 0));
+        Assert.IsFalse(((version & (1U << 12)) != 0));
         Assert.IsNotNull(header.Tiles);
-        Assert.AreEqual(ExrTileLevelMode.MipMapLevels, header.Tiles!.LevelMode);
-        Assert.AreEqual(ExrTileRoundingMode.RoundDown, header.Tiles.RoundingMode);
+        Assert.AreEqual(TileLevelMode.MipmapLevels, header.Tiles!.LevelMode);
+        Assert.AreEqual(TileRoundingMode.RoundDown, header.Tiles.RoundingMode);
         Assert.AreEqual(10, Exr.EXRNumLevels(image));
     }
 
@@ -148,16 +150,16 @@ public sealed class LoadTests
     public void Case_MultiResolution_Kapaa_exr()
     {
         string path = TestPaths.OpenExr("MultiResolution/Kapaa.exr");
-        (ExrVersion version, ExrHeader header, ExrImage image) = ExrTestHelper.LoadSinglePart(path);
+        (uint version, Header header, Part image) = ExrTestHelper.LoadSinglePart(path);
 
-        Assert.IsTrue(version.Tiled);
-        Assert.IsFalse(version.NonImage);
-        Assert.IsFalse(version.Multipart);
+        Assert.IsTrue(((version & (1U << 9)) != 0));
+        Assert.IsFalse(((version & (1U << 11)) != 0));
+        Assert.IsFalse(((version & (1U << 12)) != 0));
         Assert.IsNotNull(header.Tiles);
-        Assert.AreEqual(ExrTileLevelMode.RipMapLevels, header.Tiles!.LevelMode);
-        Assert.AreEqual(ExrTileRoundingMode.RoundUp, header.Tiles.RoundingMode);
-        Assert.AreEqual(64, header.Tiles.TileSizeX);
-        Assert.AreEqual(64, header.Tiles.TileSizeY);
+        Assert.AreEqual(TileLevelMode.RipmapLevels, header.Tiles!.LevelMode);
+        Assert.AreEqual(TileRoundingMode.RoundUp, header.Tiles.RoundingMode);
+        Assert.AreEqual(64U, header.Tiles.TileSizeX);
+        Assert.AreEqual(64U, header.Tiles.TileSizeY);
         Assert.AreEqual(11 * 11, Exr.EXRNumLevels(image));
     }
 
@@ -169,13 +171,13 @@ public sealed class LoadTests
             new ExpectedSinglePartSample(
                 "ScanLines/Cannon.exr",
                 Channels: 3,
-                DataWindow: new ExrBox2i(0, 0, 779, 565),
-                DisplayWindow: new ExrBox2i(0, 0, 779, 565)),
+                DataWindow: new Box2i(0, 0, 779, 565),
+                DisplayWindow: new Box2i(0, 0, 779, 565)),
             new ExpectedSinglePartSample(
                 "ScanLines/Carrots.exr",
                 Channels: 4,
-                DataWindow: new ExrBox2i(0, 0, 599, 399),
-                DisplayWindow: new ExrBox2i(0, 0, 599, 399)),
+                DataWindow: new Box2i(0, 0, 599, 399),
+                DisplayWindow: new Box2i(0, 0, 599, 399)),
         })
         {
             AssertSinglePartSampleMetadata(sample);
@@ -190,13 +192,13 @@ public sealed class LoadTests
             new ExpectedSinglePartSample(
                 "LuminanceChroma/CrissyField.exr",
                 Channels: 3,
-                DataWindow: new ExrBox2i(0, 0, 1217, 809),
-                DisplayWindow: new ExrBox2i(0, 0, 1217, 809)),
+                DataWindow: new Box2i(0, 0, 1217, 809),
+                DisplayWindow: new Box2i(0, 0, 1217, 809)),
             new ExpectedSinglePartSample(
                 "LuminanceChroma/Flowers.exr",
                 Channels: 3,
-                DataWindow: new ExrBox2i(0, 0, 783, 733),
-                DisplayWindow: new ExrBox2i(0, 0, 783, 733)),
+                DataWindow: new Box2i(0, 0, 783, 733),
+                DisplayWindow: new Box2i(0, 0, 783, 733)),
         })
         {
             AssertSinglePartSampleMetadata(sample);
@@ -211,38 +213,38 @@ public sealed class LoadTests
             new ExpectedSinglePartSample(
                 "TestImages/GammaChart.exr",
                 Channels: 3,
-                DataWindow: new ExrBox2i(0, 0, 799, 799),
-                DisplayWindow: new ExrBox2i(0, 0, 799, 799)),
+                DataWindow: new Box2i(0, 0, 799, 799),
+                DisplayWindow: new Box2i(0, 0, 799, 799)),
             new ExpectedSinglePartSample(
                 "TestImages/GrayRampsHorizontal.exr",
                 Channels: 1,
-                DataWindow: new ExrBox2i(0, 0, 799, 799),
-                DisplayWindow: new ExrBox2i(0, 0, 799, 799)),
+                DataWindow: new Box2i(0, 0, 799, 799),
+                DisplayWindow: new Box2i(0, 0, 799, 799)),
             new ExpectedSinglePartSample(
                 "TestImages/GrayRampsDiagonal.exr",
                 Channels: 1,
-                DataWindow: new ExrBox2i(0, 0, 799, 799),
-                DisplayWindow: new ExrBox2i(0, 0, 799, 799)),
+                DataWindow: new Box2i(0, 0, 799, 799),
+                DisplayWindow: new Box2i(0, 0, 799, 799)),
             new ExpectedSinglePartSample(
                 "TestImages/RgbRampsDiagonal.exr",
                 Channels: 3,
-                DataWindow: new ExrBox2i(0, 0, 799, 799),
-                DisplayWindow: new ExrBox2i(0, 0, 799, 799)),
+                DataWindow: new Box2i(0, 0, 799, 799),
+                DisplayWindow: new Box2i(0, 0, 799, 799)),
             new ExpectedSinglePartSample(
                 "TestImages/SquaresSwirls.exr",
                 Channels: 3,
-                DataWindow: new ExrBox2i(0, 0, 999, 999),
-                DisplayWindow: new ExrBox2i(0, 0, 999, 999)),
+                DataWindow: new Box2i(0, 0, 999, 999),
+                DisplayWindow: new Box2i(0, 0, 999, 999)),
             new ExpectedSinglePartSample(
                 "TestImages/stripes.exr",
                 Channels: 4,
-                DataWindow: new ExrBox2i(0, 0, 99, 49),
-                DisplayWindow: new ExrBox2i(0, 0, 99, 49)),
+                DataWindow: new Box2i(0, 0, 99, 49),
+                DisplayWindow: new Box2i(0, 0, 99, 49)),
             new ExpectedSinglePartSample(
                 "TestImages/WideFloatRange.exr",
                 Channels: 1,
-                DataWindow: new ExrBox2i(0, 0, 499, 499),
-                DisplayWindow: new ExrBox2i(0, 0, 499, 499)),
+                DataWindow: new Box2i(0, 0, 499, 499),
+                DisplayWindow: new Box2i(0, 0, 499, 499)),
         })
         {
             AssertSinglePartSampleMetadata(sample);
@@ -256,22 +258,24 @@ public sealed class LoadTests
 
         Assert.IsTrue(Exr.IsEXR(path));
 
-        (ExrVersion version, ExrHeader header, ExrImage image) = ExrTestHelper.LoadSinglePart(path);
-        Assert.IsTrue(version.Tiled);
-        Assert.IsFalse(version.NonImage);
-        Assert.IsFalse(version.Multipart);
+        (uint version, Header header, Part image) = ExrTestHelper.LoadSinglePart(path);
+        Assert.IsTrue(((version & (1U << 9)) != 0));
+        Assert.IsFalse(((version & (1U << 11)) != 0));
+        Assert.IsFalse(((version & (1U << 12)) != 0));
         Assert.AreEqual(5, header.Channels.Count);
-        AssertBox(new ExrBox2i(-20, -20, 1019, 1019), header.DataWindow, path);
-        AssertBox(new ExrBox2i(0, 0, 999, 999), header.DisplayWindow, path);
+        AssertBox(new Box2i(-20, -20, 1019, 1019), header.DataWindow, path);
+        AssertBox(new Box2i(0, 0, 999, 999), header.DisplayWindow, path);
         Assert.IsNotNull(header.Tiles);
-        Assert.AreEqual(ExrTileLevelMode.OneLevel, header.Tiles!.LevelMode);
-        Assert.AreEqual(ExrTileRoundingMode.RoundDown, header.Tiles.RoundingMode);
-        Assert.AreEqual(287, header.Tiles.TileSizeX);
-        Assert.AreEqual(126, header.Tiles.TileSizeY);
+        Assert.AreEqual(TileLevelMode.OneLevel, header.Tiles!.LevelMode);
+        Assert.AreEqual(TileRoundingMode.RoundDown, header.Tiles.RoundingMode);
+        Assert.AreEqual(287U, header.Tiles.TileSizeX);
+        Assert.AreEqual(126U, header.Tiles.TileSizeY);
         Assert.AreEqual(header.DataWindow.Width, image.Width);
         Assert.AreEqual(header.DataWindow.Height, image.Height);
         Assert.AreEqual(1, Exr.EXRNumLevels(image));
-        Assert.AreEqual(36, image.Levels[0].Tiles.Count);
+        using ExrReader reader = ExrReader.OpenMemory(File.ReadAllBytes(path));
+        Assert.AreEqual(ExrResult.Success, reader.ParseHeader().Status);
+        Assert.AreEqual(36, reader.GetNumBlocks(0));
     }
 
     [TestMethod(DisplayName = "[TinyEXR.NET Test] MultiResolution extensions|MipContract")]
@@ -282,82 +286,82 @@ public sealed class LoadTests
             new ExpectedTiledMipSample(
                 "MultiResolution/ColorCodedLevels.exr",
                 Channels: 4,
-                DataWindow: new ExrBox2i(0, 0, 511, 511),
-                RoundingMode: ExrTileRoundingMode.RoundDown),
+                DataWindow: new Box2i(0, 0, 511, 511),
+                RoundingMode: TileRoundingMode.RoundDown),
             new ExpectedTiledMipSample(
                 "MultiResolution/MirrorPattern.exr",
                 Channels: 3,
-                DataWindow: new ExrBox2i(0, 0, 511, 511),
-                RoundingMode: ExrTileRoundingMode.RoundDown),
+                DataWindow: new Box2i(0, 0, 511, 511),
+                RoundingMode: TileRoundingMode.RoundDown),
             new ExpectedTiledMipSample(
                 "MultiResolution/OrientationCube.exr",
                 Channels: 4,
-                DataWindow: new ExrBox2i(0, 0, 511, 3071),
-                RoundingMode: ExrTileRoundingMode.RoundDown),
+                DataWindow: new Box2i(0, 0, 511, 3071),
+                RoundingMode: TileRoundingMode.RoundDown),
             new ExpectedTiledMipSample(
                 "MultiResolution/OrientationLatLong.exr",
                 Channels: 4,
-                DataWindow: new ExrBox2i(0, 0, 1023, 511),
-                RoundingMode: ExrTileRoundingMode.RoundDown),
+                DataWindow: new Box2i(0, 0, 1023, 511),
+                RoundingMode: TileRoundingMode.RoundDown),
             new ExpectedTiledMipSample(
                 "MultiResolution/StageEnvCube.exr",
                 Channels: 3,
-                DataWindow: new ExrBox2i(0, 0, 255, 1535),
-                RoundingMode: ExrTileRoundingMode.RoundDown),
+                DataWindow: new Box2i(0, 0, 255, 1535),
+                RoundingMode: TileRoundingMode.RoundDown),
             new ExpectedTiledMipSample(
                 "MultiResolution/StageEnvLatLong.exr",
                 Channels: 3,
-                DataWindow: new ExrBox2i(0, 0, 999, 499),
-                RoundingMode: ExrTileRoundingMode.RoundUp),
+                DataWindow: new Box2i(0, 0, 999, 499),
+                RoundingMode: TileRoundingMode.RoundUp),
             new ExpectedTiledMipSample(
                 "MultiResolution/KernerEnvCube.exr",
                 Channels: 4,
-                DataWindow: new ExrBox2i(0, 0, 255, 1535),
-                RoundingMode: ExrTileRoundingMode.RoundDown),
+                DataWindow: new Box2i(0, 0, 255, 1535),
+                RoundingMode: TileRoundingMode.RoundDown),
             new ExpectedTiledMipSample(
                 "MultiResolution/KernerEnvLatLong.exr",
                 Channels: 4,
-                DataWindow: new ExrBox2i(0, 0, 1023, 511),
-                RoundingMode: ExrTileRoundingMode.RoundDown),
+                DataWindow: new Box2i(0, 0, 1023, 511),
+                RoundingMode: TileRoundingMode.RoundDown),
             new ExpectedTiledMipSample(
                 "MultiResolution/WavyLinesCube.exr",
                 Channels: 3,
-                DataWindow: new ExrBox2i(0, 0, 255, 1535),
-                RoundingMode: ExrTileRoundingMode.RoundDown),
+                DataWindow: new Box2i(0, 0, 255, 1535),
+                RoundingMode: TileRoundingMode.RoundDown),
             new ExpectedTiledMipSample(
                 "MultiResolution/WavyLinesLatLong.exr",
                 Channels: 3,
-                DataWindow: new ExrBox2i(0, 0, 1023, 511),
-                RoundingMode: ExrTileRoundingMode.RoundDown),
+                DataWindow: new Box2i(0, 0, 1023, 511),
+                RoundingMode: TileRoundingMode.RoundDown),
         })
         {
             string path = TestPaths.OpenExr(sample.RelativePath);
 
             Assert.IsTrue(Exr.IsEXR(path), sample.RelativePath);
 
-            (ExrVersion version, ExrHeader header, ExrImage image) = ExrTestHelper.LoadSinglePart(path);
-            Assert.IsTrue(version.Tiled, sample.RelativePath);
-            Assert.IsFalse(version.NonImage, sample.RelativePath);
-            Assert.IsFalse(version.Multipart, sample.RelativePath);
+            (uint version, Header header, Part image) = ExrTestHelper.LoadSinglePart(path);
+            Assert.IsTrue(((version & (1U << 9)) != 0), sample.RelativePath);
+            Assert.IsFalse(((version & (1U << 11)) != 0), sample.RelativePath);
+            Assert.IsFalse(((version & (1U << 12)) != 0), sample.RelativePath);
             Assert.AreEqual(sample.Channels, header.Channels.Count, sample.RelativePath);
             AssertBox(sample.DataWindow, header.DataWindow, sample.RelativePath);
             AssertBox(sample.DataWindow, header.DisplayWindow, sample.RelativePath);
             Assert.IsNotNull(header.Tiles, sample.RelativePath);
-            Assert.AreEqual(ExrTileLevelMode.MipMapLevels, header.Tiles!.LevelMode, sample.RelativePath);
+            Assert.AreEqual(TileLevelMode.MipmapLevels, header.Tiles!.LevelMode, sample.RelativePath);
             Assert.AreEqual(sample.RoundingMode, header.Tiles.RoundingMode, sample.RelativePath);
-            Assert.AreEqual(64, header.Tiles.TileSizeX, sample.RelativePath);
-            Assert.AreEqual(64, header.Tiles.TileSizeY, sample.RelativePath);
+            Assert.AreEqual(64U, header.Tiles.TileSizeX, sample.RelativePath);
+            Assert.AreEqual(64U, header.Tiles.TileSizeY, sample.RelativePath);
             Assert.AreEqual(
                 ComputeExpectedMipLevelCount(header.DataWindow.Width, header.DataWindow.Height, header.Tiles.RoundingMode),
                 Exr.EXRNumLevels(image),
                 sample.RelativePath);
 
-            foreach (ExrImageLevel level in image.Levels)
+            foreach (PartLevel level in image.Levels)
             {
                 Assert.AreEqual(level.LevelX, level.LevelY, sample.RelativePath);
             }
 
-            Assert.IsTrue(image.Levels[0].Tiles.Count > 0, sample.RelativePath);
+            Assert.IsTrue(image.Header.IsTiled && image.Levels[0].Channels.Count > 0, sample.RelativePath);
         }
     }
 
@@ -393,7 +397,8 @@ public sealed class LoadTests
         })
         {
             string path = TestPaths.OpenExr(sample.RelativePath);
-            Assert.AreEqual(ResultCode.Success, Exr.ParseEXRHeaderFromFile(path, out _, out ExrHeader header), sample.RelativePath);
+            Assert.AreEqual(ExrResult.Success, Exr.ParseEXRHeaderFromFile(path, out _, out Header? header), sample.RelativePath);
+            Assert.IsNotNull(header);
 
             CollectionAssert.AreEqual(
                 sample.ExpectedChannels,
@@ -418,17 +423,17 @@ public sealed class LoadTests
         ExpectedSinglePartSample sample = new(
             "MultiResolution/WavyLinesSphere.exr",
             Channels: 4,
-            DataWindow: new ExrBox2i(0, 0, 479, 479),
-            DisplayWindow: new ExrBox2i(0, 0, 479, 479));
+            DataWindow: new Box2i(0, 0, 479, 479),
+            DisplayWindow: new Box2i(0, 0, 479, 479));
 
         string path = TestPaths.OpenExr(sample.RelativePath);
 
         Assert.IsTrue(Exr.IsEXR(path), sample.RelativePath);
 
-        (ExrVersion version, ExrHeader header, ExrImage image) = ExrTestHelper.LoadSinglePart(path);
-        Assert.IsFalse(version.Tiled, sample.RelativePath);
-        Assert.IsFalse(version.NonImage, sample.RelativePath);
-        Assert.IsFalse(version.Multipart, sample.RelativePath);
+        (uint version, Header header, Part image) = ExrTestHelper.LoadSinglePart(path);
+        Assert.IsFalse(((version & (1U << 9)) != 0), sample.RelativePath);
+        Assert.IsFalse(((version & (1U << 11)) != 0), sample.RelativePath);
+        Assert.IsFalse(((version & (1U << 12)) != 0), sample.RelativePath);
         Assert.AreEqual(sample.Channels, header.Channels.Count, sample.RelativePath);
         AssertBox(sample.DataWindow, header.DataWindow, sample.RelativePath);
         AssertBox(sample.DisplayWindow, header.DisplayWindow, sample.RelativePath);
@@ -442,19 +447,19 @@ public sealed class LoadTests
     public void Case_Beachball_multipart_0001_exr_Version()
     {
         string path = TestPaths.OpenExr("Beachball/multipart.0001.exr");
-        Assert.AreEqual(ResultCode.Success, Exr.ParseEXRVersionFromFile(path, out ExrVersion version));
-        Assert.IsTrue(version.Multipart);
+        Assert.AreEqual(ExrResult.Success, Exr.ParseEXRVersionFromFile(path, out uint version));
+        Assert.IsTrue(((version & (1U << 12)) != 0));
     }
 
     [TestMethod(DisplayName = "Beachball/multipart.0001.exr|Load")]
     public void Case_Beachball_multipart_0001_exr_Load()
     {
         string path = TestPaths.OpenExr("Beachball/multipart.0001.exr");
-        (ExrVersion version, ExrMultipartHeader headers, ExrMultipartImage images) = ExrTestHelper.LoadMultipart(path);
+        (uint version, Header[] headers, Image images) = ExrTestHelper.LoadMultipart(path);
 
-        Assert.IsTrue(version.Multipart);
-        Assert.AreEqual(10, headers.Headers.Count);
-        Assert.AreEqual(10, images.Images.Count);
+        Assert.IsTrue(((version & (1U << 12)) != 0));
+        Assert.AreEqual(10, headers.Length);
+        Assert.AreEqual(10, images.Parts.Count);
     }
 
     [TestMethod(DisplayName = "Beachbal multiparts")]
@@ -463,11 +468,11 @@ public sealed class LoadTests
         foreach (string relativePath in Enumerable.Range(1, 8).Select(static i => $"Beachball/multipart.{i:0000}.exr"))
         {
             string path = TestPaths.OpenExr(relativePath);
-            (ExrVersion version, ExrMultipartHeader headers, ExrMultipartImage images) = ExrTestHelper.LoadMultipart(path);
+            (uint version, Header[] headers, Image images) = ExrTestHelper.LoadMultipart(path);
 
-            Assert.IsTrue(version.Multipart, relativePath);
-            Assert.AreEqual(10, headers.Headers.Count, relativePath);
-            Assert.AreEqual(10, images.Images.Count, relativePath);
+            Assert.IsTrue(((version & (1U << 12)) != 0), relativePath);
+            Assert.AreEqual(10, headers.Length, relativePath);
+            Assert.AreEqual(10, images.Parts.Count, relativePath);
         }
     }
 
@@ -485,56 +490,61 @@ public sealed class LoadTests
     {
         string path = TestPaths.DeepScanline;
 
-        Assert.AreEqual(ResultCode.Success, Exr.ParseEXRVersionFromFile(path, out ExrVersion version));
-        Assert.IsFalse(version.Tiled);
-        Assert.IsTrue(version.NonImage);
-        Assert.IsFalse(version.Multipart);
+        Assert.AreEqual(ExrResult.Success, Exr.ParseEXRVersionFromFile(path, out uint version));
+        Assert.IsFalse(((version & (1U << 9)) != 0));
+        Assert.IsTrue(((version & (1U << 11)) != 0));
+        Assert.IsFalse(((version & (1U << 12)) != 0));
 
-        Assert.AreEqual(ResultCode.Success, Exr.LoadDeepEXR(path, out ExrHeader header, out ExrDeepImage image));
-        Assert.IsTrue(header.IsDeep);
-        Assert.AreEqual("deepscanline", header.PartType);
-        Assert.IsNull(header.Tiles);
+        Assert.AreEqual(ExrResult.Success, Exr.LoadDeepEXR(path, out Part? image));
+        Assert.IsNotNull(image);
+        Assert.IsTrue(image!.Header.IsDeep);
+        Assert.AreEqual(PartType.DeepScanline, image!.Header.PartType);
+        Assert.IsNull(image.Header.Tiles);
         Assert.IsTrue(image.Width > 0);
         Assert.IsTrue(image.Height > 0);
-        Assert.AreEqual(image.Height, image.OffsetTable.Length);
-        Assert.AreEqual(header.Channels.Count, image.Channels.Count);
+        Assert.AreEqual(image.Width * image.Height, ((DeepLevel)image.Levels[0]).SampleCounts.Length);
+        Assert.AreEqual(image.Header.Channels.Count, image.Levels[0].Channels.Count);
     }
 
     [TestMethod(DisplayName = "[TinyEXR.NET Test] Stream read APIs match file APIs")]
     public void Case_StreamReadApis_Match_FileApis()
     {
         string singlePartPath = TestPaths.OpenExr("ScanLines/Desk.exr");
-        Assert.AreEqual(ResultCode.Success, Exr.ParseEXRVersionFromFile(singlePartPath, out ExrVersion expectedVersion));
-        Assert.AreEqual(ResultCode.Success, Exr.ParseEXRHeaderFromFile(singlePartPath, out _, out ExrHeader expectedHeader));
-        Assert.AreEqual(ResultCode.Success, Exr.LoadEXRImageFromFile(singlePartPath, expectedHeader, out ExrImage expectedImage));
-        Assert.AreEqual(ResultCode.Success, Exr.LoadEXR(singlePartPath, out float[] expectedRgba, out int expectedWidth, out int expectedHeight));
+        Assert.AreEqual(ExrResult.Success, Exr.ParseEXRVersionFromFile(singlePartPath, out uint expectedVersion));
+        Assert.AreEqual(ExrResult.Success, Exr.ParseEXRHeaderFromFile(singlePartPath, out _, out Header? expectedHeader));
+        Assert.IsNotNull(expectedHeader);
+        Assert.AreEqual(ExrResult.Success, Exr.LoadEXRImageFromFile(singlePartPath, out Part? expectedImage));
+        Assert.IsNotNull(expectedImage);
+        Assert.AreEqual(ExrResult.Success, Exr.LoadEXR(singlePartPath, out float[] expectedRgba, out int expectedWidth, out int expectedHeight));
 
         using (FileStream versionStream = File.OpenRead(singlePartPath))
         {
-            Assert.AreEqual(ResultCode.Success, Exr.ParseEXRVersionFromStream(versionStream, out ExrVersion streamVersion));
+            Assert.AreEqual(ExrResult.Success, Exr.ParseEXRVersionFromStream(versionStream, out uint streamVersion));
             Assert.AreEqual(0, versionStream.Position);
-            Assert.AreEqual(expectedVersion.Tiled, streamVersion.Tiled);
-            Assert.AreEqual(expectedVersion.Multipart, streamVersion.Multipart);
-            Assert.AreEqual(expectedVersion.NonImage, streamVersion.NonImage);
+            Assert.AreEqual(((expectedVersion & (1U << 9)) != 0), ((streamVersion & (1U << 9)) != 0));
+            Assert.AreEqual(((expectedVersion & (1U << 12)) != 0), ((streamVersion & (1U << 12)) != 0));
+            Assert.AreEqual(((expectedVersion & (1U << 11)) != 0), ((streamVersion & (1U << 11)) != 0));
         }
 
         using (FileStream headerStream = File.OpenRead(singlePartPath))
         {
-            Assert.AreEqual(ResultCode.Success, Exr.ParseEXRHeaderFromStream(headerStream, out _, out ExrHeader streamHeader));
+            Assert.AreEqual(ExrResult.Success, Exr.ParseEXRHeaderFromStream(headerStream, out _, out Header? streamHeader));
+            Assert.IsNotNull(streamHeader);
             Assert.AreEqual(0, headerStream.Position);
             ExrTestHelper.EqualHeaders(expectedHeader, streamHeader);
         }
 
         using (FileStream imageStream = File.OpenRead(singlePartPath))
         {
-            Assert.AreEqual(ResultCode.Success, Exr.LoadEXRImageFromStream(imageStream, expectedHeader, out ExrImage streamImage));
+            Assert.AreEqual(ExrResult.Success, Exr.LoadEXRImageFromStream(imageStream, out Part? streamImage));
+            Assert.IsNotNull(streamImage);
             Assert.AreEqual(0, imageStream.Position);
             ExrTestHelper.EqualImages(expectedImage, streamImage);
         }
 
         using (FileStream rgbaStream = File.OpenRead(singlePartPath))
         {
-            Assert.AreEqual(ResultCode.Success, Exr.LoadEXRFromStream(rgbaStream, out float[] streamRgba, out int streamWidth, out int streamHeight));
+            Assert.AreEqual(ExrResult.Success, Exr.LoadEXRFromStream(rgbaStream, out float[] streamRgba, out int streamWidth, out int streamHeight));
             Assert.AreEqual(0, rgbaStream.Position);
             Assert.AreEqual(expectedWidth, streamWidth);
             Assert.AreEqual(expectedHeight, streamHeight);
@@ -543,51 +553,48 @@ public sealed class LoadTests
 
         using (FileStream layersStream = File.OpenRead(singlePartPath))
         {
-            Assert.AreEqual(ResultCode.Success, Exr.EXRLayers(singlePartPath, out string[] expectedLayers));
-            Assert.AreEqual(ResultCode.Success, Exr.EXRLayersFromStream(layersStream, out string[] streamLayers));
+            Assert.AreEqual(ExrResult.Success, Exr.EXRLayers(singlePartPath, out string[] expectedLayers));
+            Assert.AreEqual(ExrResult.Success, Exr.EXRLayersFromStream(layersStream, out string[] streamLayers));
             Assert.AreEqual(0, layersStream.Position);
             CollectionAssert.AreEqual(expectedLayers, streamLayers);
         }
 
         string multipartPath = TestPaths.OpenExr("Beachball/multipart.0001.exr");
-        Assert.AreEqual(ResultCode.Success, Exr.ParseEXRMultipartHeaderFromFile(multipartPath, out _, out ExrMultipartHeader expectedMultipartHeaders));
-        Assert.AreEqual(ResultCode.Success, Exr.LoadEXRMultipartImageFromFile(multipartPath, expectedMultipartHeaders, out ExrMultipartImage expectedMultipartImages));
+        Assert.AreEqual(ExrResult.Success, Exr.ParseEXRMultipartHeaderFromFile(multipartPath, out _, out Header[] expectedMultipartHeaders));
+        Assert.AreEqual(ExrResult.Success, Exr.LoadEXRMultipartImageFromFile(multipartPath, out Image? expectedMultipartImages));
+        Assert.IsNotNull(expectedMultipartImages);
 
         using (FileStream multipartHeaderStream = File.OpenRead(multipartPath))
         {
-            Assert.AreEqual(ResultCode.Success, Exr.ParseEXRMultipartHeaderFromStream(multipartHeaderStream, out ExrVersion streamVersion, out ExrMultipartHeader streamHeaders));
+            Assert.AreEqual(ExrResult.Success, Exr.ParseEXRMultipartHeaderFromStream(multipartHeaderStream, out uint streamVersion, out Header[] streamHeaders));
             Assert.AreEqual(0, multipartHeaderStream.Position);
-            Assert.IsTrue(streamVersion.Multipart);
-            Assert.AreEqual(expectedMultipartHeaders.Headers.Count, streamHeaders.Headers.Count);
+            Assert.IsTrue(((streamVersion & (1U << 12)) != 0));
+            Assert.AreEqual(expectedMultipartHeaders.Length, streamHeaders.Length);
         }
 
         using (FileStream multipartImageStream = File.OpenRead(multipartPath))
         {
-            Assert.AreEqual(ResultCode.Success, Exr.LoadEXRMultipartImageFromStream(multipartImageStream, expectedMultipartHeaders, out ExrMultipartImage streamImages));
+            Assert.AreEqual(ExrResult.Success, Exr.LoadEXRMultipartImageFromStream(multipartImageStream, out Image? streamImages));
+            Assert.IsNotNull(streamImages);
             Assert.AreEqual(0, multipartImageStream.Position);
-            Assert.AreEqual(expectedMultipartImages.Images.Count, streamImages.Images.Count);
+            Assert.AreEqual(expectedMultipartImages.Parts.Count, streamImages.Parts.Count);
         }
 
         string deepPath = TestPaths.DeepScanline;
-        Assert.AreEqual(ResultCode.Success, Exr.LoadDeepEXR(deepPath, out ExrHeader expectedDeepHeader, out ExrDeepImage expectedDeepImage));
+        Assert.AreEqual(ExrResult.Success, Exr.LoadDeepEXR(deepPath, out Part? expectedDeepImage));
+        Assert.IsNotNull(expectedDeepImage);
         using (FileStream deepStream = File.OpenRead(deepPath))
         {
-            Assert.AreEqual(ResultCode.Success, Exr.LoadDeepEXRFromStream(deepStream, out ExrHeader streamDeepHeader, out ExrDeepImage streamDeepImage));
+            Assert.AreEqual(ExrResult.Success, Exr.LoadDeepEXRFromStream(deepStream, out Part? streamDeepImage));
+            Assert.IsNotNull(streamDeepImage);
             Assert.AreEqual(0, deepStream.Position);
-            ExrTestHelper.EqualHeaders(expectedDeepHeader, streamDeepHeader);
+            ExrTestHelper.EqualHeaders(expectedDeepImage!.Header, streamDeepImage!.Header);
             Assert.AreEqual(expectedDeepImage.Width, streamDeepImage.Width);
             Assert.AreEqual(expectedDeepImage.Height, streamDeepImage.Height);
-            Assert.AreEqual(expectedDeepImage.Channels.Count, streamDeepImage.Channels.Count);
+            Assert.AreEqual(expectedDeepImage.Header.Channels.Count, streamDeepImage.Header.Channels.Count);
         }
 
-        using (FileStream readerStream = File.OpenRead(singlePartPath))
-        {
-            SinglePartExrReader reader = new();
-            reader.Read(readerStream);
-            Assert.AreEqual(0, readerStream.Position);
-            Assert.AreEqual(expectedHeader.DataWindow.Width, reader.Width);
-            Assert.AreEqual(expectedHeader.DataWindow.Height, reader.Height);
-        }
+
     }
 
     [TestMethod(DisplayName = "[TinyEXR.NET Test] Stream APIs require seekable streams")]
@@ -596,10 +603,10 @@ public sealed class LoadTests
         byte[] data = File.ReadAllBytes(TestPaths.Asakusa);
         using NonSeekableReadStream stream = new(data);
 
-        Assert.AreEqual(ResultCode.InvalidArgument, Exr.ParseEXRVersionFromStream(stream, out _));
+        Assert.AreEqual(ExrResult.InvalidArgument, Exr.ParseEXRVersionFromStream(stream, out _));
         Assert.IsFalse(Exr.IsEXRFromStream(stream));
-        Assert.AreEqual(ResultCode.InvalidArgument, Exr.ParseEXRHeaderFromStream(stream, out _, out _));
-        Assert.AreEqual(ResultCode.InvalidArgument, Exr.LoadEXRFromStream(stream, out _, out _, out _));
+        Assert.AreEqual(ExrResult.InvalidArgument, Exr.ParseEXRHeaderFromStream(stream, out _, out _));
+        Assert.AreEqual(ExrResult.InvalidArgument, Exr.LoadEXRFromStream(stream, out _, out _, out _));
     }
 
     private static void AssertSinglePartLoads(string relativePath)
@@ -608,27 +615,27 @@ public sealed class LoadTests
 
         Assert.IsTrue(Exr.IsEXR(path), relativePath);
 
-        (ExrVersion version, ExrHeader header, ExrImage image) = ExrTestHelper.LoadSinglePart(path);
-        Assert.IsFalse(version.Tiled, relativePath);
-        Assert.IsFalse(version.NonImage, relativePath);
-        Assert.IsFalse(version.Multipart, relativePath);
+        (uint version, Header header, Part image) = ExrTestHelper.LoadSinglePart(path);
+        Assert.IsFalse(((version & (1U << 9)) != 0), relativePath);
+        Assert.IsFalse(((version & (1U << 11)) != 0), relativePath);
+        Assert.IsFalse(((version & (1U << 12)) != 0), relativePath);
         Assert.IsNull(header.Tiles, relativePath);
         Assert.AreEqual(1, image.Levels.Count, relativePath);
-        Assert.AreEqual(0, image.Levels[0].Tiles.Count, relativePath);
+        Assert.IsFalse(image.Header.IsTiled, relativePath);
         Assert.AreEqual(header.DataWindow.Width, image.Width, relativePath);
         Assert.AreEqual(header.DataWindow.Height, image.Height, relativePath);
-        Assert.IsTrue(image.Channels.Count > 0, relativePath);
+        Assert.IsTrue(image.Header.Channels.Count > 0, relativePath);
     }
 
     private static void AssertTiledSinglePartLoads(string relativePath)
     {
         string path = TestPaths.OpenExr(relativePath);
-        (ExrVersion version, _, ExrImage image) = ExrTestHelper.LoadSinglePart(path);
+        (uint version, _, Part image) = ExrTestHelper.LoadSinglePart(path);
 
-        Assert.IsTrue(version.Tiled);
-        Assert.IsFalse(version.NonImage);
-        Assert.IsFalse(version.Multipart);
-        Assert.IsTrue(image.Levels[0].Tiles.Count > 0);
+        Assert.IsTrue(((version & (1U << 9)) != 0));
+        Assert.IsFalse(((version & (1U << 11)) != 0));
+        Assert.IsFalse(((version & (1U << 12)) != 0));
+        Assert.IsTrue(image.Header.IsTiled && image.Levels[0].Channels.Count > 0);
     }
 
     private static void AssertSinglePartSampleMetadata(ExpectedSinglePartSample sample)
@@ -637,10 +644,10 @@ public sealed class LoadTests
 
         Assert.IsTrue(Exr.IsEXR(path), sample.RelativePath);
 
-        (ExrVersion version, ExrHeader header, ExrImage image) = ExrTestHelper.LoadSinglePart(path);
-        Assert.IsFalse(version.Tiled, sample.RelativePath);
-        Assert.IsFalse(version.NonImage, sample.RelativePath);
-        Assert.IsFalse(version.Multipart, sample.RelativePath);
+        (uint version, Header header, Part image) = ExrTestHelper.LoadSinglePart(path);
+        Assert.IsFalse(((version & (1U << 9)) != 0), sample.RelativePath);
+        Assert.IsFalse(((version & (1U << 11)) != 0), sample.RelativePath);
+        Assert.IsFalse(((version & (1U << 12)) != 0), sample.RelativePath);
         Assert.AreEqual(sample.Channels, header.Channels.Count, sample.RelativePath);
         AssertBox(sample.DataWindow, header.DataWindow, sample.RelativePath);
         AssertBox(sample.DisplayWindow, header.DisplayWindow, sample.RelativePath);
@@ -648,7 +655,7 @@ public sealed class LoadTests
         Assert.AreEqual(sample.DataWindow.Height, image.Height, sample.RelativePath);
     }
 
-    private static void AssertBox(ExrBox2i expected, ExrBox2i actual, string message)
+    private static void AssertBox(Box2i expected, Box2i actual, string message)
     {
         Assert.AreEqual(expected.MinX, actual.MinX, message);
         Assert.AreEqual(expected.MinY, actual.MinY, message);
@@ -656,7 +663,7 @@ public sealed class LoadTests
         Assert.AreEqual(expected.MaxY, actual.MaxY, message);
     }
 
-    private static int ComputeExpectedMipLevelCount(int width, int height, ExrTileRoundingMode roundingMode)
+    private static int ComputeExpectedMipLevelCount(long width, long height, TileRoundingMode roundingMode)
     {
         int levels = 1;
         while (width > 1 || height > 1)
@@ -669,14 +676,14 @@ public sealed class LoadTests
         return levels;
     }
 
-    private static int NextMipDimension(int dimension, ExrTileRoundingMode roundingMode)
+    private static long NextMipDimension(long dimension, TileRoundingMode roundingMode)
     {
         if (dimension <= 1)
         {
             return 1;
         }
 
-        return roundingMode == ExrTileRoundingMode.RoundUp
+        return roundingMode == TileRoundingMode.RoundUp
             ? (dimension + 1) / 2
             : dimension / 2;
     }
@@ -684,14 +691,14 @@ public sealed class LoadTests
     private readonly record struct ExpectedSinglePartSample(
         string RelativePath,
         int Channels,
-        ExrBox2i DataWindow,
-        ExrBox2i DisplayWindow);
+        Box2i DataWindow,
+        Box2i DisplayWindow);
 
     private readonly record struct ExpectedTiledMipSample(
         string RelativePath,
         int Channels,
-        ExrBox2i DataWindow,
-        ExrTileRoundingMode RoundingMode);
+        Box2i DataWindow,
+        TileRoundingMode RoundingMode);
 
     private readonly record struct ExpectedLayoutSample(
         string RelativePath,

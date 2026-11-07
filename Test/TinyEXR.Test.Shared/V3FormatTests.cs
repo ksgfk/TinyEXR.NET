@@ -16,7 +16,7 @@ public sealed class V3FormatTests
     [TestMethod(DisplayName = "[TinyEXR.NET Test] V3 format parses asakusa header and scanline index")]
     public void Case_V3Format_ParsesAsakusaHeaderAndIndex()
     {
-        ParsedFile file = ParseFile(TestPaths.Asakusa);
+        ReaderSnapshot file = ParseFile(TestPaths.Asakusa);
         Assert.AreEqual(2, file.FileVersion);
         Assert.AreEqual(2U, file.RawVersionField);
         Assert.IsFalse(file.Flags.Tiled);
@@ -28,7 +28,7 @@ public sealed class V3FormatTests
         Assert.IsTrue(file.OffsetTablesEnd < file.FileLength);
         Assert.AreEqual(1, file.Parts.Count);
 
-        ParsedPartIndex part = file.Parts[0];
+        PartSnapshot part = file.Parts[0];
         Assert.AreEqual(V3.PartType.Scanline, part.Header.PartType);
         Assert.AreEqual(0, part.MissingChunkCount);
         Assert.IsTrue(part.Chunks.Count > 1);
@@ -46,7 +46,7 @@ public sealed class V3FormatTests
     [TestMethod(DisplayName = "[TinyEXR.NET Test] V3 format indexes multipart headers and offset tables")]
     public void Case_V3Format_IndexesMultipartParts()
     {
-        ParsedFile file = ParseFile(TestPaths.OpenExr("Beachball/multipart.0001.exr"));
+        ReaderSnapshot file = ParseFile(TestPaths.OpenExr("Beachball/multipart.0001.exr"));
         Assert.IsTrue(file.Flags.Multipart);
         Assert.IsFalse(file.Flags.Tiled);
         Assert.IsFalse(file.Flags.NonImage);
@@ -56,7 +56,7 @@ public sealed class V3FormatTests
         int tableStart = file.OffsetTablesStart;
         for (int i = 0; i < file.Parts.Count; i++)
         {
-            ParsedPartIndex part = file.Parts[i];
+            PartSnapshot part = file.Parts[i];
             Assert.AreEqual(i, part.PartIndex);
             Assert.IsFalse(string.IsNullOrEmpty(part.Header.Name));
             Assert.AreEqual(V3.PartType.Scanline, part.Header.PartType);
@@ -74,20 +74,20 @@ public sealed class V3FormatTests
     [TestMethod(DisplayName = "[TinyEXR.NET Test] V3 format computes MIPMAP and RIPMAP geometry")]
     public void Case_V3Format_ComputesMipAndRipGeometry()
     {
-        ParsedPartIndex mip = ParseFile(TestPaths.OpenExr("MultiResolution/PeriodicPattern.exr")).Parts[0];
+        PartSnapshot mip = ParseFile(TestPaths.OpenExr("MultiResolution/PeriodicPattern.exr")).Parts[0];
         Assert.AreEqual(V3.TileLevelMode.MipmapLevels, mip.Header.Tiles!.LevelMode);
         Assert.AreEqual(122, mip.Chunks.Count);
-        ParsedChunkIndex lastMip = mip.Chunks[mip.Chunks.Count - 1];
+        ChunkSnapshot lastMip = mip.Chunks[mip.Chunks.Count - 1];
         Assert.AreEqual(9, lastMip.Geometry.LevelX);
         Assert.AreEqual(9, lastMip.Geometry.LevelY);
         Assert.AreEqual(1L, lastMip.Geometry.Region.Width);
         Assert.AreEqual(1L, lastMip.Geometry.Region.Height);
 
-        ParsedPartIndex rip = ParseFile(TestPaths.OpenExr("MultiResolution/Kapaa.exr")).Parts[0];
+        PartSnapshot rip = ParseFile(TestPaths.OpenExr("MultiResolution/Kapaa.exr")).Parts[0];
         Assert.AreEqual(V3.TileLevelMode.RipmapLevels, rip.Header.Tiles!.LevelMode);
         Assert.AreEqual(V3.TileRoundingMode.RoundUp, rip.Header.Tiles.RoundingMode);
         Assert.AreEqual(858, rip.Chunks.Count);
-        ParsedChunkIndex lastRip = rip.Chunks[rip.Chunks.Count - 1];
+        ChunkSnapshot lastRip = rip.Chunks[rip.Chunks.Count - 1];
         Assert.AreEqual(10, lastRip.Geometry.LevelX);
         Assert.AreEqual(10, lastRip.Geometry.LevelY);
         Assert.AreEqual(1L, lastRip.Geometry.Region.Width);
@@ -98,8 +98,8 @@ public sealed class V3FormatTests
     [TestMethod(DisplayName = "[TinyEXR.NET Test] V3 format indexes deep and HTJ2K fixtures without payload decode")]
     public void Case_V3Format_IndexesDeepAndHtj2kFixtures()
     {
-        ParsedFile deepScanlineFile = ParseFile(TestPaths.DeepScanline);
-        ParsedPartIndex deepScanline = deepScanlineFile.Parts[0];
+        ReaderSnapshot deepScanlineFile = ParseFile(TestPaths.DeepScanline);
+        PartSnapshot deepScanline = deepScanlineFile.Parts[0];
         Assert.IsTrue(deepScanlineFile.Flags.NonImage);
         Assert.AreEqual(V3.PartType.DeepScanline, deepScanline.Header.PartType);
         Assert.AreEqual(480, deepScanline.Chunks.Count);
@@ -109,8 +109,8 @@ public sealed class V3FormatTests
         Assert.IsFalse(deepScanline.Header.Attributes.Any(attribute => attribute.Name == "version"));
 
         string deepTiledPath = Path.Combine(TestPaths.NativeTinyExrRoot, "data", "deep_tiled_sample.exr");
-        ParsedFile deepTiledFile = ParseFile(deepTiledPath);
-        ParsedPartIndex deepTiled = deepTiledFile.Parts[0];
+        ReaderSnapshot deepTiledFile = ParseFile(deepTiledPath);
+        PartSnapshot deepTiled = deepTiledFile.Parts[0];
         Assert.IsTrue(deepTiledFile.Flags.NonImage);
         Assert.IsFalse(deepTiledFile.Flags.Tiled);
         Assert.AreEqual(V3.PartType.DeepTiled, deepTiled.Header.PartType);
@@ -120,10 +120,10 @@ public sealed class V3FormatTests
         Assert.AreEqual(1, deepTiled.Chunks[3].Geometry.TileX);
         Assert.AreEqual(1, deepTiled.Chunks[3].Geometry.TileY);
 
-        ParsedPartIndex htj32 = ParseFile(TestPaths.Regression("2by2_htj2k32.exr")).Parts[0];
+        PartSnapshot htj32 = ParseFile(TestPaths.Regression("2by2_htj2k32.exr")).Parts[0];
         Assert.AreEqual(V3.Compression.HTJ2K32, htj32.Header.Compression);
         Assert.AreEqual(V3.PartType.Scanline, htj32.Header.PartType);
-        ParsedPartIndex htj256 = ParseFile(TestPaths.Regression("tiled_htj2k256.exr")).Parts[0];
+        PartSnapshot htj256 = ParseFile(TestPaths.Regression("tiled_htj2k256.exr")).Parts[0];
         Assert.AreEqual(V3.Compression.HTJ2K256, htj256.Header.Compression);
         Assert.AreEqual(V3.PartType.Tiled, htj256.Header.PartType);
     }
@@ -141,7 +141,7 @@ public sealed class V3FormatTests
         attributes.Add(new SyntheticAttribute("testCustom", "blob", new byte[] { 1, 2, 3, 4 }));
         SyntheticFile headerOnly = BuildSingle(attributes, offsetCount: 1);
 
-        ParsedFile file = ParseMemory(headerOnly.Bytes);
+        ReaderSnapshot file = ParseMemory(headerOnly.Bytes);
         Assert.AreEqual(headerOnly.Bytes.Length, file.OffsetTablesEnd);
         Assert.AreEqual(file.OffsetTablesEnd, file.PixelDataStart);
         Assert.AreEqual(1, file.Parts[0].MissingChunkCount);
@@ -160,7 +160,7 @@ public sealed class V3FormatTests
             payloadByteCount: 8,
             pointOffsetsAtPayload: true);
         Array.Fill(minimalPayload.Bytes, (byte)0xff, minimalPayload.PayloadStart, 8);
-        ParsedFile payloadFile = ParseMemory(minimalPayload.Bytes);
+        ReaderSnapshot payloadFile = ParseMemory(minimalPayload.Bytes);
         Assert.AreEqual((ulong)minimalPayload.PayloadStart, payloadFile.Parts[0].Chunks[0].FileOffset);
     }
 
@@ -171,7 +171,7 @@ public sealed class V3FormatTests
             tiled: false,
             dataWindow: Box(0, 0, 1, 1),
             maxSamplesPerPixel: -1);
-        ParsedPartIndex deepScanline = ParseMemory(BuildSingle(
+        PartSnapshot deepScanline = ParseMemory(BuildSingle(
             deepScanlineAttributes,
             offsetCount: 2,
             flags: NonImageFlag).Bytes).Parts[0];
@@ -213,7 +213,7 @@ public sealed class V3FormatTests
             tiled: true,
             dataWindow: Box(0, 0, 3, 3),
             maxSamplesPerPixel: -1);
-        ParsedPartIndex deepTiled = ParseMemory(BuildSingle(
+        PartSnapshot deepTiled = ParseMemory(BuildSingle(
             deepTiledAttributes,
             offsetCount: 4,
             flags: NonImageFlag).Bytes).Parts[0];
@@ -235,7 +235,7 @@ public sealed class V3FormatTests
     public void Case_V3Format_ValidatesFlatSamplingAndUtf8ChannelByteOrder()
     {
         byte[] sampledChannels = Channels(Channel("S", V3.PixelType.Half, xSampling: 2, ySampling: 2));
-        ParsedPartIndex aligned = ParseMemory(BuildSingle(
+        PartSnapshot aligned = ParseMemory(BuildSingle(
             StandardAttributes(dataWindow: Box(-4, -6, 3, 3), channels: sampledChannels),
             offsetCount: 10).Bytes).Parts[0];
         Assert.AreEqual(-4, aligned.Header.DataWindow.MinX);
@@ -259,7 +259,7 @@ public sealed class V3FormatTests
 
         const string bmpPrivateUse = "\ue000";
         const string supplementary = "\U00010000";
-        ParsedPartIndex utf8Ordered = ParseMemory(BuildSingle(
+        PartSnapshot utf8Ordered = ParseMemory(BuildSingle(
             StandardAttributes(channels: Channels(
                 Channel(bmpPrivateUse, V3.PixelType.Half),
                 Channel(supplementary, V3.PixelType.Half))),
@@ -284,17 +284,17 @@ public sealed class V3FormatTests
         byte[] ignoredTileData = new byte[] { 9, 8, 7 };
         List<SyntheticAttribute> singleScanline = StandardAttributes();
         singleScanline.Add(new SyntheticAttribute("tiles", "ignored", ignoredTileData));
-        ParsedPartIndex single = ParseMemory(BuildSingle(singleScanline, 1).Bytes).Parts[0];
+        PartSnapshot single = ParseMemory(BuildSingle(singleScanline, 1).Bytes).Parts[0];
         Assert.AreEqual(V3.PartType.Scanline, single.Header.PartType);
         Assert.IsNull(single.Header.Tiles);
-        ParsedAttribute ignored = single.RawAttributes.Single(attribute => attribute.Value.Name == "tiles");
+        AttributeSnapshot ignored = single.RawAttributes.Single(attribute => attribute.Value.Name == "tiles");
         Assert.AreEqual("ignored", ignored.Value.TypeName);
         CollectionAssert.AreEqual(ignoredTileData, ignored.Value.Data.ToArray());
 
         List<SyntheticAttribute> multipartA = MultipartScanlineAttributes("a", includeChunkCount: true);
         multipartA.Add(new SyntheticAttribute("tiles", "ignored", ignoredTileData));
         List<SyntheticAttribute> multipartB = MultipartScanlineAttributes("b", includeChunkCount: true);
-        ParsedFile multipart = ParseMemory(BuildMultipart(
+        ReaderSnapshot multipart = ParseMemory(BuildMultipart(
             new SyntheticPart(multipartA, 1),
             new SyntheticPart(multipartB, 1)));
         Assert.AreEqual(2, multipart.Parts.Count);
@@ -317,7 +317,7 @@ public sealed class V3FormatTests
         List<SyntheticAttribute> tiledRandomY = StandardAttributes();
         Replace(tiledRandomY, "lineOrder", new SyntheticAttribute("lineOrder", "lineOrder", new byte[] { 2 }));
         tiledRandomY.Add(new SyntheticAttribute("tiles", "tiledesc", TileDescriptionBytes(1, 1)));
-        ParsedPartIndex tiled = ParseMemory(BuildSingle(tiledRandomY, 1, flags: TiledFlag).Bytes).Parts[0];
+        PartSnapshot tiled = ParseMemory(BuildSingle(tiledRandomY, 1, flags: TiledFlag).Bytes).Parts[0];
         Assert.AreEqual(V3.PartType.Tiled, tiled.Header.PartType);
         Assert.AreEqual(V3.LineOrder.RandomY, tiled.Header.LineOrder);
     }
@@ -325,7 +325,7 @@ public sealed class V3FormatTests
     [TestMethod(DisplayName = "[TinyEXR.NET Test] V3 format rejects extreme geometry, header offsets, and invalid UTF-8")]
     public void Case_V3Format_RejectsExtremeGeometryHeaderOffsetsAndInvalidUtf8()
     {
-        ParsedPartIndex ordinaryNegative = ParseMemory(BuildSingle(
+        PartSnapshot ordinaryNegative = ParseMemory(BuildSingle(
             StandardAttributes(dataWindow: Box(-100, -100, -99, -99)),
             offsetCount: 2).Bytes).Parts[0];
         Assert.AreEqual(-100, ordinaryNegative.Header.DataWindow.MinX);
@@ -393,7 +393,7 @@ public sealed class V3FormatTests
             SyntheticFile source = BuildSingle(
                 StandardAttributes(compression, Box(0, -5, 0, blockLines - 5)),
                 offsetCount: 2);
-            ParsedFile file = ParseMemory(source.Bytes);
+            ReaderSnapshot file = ParseMemory(source.Bytes);
             Assert.AreEqual(compression, file.Parts[0].Header.Compression);
             Assert.AreEqual(2, file.Parts[0].Chunks.Count);
             Assert.AreEqual(blockLines, file.Parts[0].Chunks[0].Geometry.Region.Height);
@@ -408,7 +408,7 @@ public sealed class V3FormatTests
         AssertResult(BuildWithCustomName(new string('色', 11), 0).Bytes, V3.ExrResult.Corrupt, "UTF-8 33 bytes");
         AssertResult(BuildWithCustomName(new string('色', 11), LongNamesFlag).Bytes, V3.ExrResult.Success, "UTF-8 long name");
 
-        ParsedFile onePartMultipart = ParseMemory(BuildOnePartMultipart(), "one-part multipart");
+        ReaderSnapshot onePartMultipart = ParseMemory(BuildOnePartMultipart(), "one-part multipart");
         Assert.IsTrue(onePartMultipart.Flags.Multipart);
         Assert.AreEqual(1, onePartMultipart.Parts.Count);
         Assert.AreEqual("only", onePartMultipart.Parts[0].Header.Name);
@@ -478,28 +478,28 @@ public sealed class V3FormatTests
 
         byte[] maliciousSize = BuildSingle(StandardAttributes(), 1).Bytes;
         BinaryPrimitives.WriteInt32LittleEndian(maliciousSize.AsSpan(FindAttributeSizeOffset(maliciousSize, "compression")), int.MaxValue);
-        yield return (maliciousSize, V3.ExrResult.Corrupt, "malicious size");
+        yield return (maliciousSize, V3.ExrResult.Unsupported, "malicious size exceeds ReaderLimits");
     }
 
-    private static ParsedFile ParseFile(string path)
+    private static ReaderSnapshot ParseFile(string path)
     {
         return ParseMemory(File.ReadAllBytes(path), path);
     }
 
-    private static ParsedFile ParseMemory(byte[] source, string? message = null)
+    private static ReaderSnapshot ParseMemory(byte[] source, string? message = null)
     {
-        Assert.AreEqual(V3.ExrResult.Success, ExrFormatParser.Parse(source.AsMemory(), out ParsedFile? parsed), message);
+        Assert.AreEqual(V3.ExrResult.Success, ReadSnapshot(source, out ReaderSnapshot? parsed), message);
         Assert.IsNotNull(parsed, message);
         return parsed!;
     }
 
     private static void AssertResult(byte[] source, V3.ExrResult expected, string message)
     {
-        Assert.AreEqual(expected, ExrFormatParser.Parse(source.AsMemory(), out ParsedFile? parsed), message);
+        Assert.AreEqual(expected, ReadSnapshot(source, out ReaderSnapshot? parsed), message);
         Assert.AreEqual(expected == V3.ExrResult.Success, parsed != null, message);
     }
 
-    private static void AssertRawStandardAttributes(ParsedPartIndex part)
+    private static void AssertRawStandardAttributes(PartSnapshot part)
     {
         foreach (string name in new[]
         {
@@ -507,10 +507,67 @@ public sealed class V3FormatTests
             "pixelAspectRatio", "screenWindowCenter", "screenWindowWidth",
         })
         {
-            ParsedAttribute attribute = part.RawAttributes.Single(value => value.Value.Name == name);
+            AttributeSnapshot attribute = part.RawAttributes.Single(value => value.Value.Name == name);
             Assert.IsTrue(attribute.AttributeStart < attribute.DataStart, name);
             Assert.AreEqual(attribute.DataStart + attribute.Value.ByteLength, attribute.AttributeEnd, name);
         }
+    }
+
+    // Snapshots project ExrReader metadata for assertions; they do not parse or validate files.
+    private sealed record AttributeSnapshot(HeaderAttribute Value, int AttributeStart, int DataStart, int AttributeEnd);
+    private sealed record ChunkSnapshot(BlockInfo Geometry)
+    {
+        public ulong FileOffset => (ulong)Geometry.FileOffset;
+        public bool IsMissing => Geometry.IsMissing;
+    }
+    private sealed record PartSnapshot(int PartIndex, Header Header, List<AttributeSnapshot> RawAttributes,
+        List<ChunkSnapshot> Chunks, int OffsetTableStart, uint? DeclaredChunkCount)
+    {
+        public int OffsetTableEnd => OffsetTableStart + Chunks.Count * 8;
+        public int MissingChunkCount => Chunks.Count(c => c.IsMissing);
+        public int OffsetCount => Chunks.Count;
+    }
+    private sealed record ReaderSnapshot(uint RawVersionField, int FileLength, int HeadersEnd, List<PartSnapshot> Parts)
+    {
+        public int FileVersion => (int)(RawVersionField & 255);
+        public int HeadersStart => 8;
+        public int OffsetTablesStart => HeadersEnd;
+        public int OffsetTablesEnd => Parts.Last().OffsetTableEnd;
+        public int PixelDataStart => OffsetTablesEnd;
+        public ParsedFileFlags Flags => new((RawVersionField & TiledFlag) != 0, (RawVersionField & LongNamesFlag) != 0,
+            (RawVersionField & NonImageFlag) != 0, (RawVersionField & MultipartFlag) != 0);
+    }
+    private static ExrResult ReadSnapshot(byte[] source, out ReaderSnapshot? snapshot)
+    {
+        snapshot = null;
+        using ExrReader reader = ExrReader.OpenMemory(source);
+        ExrResult status = reader.ParseHeader().Status;
+        if (status != ExrResult.Success)
+            return status;
+        uint version = reader.GetRawVersionField();
+        int end = checked((int)reader.GetHeaderEndOffset(reader.NumParts - 1)) + ((version & MultipartFlag) != 0 ? 1 : 0);
+        int table = end;
+        List<PartSnapshot> parts = new();
+        for (int p = 0; p < reader.NumParts; p++)
+        {
+            List<AttributeSnapshot> attributes = new();
+            uint? declared = null;
+            foreach (HeaderAttribute attribute in reader.GetRawHeaderAttributes(p))
+            {
+                int data = ExrBinaryMutationHelper.FindHeaderAttributeValueOffset(source, p, attribute.Name, attribute.TypeName, out int size);
+                int start = data - 6 - Encoding.UTF8.GetByteCount(attribute.Name) - Encoding.UTF8.GetByteCount(attribute.TypeName);
+                attributes.Add(new(attribute, start, data, data + size));
+                if (attribute.Name == "chunkCount")
+                    declared = BinaryPrimitives.ReadUInt32LittleEndian(attribute.Data);
+            }
+            List<ChunkSnapshot> chunks = new();
+            for (int c = 0; c < reader.GetNumBlocks(p); c++)
+                chunks.Add(new(reader.GetBlockInfo(p, c)));
+            parts.Add(new(p, reader.GetHeader(p), attributes, chunks, table, declared));
+            table += chunks.Count * 8;
+        }
+        snapshot = new(version, source.Length, end, parts);
+        return ExrResult.Success;
     }
 
     private static List<SyntheticAttribute> StandardAttributes(
@@ -592,7 +649,8 @@ public sealed class V3FormatTests
         writer.Write((uint)ExrFormatParser.SupportedFileVersion | flags);
         WriteHeader(writer, attributes);
         int tableStart = checked((int)stream.Position);
-        for (int i = 0; i < offsetCount; i++) writer.Write(0UL);
+        for (int i = 0; i < offsetCount; i++)
+            writer.Write(0UL);
         int payloadStart = checked((int)stream.Position);
         writer.Write(new byte[payloadByteCount]);
         writer.Flush();
@@ -757,7 +815,8 @@ public sealed class V3FormatTests
             offset = nameEnd + 1;
             int typeEnd = Array.IndexOf(source, (byte)0, offset);
             offset = typeEnd + 1;
-            if (name == targetName) return offset;
+            if (name == targetName)
+                return offset;
             int size = BinaryPrimitives.ReadInt32LittleEndian(source.AsSpan(offset));
             offset = checked(offset + sizeof(int) + size);
         }

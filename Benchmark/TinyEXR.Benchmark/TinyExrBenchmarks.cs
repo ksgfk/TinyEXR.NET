@@ -63,17 +63,17 @@ public class SinglePartImageBenchmarks
     public int LoadEXRImageFromMemory()
     {
         BenchmarkGuard.Success(
-            Exr.LoadEXRImageFromMemory(_sample.Bytes, _prepared.Header, out ExrImage image),
+            Exr.LoadEXRImageFromMemory(_sample.Bytes, out Part? image),
             $"LoadEXRImageFromMemory benchmark failed for {SampleId}");
 
-        return image.Width + image.Height + image.Channels.Count + image.Levels.Count;
+        return checked((int)(image!.Width + image.Height)) + image.Header.Channels.Count + image.Levels.Count;
     }
 
     [Benchmark]
     public int SaveEXRImageToMemory()
     {
         BenchmarkGuard.Success(
-            Exr.SaveEXRImageToMemory(_prepared.Image, _prepared.Header, out byte[] encoded),
+            Exr.SaveEXRImageToMemory(_prepared.Image, out byte[] encoded),
             $"SaveEXRImageToMemory benchmark failed for {SampleId}");
 
         return encoded.Length;
@@ -102,17 +102,17 @@ public class MultipartBenchmarks
     public int LoadEXRMultipartImageFromMemory()
     {
         BenchmarkGuard.Success(
-            Exr.LoadEXRMultipartImageFromMemory(_sample.Bytes, _prepared.Headers, out ExrMultipartImage images),
+            Exr.LoadEXRMultipartImageFromMemory(_sample.Bytes, out Image? images),
             $"LoadEXRMultipartImageFromMemory benchmark failed for {SampleId}");
 
-        return images.Images.Count;
+        return images!.Parts.Count;
     }
 
     [Benchmark]
     public int SaveEXRMultipartImageToMemory()
     {
         BenchmarkGuard.Success(
-            Exr.SaveEXRMultipartImageToMemory(_prepared.Images, _prepared.Headers, out byte[] encoded),
+            Exr.SaveEXRMultipartImageToMemory(_prepared.Images, out byte[] encoded),
             $"SaveEXRMultipartImageToMemory benchmark failed for {SampleId}");
 
         return encoded.Length;
@@ -139,9 +139,9 @@ public class DeepBenchmarks
     public int LoadDeepImageFromMemory()
     {
         BenchmarkGuard.Success(
-            Exr.TryReadDeepImage(_sample.Bytes, out ExrHeader header, out ExrDeepImage image),
+            Exr.LoadDeepEXRFromMemory(_sample.Bytes, out Part? image),
             $"LoadDeepImageFromMemory benchmark failed for {SampleId}");
 
-        return header.Channels.Count + image.Channels.Count + image.OffsetTable.Length + image.Width + image.Height;
+        return image!.Header.Channels.Count + ((DeepLevel)image.Levels[0]).SampleCounts.Length + checked((int)(image.Width + image.Height));
     }
 }

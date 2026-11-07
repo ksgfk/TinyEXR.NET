@@ -6,40 +6,6 @@ namespace TinyEXR.Test;
 [TestClass]
 public sealed class StandardAttributeTests
 {
-    [TestMethod(DisplayName = "[TinyEXR.NET Test] StandardAttributes|TypedReaders")]
-    public void Case_StandardAttributes_typed_readers()
-    {
-        ExrAttribute intAttribute = ExrAttribute.FromInt("intValue", 42);
-        Assert.AreEqual(42, intAttribute.ReadInt());
-        Assert.AreEqual(42, intAttribute.ReadInt32());
-        Assert.AreEqual(42, intAttribute.GetInt32Value());
-
-        ExrAttribute floatAttribute = ExrAttribute.FromFloat("floatValue", 1.25f);
-        Assert.AreEqual(1.25f, floatAttribute.ReadFloat());
-        Assert.AreEqual(1.25f, floatAttribute.ReadSingle());
-        Assert.AreEqual(1.25f, floatAttribute.GetFloatValue());
-        Assert.AreEqual(1.25f, floatAttribute.GetSingleValue());
-
-        ExrAttribute doubleAttribute = ExrAttribute.FromDouble("doubleValue", 2.5d);
-        Assert.AreEqual(2.5d, doubleAttribute.ReadDouble());
-        Assert.AreEqual(2.5d, doubleAttribute.GetDoubleValue());
-
-        ExrAttribute stringAttribute = ExrAttribute.FromString("stringValue", "hello");
-        Assert.AreEqual("hello", stringAttribute.ReadString());
-        Assert.AreEqual("hello", stringAttribute.GetStringValue());
-
-        ExrAttribute vectorAttribute = new ExrAttribute("vector", "v2f", EncodeSingles(3.5f, 4.5f));
-        Assert.AreEqual(3.5f, vectorAttribute.ReadFloat(0));
-        Assert.AreEqual(4.5f, vectorAttribute.ReadFloat(sizeof(float)));
-        CollectionAssert.AreEqual(
-            new byte[] { vectorAttribute.Value[4], vectorAttribute.Value[5], vectorAttribute.Value[6], vectorAttribute.Value[7] },
-            vectorAttribute.ReadBytes(sizeof(float), sizeof(float)).ToArray());
-
-        Assert.IsNull(floatAttribute.GetInt32Value());
-        AssertThrows<InvalidOperationException>(() => intAttribute.ReadDouble());
-        AssertThrows<ArgumentOutOfRangeException>(() => intAttribute.ReadInt(-1));
-    }
-
     [TestMethod(DisplayName = "[TinyEXR.NET Test] StandardAttributes|OfficialSamples|RawRoundTrip")]
     public void Case_StandardAttributes_OfficialSamples_raw_round_trip()
     {
@@ -51,18 +17,19 @@ public sealed class StandardAttributeTests
         })
         {
             string path = TestPaths.OpenExr(sample.RelativePath);
-            (ExrVersion _, ExrHeader header, ExrImage image) = ExrTestHelper.LoadSinglePart(path);
-            Dictionary<string, ExrAttribute> expected = sample.AttributeNames.ToDictionary(
+            (uint _, Header header, Part image) = ExrTestHelper.LoadSinglePart(path);
+            Dictionary<string, HeaderAttribute> expected = sample.AttributeNames.ToDictionary(
                 static name => name,
                 name => CloneAttribute(GetCustomAttribute(header, name)),
                 StringComparer.Ordinal);
 
-            Assert.AreEqual(ResultCode.Success, Exr.SaveEXRImageToMemory(image, header, out byte[] encoded), sample.RelativePath);
-            Assert.AreEqual(ResultCode.Success, Exr.ParseEXRHeaderFromMemory(encoded, out _, out ExrHeader roundTrippedHeader), sample.RelativePath);
+            Assert.AreEqual(ExrResult.Success, Exr.SaveEXRImageToMemory(image, out byte[] encoded), sample.RelativePath);
+            Assert.AreEqual(ExrResult.Success, Exr.ParseEXRHeaderFromMemory(encoded, out _, out Header? roundTrippedHeader), sample.RelativePath);
+            Assert.IsNotNull(roundTrippedHeader);
 
-            foreach ((string attributeName, ExrAttribute expectedAttribute) in expected)
+            foreach ((string attributeName, HeaderAttribute expectedAttribute) in expected)
             {
-                ExrAttribute actualAttribute = GetCustomAttribute(roundTrippedHeader, attributeName);
+                HeaderAttribute actualAttribute = GetCustomAttribute(roundTrippedHeader!, attributeName);
                 AssertAttributeEqual(expectedAttribute, actualAttribute, $"{sample.RelativePath}|{attributeName}");
             }
         }
@@ -71,44 +38,28 @@ public sealed class StandardAttributeTests
     [TestMethod(DisplayName = "[TinyEXR.NET Test] StandardAttributes|SyntheticRawRoundTrip")]
     public void Case_StandardAttributes_Synthetic_raw_round_trip()
     {
-        ExrImage image = CreateTinyRgbImage();
-        ExrHeader header = new();
-        foreach (ExrAttribute attribute in CreateSyntheticAttributes())
-        {
-            header.CustomAttributes.Add(attribute);
-        }
+        Header header = new(PartType.Scanline, new Box2i(0, 0, 0, 0), new[] { new Channel("Y", PixelType.Float) }, attributes: CreateSyntheticAttributes());
+        Part image = ExrTestHelper.Flat(header, ExrTestHelper.FloatChannel("Y", PixelType.Float, new[] { 1f }));
 
-        Assert.AreEqual(ResultCode.Success, Exr.SaveEXRImageToMemory(image, header, out byte[] encoded));
-        Assert.AreEqual(ResultCode.Success, Exr.ParseEXRHeaderFromMemory(encoded, out _, out ExrHeader roundTrippedHeader));
+        Assert.AreEqual(ExrResult.Success, Exr.SaveEXRImageToMemory(image, out byte[] encoded));
+        Assert.AreEqual(ExrResult.Success, Exr.ParseEXRHeaderFromMemory(encoded, out _, out Header? roundTrippedHeader));
+        Assert.IsNotNull(roundTrippedHeader);
 
-        foreach (ExrAttribute expectedAttribute in CreateSyntheticAttributes())
+        foreach (HeaderAttribute expectedAttribute in CreateSyntheticAttributes())
         {
-            ExrAttribute actualAttribute = GetCustomAttribute(roundTrippedHeader, expectedAttribute.Name);
+            HeaderAttribute actualAttribute = GetCustomAttribute(roundTrippedHeader!, expectedAttribute.Name);
             AssertAttributeEqual(expectedAttribute, actualAttribute, expectedAttribute.Name);
         }
     }
 
-    private static ExrImage CreateTinyRgbImage()
-    {
-        return new ExrImage(
-            1,
-            1,
-            new[]
-            {
-                ExrTestHelper.FloatChannel("B", ExrPixelType.Float, new[] { 0.25f }),
-                ExrTestHelper.FloatChannel("G", ExrPixelType.Float, new[] { 0.5f }),
-                ExrTestHelper.FloatChannel("R", ExrPixelType.Float, new[] { 1.0f }),
-            });
-    }
-
-    private static ExrAttribute[] CreateSyntheticAttributes()
+    private static HeaderAttribute[] CreateSyntheticAttributes()
     {
         return new[]
         {
-            new ExrAttribute("framesPerSecond", "rational", EncodeUInt32Pair(24000u, 1001u)),
-            new ExrAttribute("timeCode", "timecode", EncodeUInt32Pair(0x01020304u, 0xA0B0C0D0u)),
-            new ExrAttribute("keyCode", "keycode", EncodeInt32Sequence(1, 2, 3, 4, 5, 6, 7)),
-            new ExrAttribute("colorInteropID", "string", Encoding.UTF8.GetBytes("urn:tinyexr.net:test\0")),
+            new HeaderAttribute("framesPerSecond", "rational", EncodeUInt32Pair(24000u, 1001u)),
+            new HeaderAttribute("timeCode", "timecode", EncodeUInt32Pair(0x01020304u, 0xA0B0C0D0u)),
+            new HeaderAttribute("keyCode", "keycode", EncodeInt32Sequence(1, 2, 3, 4, 5, 6, 7)),
+            new HeaderAttribute("colorInteropID", "string", Encoding.UTF8.GetBytes("urn:tinyexr.net:test\0")),
         };
     }
 
@@ -157,23 +108,23 @@ public sealed class StandardAttributeTests
         Assert.Fail($"Expected exception of type {typeof(TException).Name}.");
     }
 
-    private static ExrAttribute GetCustomAttribute(ExrHeader header, string name)
+    private static HeaderAttribute GetCustomAttribute(Header header, string name)
     {
-        ExrAttribute? attribute = header.CustomAttributes.FirstOrDefault(attribute => string.Equals(attribute.Name, name, StringComparison.Ordinal));
+        HeaderAttribute? attribute = header.Attributes.FirstOrDefault(attribute => string.Equals(attribute.Name, name, StringComparison.Ordinal));
         Assert.IsNotNull(attribute, name);
         return attribute;
     }
 
-    private static ExrAttribute CloneAttribute(ExrAttribute attribute)
+    private static HeaderAttribute CloneAttribute(HeaderAttribute attribute)
     {
-        return new ExrAttribute(attribute.Name, attribute.TypeName, (byte[])attribute.Value.Clone());
+        return new HeaderAttribute(attribute.Name, attribute.TypeName, attribute.Data);
     }
 
-    private static void AssertAttributeEqual(ExrAttribute expected, ExrAttribute actual, string message)
+    private static void AssertAttributeEqual(HeaderAttribute expected, HeaderAttribute actual, string message)
     {
         Assert.AreEqual(expected.Name, actual.Name, message);
         Assert.AreEqual(expected.TypeName, actual.TypeName, message);
-        CollectionAssert.AreEqual(expected.Value, actual.Value, message);
+        CollectionAssert.AreEqual(expected.Data.ToArray(), actual.Data.ToArray(), message);
     }
 
     private readonly record struct ExpectedAttributeSample(string RelativePath, string[] AttributeNames);

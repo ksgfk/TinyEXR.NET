@@ -2,7 +2,7 @@ using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.IO;
-using TinyEXR.PortV1;
+using TinyEXR.Codecs;
 using TinyEXR.Format;
 
 namespace TinyEXR
@@ -40,17 +40,7 @@ namespace TinyEXR
             Offsets = new ulong[layout.BlockCount];
             Written = new bool[layout.BlockCount];
 
-            CodecChannels = new List<ExrChannel>(header.Channels.Count);
-            for (int i = 0; i < header.Channels.Count; i++)
-            {
-                Channel channel = header.Channels[i];
-                CodecChannels.Add(new ExrChannel(
-                    channel.Name,
-                    (ExrPixelType)(int)channel.PixelType,
-                    channel.XSampling,
-                    channel.YSampling,
-                    channel.PerceptuallyLinear ? (byte)1 : (byte)0));
-            }
+
         }
 
         public int PartIndex { get; }
@@ -67,9 +57,10 @@ namespace TinyEXR
 
         public bool[] Written { get; }
 
-        public List<ExrChannel> CodecChannels { get; }
-
-        public int MaximumSamplesPerPixel { get; set; }
+        public int MaximumSamplesPerPixel
+        {
+            get; set;
+        }
 
         private ChannelBuffer[]? _orderedSources;
         private int[]? _sourceOffsets;
@@ -297,8 +288,9 @@ namespace TinyEXR
                     throw Invalid($"Duplicate multipart part name '{header.Name}'.");
                 }
 
-                longNames |= IsLongName(header.Name);
             }
+
+            longNames |= IsLongName(header.Name);
 
             if (!header.IsTiled && header.LineOrder == LineOrder.RandomY)
             {
@@ -408,9 +400,13 @@ namespace TinyEXR
                 WriteAttribute(output, "tiles", "tiledesc", value);
             }
 
-            if (multipart)
+            if (multipart || header.Name.Length > 0)
             {
                 WriteAttribute(output, "name", "string", ModelValidation.StrictUtf8.GetBytes(header.Name));
+            }
+
+            if (multipart)
+            {
                 WriteAttribute(
                     output,
                     "type",

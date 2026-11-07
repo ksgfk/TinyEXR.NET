@@ -148,7 +148,7 @@ namespace TinyEXR
                 }
 
                 SetParserState();
-                for (;;)
+                for (; ; )
                 {
                     ReaderParserRequest request = _parser.GetNextRequest();
                     DataTransferResult transfer;
@@ -214,7 +214,7 @@ namespace TinyEXR
                 }
 
                 SetParserState();
-                for (;;)
+                for (; ; )
                 {
                     ReaderParserRequest request = _parser.GetNextRequest();
                     DataTransferResult transfer;
@@ -286,22 +286,6 @@ namespace TinyEXR
         internal long GetHeaderEndOffset(int partIndex)
         {
             return GetPartData(partIndex).HeaderEnd;
-        }
-
-        internal bool HasHeaderAttribute(int partIndex, string name)
-        {
-            if (name == null)
-            {
-                throw new ArgumentNullException(nameof(name));
-            }
-
-            ReaderPartData part = GetPartData(partIndex);
-            return name switch
-            {
-                "name" => part.HasNameAttribute,
-                "type" => part.HasTypeAttribute,
-                _ => false,
-            };
         }
 
         internal IReadOnlyList<HeaderAttribute> GetRawHeaderAttributes(int partIndex)
@@ -1027,7 +1011,7 @@ namespace TinyEXR
                 return FinishFlatRead(setup.Value, value: null);
             }
 
-            for (;;)
+            for (; ; )
             {
                 Memory<byte> canonical;
                 try
@@ -1079,7 +1063,7 @@ namespace TinyEXR
                 return FinishFlatRead(setup.Value, value: null);
             }
 
-            for (;;)
+            for (; ; )
             {
                 Memory<byte> canonical;
                 try
@@ -1647,7 +1631,7 @@ namespace TinyEXR
                 return lengthFailure.Value;
             }
 
-            for (;;)
+            for (; ; )
             {
                 ReaderParserRequest request;
                 bool reconstructing = operation == null;
@@ -1745,7 +1729,7 @@ namespace TinyEXR
                 return lengthFailure.Value;
             }
 
-            for (;;)
+            for (; ; )
             {
                 ReaderParserRequest request;
                 bool reconstructing = operation == null;
@@ -1845,7 +1829,7 @@ namespace TinyEXR
                 return preparation.Value;
             }
 
-            for (;;)
+            for (; ; )
             {
                 ReaderResult? completion = AdvanceDeepSamplesOperation(operation, destinations);
                 if (completion.HasValue)
@@ -1896,7 +1880,7 @@ namespace TinyEXR
                 return preparation.Value;
             }
 
-            for (;;)
+            for (; ; )
             {
                 ReaderResult? completion = AdvanceDeepSamplesOperation(operation, destinations);
                 if (completion.HasValue)
@@ -2021,7 +2005,8 @@ namespace TinyEXR
                         part.Header,
                         info,
                         data.Multipart,
-                        _limits);
+                        _limits,
+                        _decodeResources.CodecWorkspace);
                 }
                 catch (OutOfMemoryException exception)
                 {
@@ -2253,7 +2238,7 @@ namespace TinyEXR
                 return lengthFailure.Value;
             }
 
-            for (;;)
+            for (; ; )
             {
                 ReaderParserRequest request;
                 bool reconstructing = operation == null;
@@ -2351,7 +2336,7 @@ namespace TinyEXR
                 return lengthFailure.Value;
             }
 
-            for (;;)
+            for (; ; )
             {
                 ReaderParserRequest request;
                 bool reconstructing = operation == null;

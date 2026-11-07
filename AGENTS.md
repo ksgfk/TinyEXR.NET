@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-`TinyEXR.NET/` contains the managed library; `PortV1/` holds codec and format internals. The library targets `net8.0` and `netstandard2.1`. Shared MSTest cases live in `Test/TinyEXR.Test.Shared/` and are imported by the default and fallback test hosts under `Test/`. `samples/TinyEXR.Viewer/` is the Avalonia inspection app, while `Benchmark/` contains BenchmarkDotNet and C++ baseline projects. `Scripts/` prepares external fixtures. `TinyEXR.Native/` consists of upstream Git submodules used as reference and regression-data sources; avoid mixing upstream edits with managed-library changes.
+`TinyEXR.NET/` contains the managed library; `Compression/` holds the shared V3 codecs; `Format/`, `Reader/`, and `Writer/` own format validation and streaming I/O. The library targets `net8.0` and `netstandard2.1`. Shared MSTest cases live in `Test/TinyEXR.Test.Shared/` and are imported by the default and fallback test hosts under `Test/`. `samples/TinyEXR.Viewer/` is the Avalonia inspection app, while `Benchmark/` contains BenchmarkDotNet and C++ baseline projects. `Scripts/` prepares external fixtures. `TinyEXR.Native/` consists of upstream Git submodules used as reference and regression-data sources; avoid mixing upstream edits with managed-library changes.
 
 Do not commit generated directories such as `.cache/`, `bin/`, `obj/`, `TestResults/`, `artifacts/`, or `BenchmarkDotNet.Artifacts/`.
 

@@ -101,7 +101,10 @@ namespace TinyEXR
 
         public bool IsComplete => _phase == ParserPhase.Complete;
 
-        public ReaderFileData? FileData { get; private set; }
+        public ReaderFileData? FileData
+        {
+            get; private set;
+        }
 
         public ReaderParserRequest GetNextRequest()
         {
@@ -397,8 +400,6 @@ namespace TinyEXR
                 blockCount,
                 layout,
                 _position,
-                _attributeNames.Contains("name"),
-                _attributeNames.Contains("type"),
                 _attributes.ToArray()));
             _attributes.Clear();
             _attributeNames.Clear();
@@ -580,8 +581,6 @@ namespace TinyEXR
                     offsets,
                     draft.Layout,
                     draft.HeaderEnd,
-                    draft.HasNameAttribute,
-                    draft.HasTypeAttribute,
                     draft.RawAttributes);
             }
 
@@ -633,16 +632,12 @@ namespace TinyEXR
                 int blockCount,
                 ReaderPartLayout layout,
                 long headerEnd,
-                bool hasNameAttribute,
-                bool hasTypeAttribute,
                 HeaderAttribute[] rawAttributes)
             {
                 Header = header;
                 BlockCount = blockCount;
                 Layout = layout;
                 HeaderEnd = headerEnd;
-                HasNameAttribute = hasNameAttribute;
-                HasTypeAttribute = hasTypeAttribute;
                 RawAttributes = rawAttributes;
             }
 
@@ -654,13 +649,12 @@ namespace TinyEXR
 
             public long HeaderEnd { get; }
 
-            public bool HasNameAttribute { get; }
-
-            public bool HasTypeAttribute { get; }
-
             public HeaderAttribute[] RawAttributes { get; }
 
-            public ulong[]? Offsets { get; set; }
+            public ulong[]? Offsets
+            {
+                get; set;
+            }
         }
     }
 }

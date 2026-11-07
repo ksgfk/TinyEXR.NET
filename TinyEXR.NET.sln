@@ -1,7 +1,7 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 18
-VisualStudioVersion = 18.5.11709.299 stable
+VisualStudioVersion = 18.5.11709.299
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "TinyEXR.NET", "TinyEXR.NET\TinyEXR.NET.csproj", "{8F266B52-70C3-4C92-AC87-A0F0303AA12B}"
 EndProject
@@ -20,6 +20,8 @@ EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TinyEXR.Viewer", "Samples\TinyEXR.Viewer\TinyEXR.Viewer.csproj", "{D007418A-DDBC-4DC9-B0BA-73868BD63D21}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Test", "Test", "{5C93AD39-5C49-480D-A428-22405CDBE5B6}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TinyEXR.Interop", "Test\TinyEXR.Interop\TinyEXR.Interop.csproj", "{CA87183A-2A14-428C-8A0C-25437FB1F8BE}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -91,6 +93,18 @@ Global
 		{D007418A-DDBC-4DC9-B0BA-73868BD63D21}.Release|x64.Build.0 = Release|Any CPU
 		{D007418A-DDBC-4DC9-B0BA-73868BD63D21}.Release|x86.ActiveCfg = Release|Any CPU
 		{D007418A-DDBC-4DC9-B0BA-73868BD63D21}.Release|x86.Build.0 = Release|Any CPU
+		{CA87183A-2A14-428C-8A0C-25437FB1F8BE}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{CA87183A-2A14-428C-8A0C-25437FB1F8BE}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{CA87183A-2A14-428C-8A0C-25437FB1F8BE}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{CA87183A-2A14-428C-8A0C-25437FB1F8BE}.Debug|x64.Build.0 = Debug|Any CPU
+		{CA87183A-2A14-428C-8A0C-25437FB1F8BE}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{CA87183A-2A14-428C-8A0C-25437FB1F8BE}.Debug|x86.Build.0 = Debug|Any CPU
+		{CA87183A-2A14-428C-8A0C-25437FB1F8BE}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{CA87183A-2A14-428C-8A0C-25437FB1F8BE}.Release|Any CPU.Build.0 = Release|Any CPU
+		{CA87183A-2A14-428C-8A0C-25437FB1F8BE}.Release|x64.ActiveCfg = Release|Any CPU
+		{CA87183A-2A14-428C-8A0C-25437FB1F8BE}.Release|x64.Build.0 = Release|Any CPU
+		{CA87183A-2A14-428C-8A0C-25437FB1F8BE}.Release|x86.ActiveCfg = Release|Any CPU
+		{CA87183A-2A14-428C-8A0C-25437FB1F8BE}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -101,6 +115,7 @@ Global
 		{8E724801-1B0D-47F4-9F32-A379347D627F} = {5C93AD39-5C49-480D-A428-22405CDBE5B6}
 		{D7B97EE5-8DAA-4FD3-A465-7AB02DBA932E} = {09EED85C-BE3C-7566-DC0E-2E8E43466740}
 		{D007418A-DDBC-4DC9-B0BA-73868BD63D21} = {5D20AA90-6969-D8BD-9DCD-8634F4692FDA}
+		{CA87183A-2A14-428C-8A0C-25437FB1F8BE} = {5C93AD39-5C49-480D-A428-22405CDBE5B6}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {69A3148C-5390-4E23-A50B-662D3E5AE412}

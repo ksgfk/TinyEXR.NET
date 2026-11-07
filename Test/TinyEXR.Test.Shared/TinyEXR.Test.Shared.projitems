@@ -19,7 +19,7 @@
     <Compile Include="$(MSBuildThisFileDirectory)StandardAttributeTests.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)SubsampledChannelTests.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)TestInfrastructure.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)V1FacadeV3CoreTests.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)ExrConvenienceTests.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)V3ModelTests.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)V3SimdTests.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)V3SpectralTests.cs" />
