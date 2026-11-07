@@ -15,4 +15,11 @@ if (args.Length == 5 && args[0] == "--summarize-comparison")
     return;
 }
 
-BenchmarkSwitcher.FromAssembly(typeof(Program).Assembly).Run(args);
+var summaries = BenchmarkSwitcher.FromAssembly(typeof(Program).Assembly)
+    .Run(args, new TinyEXR.Benchmark.BenchmarkBuildConfig()).ToArray();
+if (summaries.Any(summary => summary.HasCriticalValidationErrors ||
+    summary.Reports.Any(report => !report.Success || report.ResultStatistics == null)))
+{
+    Console.Error.WriteLine("Managed benchmark failed to build or measure; see the BenchmarkDotNet log above.");
+    Environment.ExitCode = 1;
+}

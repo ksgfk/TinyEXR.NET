@@ -58,7 +58,7 @@ try {
     & dotnet run -c Release --no-build --project $managedProject -- --prepare-v3-compression-fixtures
     Check-Exit 'Managed encode size preparation'
     $env:TINYEXR_BENCHMARK_NATIVE_DIR = $nativeBuild
-    & dotnet test --project Test/TinyEXR.Benchmark.Test/TinyEXR.Benchmark.Test.csproj -c Release -p:SignAssemblyKey=false --minimum-expected-tests 85 --report-trx --report-trx-filename adapters.trx --results-directory "$OutputDirectory/tests"
+    & dotnet test --project Test/TinyEXR.Benchmark.Test/TinyEXR.Benchmark.Test.csproj -c Release -p:SignAssemblyKey=false --minimum-expected-tests 93 --report-trx --report-trx-filename adapters.trx --results-directory "$OutputDirectory/tests"
     Check-Exit 'Whole-file adapter tests'
 
     $started = [DateTime]::UtcNow

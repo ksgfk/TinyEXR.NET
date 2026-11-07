@@ -1,3 +1,7 @@
+using BenchmarkDotNet.Configs;
+using BenchmarkDotNet.ConsoleArguments;
+using BenchmarkDotNet.Jobs;
+using BenchmarkDotNet.Loggers;
 using TinyEXR.Benchmark;
 
 [assembly: DoNotParallelize]
@@ -228,6 +232,44 @@ public sealed class BenchmarkAdapterTests
                 rows[i] = rows[i] with { MeanMilliseconds = 1 }; break;
         }
         Assert.ThrowsExactly<InvalidDataException>(() => ComparisonReport.Validate(rows));
+    }
+
+    [TestMethod]
+    [DataRow("Default")]
+    [DataRow("Short")]
+    [DataRow("Dry")]
+    public void CommandLineJobsBuildWithoutSigningKey(string jobName)
+    {
+        var buildConfig = new BenchmarkBuildConfig();
+        var parsed = ConfigParser.Parse(["--job", jobName], NullLogger.Instance, buildConfig);
+        Assert.IsTrue(parsed.isSuccess);
+        var config = ManualConfig.Create(buildConfig);
+        config.Add(parsed.config);
+        Assert.IsTrue(config.GetLoggers().Any(), "The harness must retain framework build and execution diagnostics.");
+        Assert.IsTrue(config.GetExporters().Any(), "The harness must retain the default framework reports.");
+        var jobs = config.CreateImmutableConfig().GetJobs().ToArray();
+        Assert.HasCount(1, jobs, "Signing configuration must not add an extra benchmark job.");
+        Assert.IsTrue(jobs[0].Infrastructure.Arguments.OfType<MsBuildArgument>()
+            .Any(argument => argument.TextRepresentation == "/p:SignAssemblyKey=false"));
+    }
+
+    [TestMethod]
+    [DataRow("")]
+    [DataRow(",\"Statistics\":null")]
+    [DataRow(",\"Statistics\":{}")]
+    [DataRow(",\"Statistics\":{\"Mean\":0}")]
+    [DataRow(",\"Statistics\":{\"Mean\":\"failed\"}")]
+    public void MissingManagedMeasurementReportsBenchmarkFailure(string statistics)
+    {
+        string report = Path.Combine(_work, "failed-managed.json");
+        string output = Path.Combine(_work, "comparison.csv");
+        File.WriteAllText(report, "{\"Benchmarks\":[{\"Method\":\"Encode\",\"Parameters\":\"Compression=None\"" + statistics + "}]}");
+        var error = Assert.ThrowsExactly<InvalidDataException>(() =>
+            ComparisonReport.Write(report, "unused-tiny.json", "unused-openexr.json", output));
+        StringAssert.Contains(error.Message, "Encode/None");
+        StringAssert.Contains(error.Message, "no valid measurement");
+        StringAssert.Contains(error.Message, report);
+        Assert.IsFalse(File.Exists(output), "A failed measurement must not produce a comparison table.");
     }
 
     [TestMethod]

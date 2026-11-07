@@ -13,6 +13,9 @@ its dependencies use the same pins as the interoperability oracle.
 
 The script prepares pinned TinyEXR source, builds both frameworks, creates official
 input files, runs MSTest adapter tests, measures, and validates the complete report.
+Managed benchmarks and their generated BenchmarkDotNet harnesses build unsigned;
+no private strong-name key is required. Build or measurement failures return a
+nonzero exit code immediately, before native measurements and report aggregation.
 It uses Visual Studio clang-cl on Windows, or Ninja and the selected CMake compiler
 on other platforms. Both native libraries use one toolchain and Release flags.
 A correct `.cache/tinyexr` checkout is reused without network access; an incorrect

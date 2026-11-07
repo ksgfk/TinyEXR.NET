@@ -49,7 +49,11 @@ public static class ComparisonReport
                 string parameter = item.GetProperty("Parameters").GetString()!;
                 if (!parameter.StartsWith("Compression=", StringComparison.Ordinal)) throw new InvalidDataException("Unknown managed parameter.");
                 string compression = parameter["Compression=".Length..];
-                double mean = item.GetProperty("Statistics").GetProperty("Mean").GetDouble() / 1e6;
+                if (!item.TryGetProperty("Statistics", out var statistics) || statistics.ValueKind != JsonValueKind.Object ||
+                    !statistics.TryGetProperty("Mean", out var meanElement) || meanElement.ValueKind != JsonValueKind.Number ||
+                    !meanElement.TryGetDouble(out double meanNanoseconds) || !double.IsFinite(meanNanoseconds) || meanNanoseconds <= 0)
+                    throw new InvalidDataException($"Managed benchmark {operation}/{compression} has no valid measurement. Check the BenchmarkDotNet build and execution log: {managedJson}");
+                double mean = meanNanoseconds / 1e6;
                 long size = operation == "Decode" ? FileComparisonData.LoadVerified(Enum.Parse<Compression>(compression)).LongLength :
                     new FileInfo(V3CompressionBenchmarkData.GetFixturePath(Enum.Parse<Compression>(compression))).Length;
                 rows.Add(new("TinyEXR.NET", operation, compression, "Measured", mean, size,
