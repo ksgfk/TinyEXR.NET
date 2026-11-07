@@ -16,21 +16,32 @@ The `net8.0` target has no third-party runtime dependencies. The `netstandard2.1
 
 ## Features
 
-- [x] full NativeAOT support!
-- [x] Single-part EXR read/write for scanline images.
-- [x] Single-part EXR read/write for tiled images, including one-level tiles and multi-resolution mipmap/ripmap layouts.
-- [x] Multipart EXR parse/load/save for flat, deep and mixed parts, including single-entry multipart containers.
-- [x] Deep scanline and tiled EXR read/write, including every mip/rip level.
-- [x] Regular image compression support for `NONE`, `RLE`, `ZIP`, `ZIPS`, `PIZ`, `PXR24`, `B44`, `B44A`, `HTJ2K32`, and `HTJ2K256`.
-- [x] Deep compression support for `NONE`, `RLE`, and `ZIPS`, following official OpenEXR.
-- [x] Layer- and multiview-aware helpers such as `EXRLayers` and `LoadEXRWithLayer`, including RGBA expansion for subsampled channels in the convenience load path.
-- [x] Managed header/image models that preserve EXR metadata needed by tools and inspectors, including data/display windows, tile descriptions, custom attributes, channel sampling, line order, and long names.
-- [x] Stateful `TinyEXR` reader/writer APIs for multipart, mip/rip, flat/deep, partial block reads, bounded-memory streaming writes, synchronous/asynchronous data sources, cancellation, and `WouldBlock` resume.
-- [x] HTJ2K32/HTJ2K256 flat decode and genuine encode through a safe managed JPEG 2000 Part 15 implementation.
-- [x] Safe SIMD paths for pixel conversion, RGB color matrices, and ZIP/RLE byte reorder and prediction, with scalar parity fallbacks.
-- [x] Spectral wavelength cubes and CPU image utilities: typed pixel conversion, whole-image and streaming resize, tone mapping, color/transfer transforms, `.cube` 3D LUTs, planar/interleaved bridges, and luminance-chroma reconstruction.
-- [x] Reusable exclusive `ExrContext`, file/image budgets, typed custom attributes and immutable RGBA8 previews.
-- [x] One V3 reader, writer and codec layer for every public entry point; no legacy fallback.
+The format and compression comparison uses this library's **3.1 API**, [TinyEXR V3 at `eb0ba07`](https://github.com/syoyo/tinyexr/blob/eb0ba07f44a33e1ce5bc0fb74142a3a6558f0661/include/exr.h),
+and official [OpenEXR 3.5.3 at `3950290`](https://github.com/AcademySoftwareFoundation/openexr/tree/3950290530c4fd4776667d0dc4d65a9d003eb936).
+**Yes** means read and write; limitations are stated explicitly.
+Native capabilities assume the relevant build options and codec dependencies are enabled.
+
+| Format / compression | TinyEXR.NET | TinyEXR V3 | Official OpenEXR |
+| --- | --- | --- | --- |
+| Flat scanline images | Yes | Yes | Yes |
+| Tiled images, mipmaps and ripmaps | Yes | Yes | Yes |
+| Multipart, including mixed flat/deep parts | Yes | Yes | Yes |
+| Deep scanline and tiled images, including mip/rip levels | Yes | Yes | Yes |
+| Mixed `HALF` / `FLOAT` / `UINT` channels; scanline subsampling | Yes | Yes | Yes |
+| Header metadata, custom attributes and RGBA8 previews | Yes | Yes | Yes |
+| Flat `NONE`, `RLE`, `ZIP`, `ZIPS`, `PIZ`, `PXR24`, `B44`, `B44A` | Yes | Yes | Yes |
+| Flat `HTJ2K32` / `HTJ2K256` | Yes | Yes | Yes |
+| Flat `DWAA` / `DWAB` | Partial: raw fallback reads only; no encoding [1] | No compressed codec; raw fallback reads only | Yes |
+| Flat `LJ2K` (official ID 12) | Recognized; codec not implemented | No; ID 12 means ZSTD in this revision [2] | Yes |
+| Flat `ZSTD` (official ID 13) | Recognized; codec not implemented | Private ID 12 only [2] | Yes |
+| Deep compression | `NONE`, `RLE`, `ZIPS` | `NONE`, `RLE`, `ZIPS` plus nonstandard combinations [3] | `NONE`, `RLE`, `ZIPS`, `ZSTD` |
+
+1. Managed DWA reads are limited to raw fallback files that official OpenEXR can decode. Compressed DWA input and all DWA encoding requests return `Unsupported`.
+2. TinyEXR's private ZSTD numbering is incompatible with this pinned official format. TinyEXR.NET follows official `LJ2K = 12` and `ZSTD = 13`; it does not interpret ID 12 as ZSTD.
+3. Deep support is constrained by [official compression validity](https://github.com/AcademySoftwareFoundation/openexr/blob/3950290530c4fd4776667d0dc4d65a9d003eb936/src/lib/OpenEXRCore/compression.c). TinyEXR.NET rejects nonstandard deep combinations and retains its per-row count and row/channel sample-layout fixes. Tiled and deep channels require unit sampling; flat scanline sampling must align with the data window.
+
+Official OpenEXR is the format and codec correctness reference; TinyEXR is a port source.
+See the [detailed support matrix](docs/tinyexr-v3.md) and [port provenance and interoperability coverage](docs/codec-port.md).
 
 ## Usage
 
@@ -85,7 +96,7 @@ The repository currently includes `TinyEXR.Viewer`, an Avalonia sample built on 
 
 The viewer is intended for manual EXR inspection: it can open EXR files from the file picker, drag and drop, or a command-line path, preview single-part images and pure-image multipart files, switch between parts/layers/levels when decoded image data is available, and display metadata such as version flags, windows, tile information, channels, custom attributes, and deep-image statistics.
 
-See `Samples/TinyEXR.Viewer/README.md` for run instructions and the current feature boundaries.
+See `samples/TinyEXR.Viewer/README.md` for run instructions and the current feature boundaries.
 
 ## Test
 

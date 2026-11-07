@@ -15,9 +15,9 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Benchmark", "Benchmark", "{
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TinyEXR.Benchmark", "Benchmark\TinyEXR.Benchmark\TinyEXR.Benchmark.csproj", "{D7B97EE5-8DAA-4FD3-A465-7AB02DBA932E}"
 EndProject
-Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Samples", "Samples", "{5D20AA90-6969-D8BD-9DCD-8634F4692FDA}"
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "samples", "samples", "{5D20AA90-6969-D8BD-9DCD-8634F4692FDA}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TinyEXR.Viewer", "Samples\TinyEXR.Viewer\TinyEXR.Viewer.csproj", "{D007418A-DDBC-4DC9-B0BA-73868BD63D21}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TinyEXR.Viewer", "samples\TinyEXR.Viewer\TinyEXR.Viewer.csproj", "{D007418A-DDBC-4DC9-B0BA-73868BD63D21}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Test", "Test", "{5C93AD39-5C49-480D-A428-22405CDBE5B6}"
 EndProject

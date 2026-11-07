@@ -29,11 +29,11 @@ code based on earlier versions of this sample.
 ## Run
 
 ```powershell
-dotnet run --project .\Samples\TinyEXR.Viewer\TinyEXR.Viewer.csproj
+dotnet run --project .\samples\TinyEXR.Viewer\TinyEXR.Viewer.csproj
 ```
 
 Or pass an EXR path directly:
 
 ```powershell
-dotnet run --project .\Samples\TinyEXR.Viewer\TinyEXR.Viewer.csproj -- .\.cache\openexr-images\ScanLines\Desk.exr
+dotnet run --project .\samples\TinyEXR.Viewer\TinyEXR.Viewer.csproj -- .\.cache\openexr-images\ScanLines\Desk.exr
 ```
