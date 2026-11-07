@@ -24,21 +24,22 @@ public class V3CompressionBenchmarks
     [GlobalSetup]
     public void Setup()
     {
-        V3CompressionBenchmarkData data = V3CompressionBenchmarkData.Instance;
-        _source = data.Source;
-        _encoded = data.GetEncoded(Compression);
+        _source = FileComparisonData.CreateSource();
+        _encoded = FileComparisonData.LoadVerified(Compression);
     }
 
     [Benchmark]
     public byte[] Encode()
     {
-        return V3.ExrFile.SaveToMemory(_source, Compression).Value!;
+        var result = V3.ExrFile.SaveToMemory(_source, Compression);
+        return result.IsSuccess ? result.Value! : throw new InvalidOperationException($"Encode failed: {result.Status}: {result.Error}");
     }
 
     [Benchmark]
     public V3.Image Decode()
     {
-        return V3.ExrFile.LoadFromMemory(_encoded).Value!;
+        var result = V3.ExrFile.LoadFromMemory(_encoded);
+        return result.IsSuccess ? result.Value! : throw new InvalidOperationException($"Decode failed: {result.Status}: {result.Error}");
     }
 }
 
@@ -96,7 +97,8 @@ internal sealed class V3CompressionBenchmarkData
         }
     }
 
-    public static V3CompressionBenchmarkData Instance { get; } = new();
+    private static readonly Lazy<V3CompressionBenchmarkData> SharedData = new(() => new());
+    public static V3CompressionBenchmarkData Instance => SharedData.Value;
 
     private readonly Dictionary<V3.Compression, byte[]> _encoded;
     private bool _fixturesWritten;
@@ -188,7 +190,7 @@ internal sealed class V3CompressionBenchmarkData
         return Path.Combine(FixtureDirectory, $"{compression.ToString().ToLowerInvariant()}.exr");
     }
 
-    private static V3.Image CreateSource()
+    public static V3.Image CreateSource()
     {
         V3.Box2i region = new(0, 0, Width - 1, Height - 1);
         string[] channelNames = ["A", "B", "G", "R"];
@@ -259,8 +261,9 @@ internal static class V3CompressionColumnData
 
     public static long? GetEncodedByteCount(BenchmarkCase benchmarkCase)
     {
-        return V3CompressionBenchmarkData.Instance
-            .GetEncoded(GetCompression(benchmarkCase))
+        return (benchmarkCase.Descriptor.WorkloadMethod.Name == "Decode"
+            ? FileComparisonData.LoadVerified(GetCompression(benchmarkCase))
+            : V3CompressionBenchmarkData.Instance.GetEncoded(GetCompression(benchmarkCase)))
             .LongLength;
     }
 }
@@ -314,7 +317,7 @@ internal sealed class V3EncodedSizeColumn : IColumn
     public int PriorityInCategory => 1;
     public bool IsNumeric => true;
     public UnitType UnitType => UnitType.Dimensionless;
-    public string Legend => "Encoded EXR size produced by TinyEXR.NET V3.";
+    public string Legend => "Complete EXR bytes: own output for Encode, official input for Decode.";
 
     public string GetValue(Summary summary, BenchmarkCase benchmarkCase)
     {

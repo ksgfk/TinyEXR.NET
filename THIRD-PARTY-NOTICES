@@ -1,5 +1,12 @@
 Third-party notices for TinyEXR.NET
 
+Native test/benchmark builds fetch the unmodified TinyEXR commit recorded in
+Scripts/tinyexr-source.json into .cache/tinyexr. Its vendored libdeflate 1.25
+is Copyright 2016 Eric Biggers and Copyright 2024 Google LLC, MIT licensed
+(deps/libdeflate/COPYING). OpenEXR and its fixed dependencies are prepared by
+Scripts/cmake/OpenEXR.cmake. These native dependencies and their source licenses
+remain in the external caches; they are not included in the managed NuGet package.
+
 The managed V3 codec ports are derived from TinyEXR's modular C sources at
 commits 1b106618644dbf8a0935c2348ba51a2d863dd7c2 and
 eb0ba07f44a33e1ce5bc0fb74142a3a6558f0661. Sources carry:

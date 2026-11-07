@@ -14,8 +14,6 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
     - uses: actions/checkout@v4
-      with:
-        submodules: 'true'
 
     - name: Setup .NET 10
       uses: actions/setup-dotnet@v4
@@ -25,6 +23,10 @@ jobs:
     - name: Prepare openexr-images samples
       shell: pwsh
       run: ./Scripts/prepare-openexr-images.ps1
+
+    - name: Prepare pinned TinyEXR regression samples
+      shell: pwsh
+      run: ./Scripts/prepare-tinyexr.ps1
 
     - name: Test default target
       run: dotnet test --project ./Test/TinyEXR.Test/TinyEXR.Test.csproj --configuration Release --report-trx --report-trx-filename TinyEXR.Test.trx --results-directory artifacts/test-results/default -p:SignAssemblyKey=false
@@ -48,11 +50,12 @@ jobs:
         framework: [net8.0, netstandard2.1]
     steps:
     - uses: actions/checkout@v4
-      with:
-        submodules: 'true'
     - uses: actions/setup-dotnet@v4
       with:
         dotnet-version: '10.0.x'
+    - name: Prepare pinned TinyEXR regression samples
+      shell: pwsh
+      run: ./Scripts/prepare-tinyexr.ps1
     - name: Build pinned official OpenEXR reference
       run: |
         cmake -S Test/NativeReference -B .cache/openexr-reference -G Ninja -DCMAKE_BUILD_TYPE=Release
@@ -108,3 +111,23 @@ jobs:
       with:
         name: package-aot-tests
         path: artifacts/test-results
+
+  benchmark-dry:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '10.0.x'
+    - name: Prepare pinned TinyEXR source
+      shell: pwsh
+      run: ./Scripts/prepare-tinyexr.ps1
+    - name: Validate whole-image adapters and complete throughput report
+      shell: pwsh
+      run: ./Benchmark/run-compression-benchmarks.ps1 -Job Dry -OutputDirectory artifacts/whole-image-dry
+    - name: Upload benchmark reports and failure attachments
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: whole-image-benchmark-dry
+        path: artifacts/whole-image-dry

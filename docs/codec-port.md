@@ -1,15 +1,15 @@
 # Codec provenance and official verification
 
 Official **OpenEXR v3.5.3**, commit
-`3950290530c4fd4776667d0dc4d65a9d003eb936`, is the sole format, sample and performance
+`3950290530c4fd4776667d0dc4d65a9d003eb936`, is the sole format and sample
 reference. `Scripts/cmake/OpenEXR.cmake` is shared by tests and benchmarks. It pins
 Imath 3.2.3 (`5f27ba266d3ea1565e912570c30b5eafc89959f1`) and uses OpenEXR's bundled
 OpenJPH 0.32, libdeflate and ZSTD sources. No system dependency silently replaces
 these sources. Native dependencies are test/benchmark-only and do not ship in NuGet.
 
-TinyEXR `eb0ba07f44a33e1ce5bc0fb74142a3a6558f0661` is a port source, never an oracle.
+TinyEXR `eb0ba07f44a33e1ce5bc0fb74142a3a6558f0661` is a port source and performance comparator, never a correctness oracle.
 The original V3-only port used `1b106618644dbf8a0935c2348ba51a2d863dd7c2`; unchanged
-source-file annotations retain that history. Upstream submodules are unmodified.
+source-file annotations retain that history. The unmodified source is cached by Scripts/prepare-tinyexr.ps1; its pin lives in Scripts/tinyexr-source.json. Git submodules are no longer required.
 
 | Managed source | Port source / authoritative correction |
 | --- | --- |

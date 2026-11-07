@@ -1,0 +1,12 @@
+<Project Sdk="MSTest.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <Using Include="Microsoft.VisualStudio.TestTools.UnitTesting" />
+    <ProjectReference Include="../../Benchmark/TinyEXR.Benchmark/TinyEXR.Benchmark.csproj" />
+  </ItemGroup>
+</Project>

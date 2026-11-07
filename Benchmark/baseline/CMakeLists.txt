@@ -31,6 +31,9 @@ if(MSVC AND CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
     endif()
 endif()
 
+# Fail before downloading/building other dependencies when the prepared source
+# is absent, dirty, or at the wrong revision.
+include("${CMAKE_CURRENT_SOURCE_DIR}/../../Scripts/cmake/TinyEXR.cmake")
 include(FetchContent)
 
 set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
@@ -48,30 +51,21 @@ FetchContent_MakeAvailable(googlebenchmark)
 include("${CMAKE_CURRENT_SOURCE_DIR}/../../Scripts/cmake/OpenEXR.cmake")
 file(TO_CMAKE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/../.." TINYEXR_BENCHMARK_REPO_ROOT_PATH)
 
-add_executable(openexr_compression_benchmark
-    src/openexr_compression.cpp
-)
-
-target_compile_definitions(openexr_compression_benchmark PRIVATE
+add_library(file_adapters STATIC src/tiny_adapter.cpp src/official_file.cpp)
+target_link_libraries(file_adapters PUBLIC tinyexr_v3 OpenEXR::OpenEXR)
+target_compile_definitions(file_adapters PUBLIC
     TINYEXR_BENCHMARK_REPO_ROOT="${TINYEXR_BENCHMARK_REPO_ROOT_PATH}"
     TINYEXR_BENCHMARK_COMPILER="${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}"
     TINYEXR_BENCHMARK_OPTIMIZATION="${TINYEXR_BENCHMARK_OPTIMIZATION}"
-)
+    TINYEXR_SOURCE_COMMIT="${TINYEXR_SOURCE_COMMIT}")
 
-target_link_libraries(openexr_compression_benchmark PRIVATE
-    benchmark::benchmark
-    OpenEXR::OpenEXR
-)
-
+add_executable(openexr_compression_benchmark src/openexr_compression.cpp)
+add_executable(tinyexr_compression_benchmark src/openexr_compression.cpp)
+target_compile_definitions(tinyexr_compression_benchmark PRIVATE USE_TINYEXR)
+foreach(target openexr_compression_benchmark tinyexr_compression_benchmark)
+    target_link_libraries(${target} PRIVATE file_adapters benchmark::benchmark)
+endforeach()
+add_executable(file_fixture_tool src/file_fixture_tool.cpp)
+target_link_libraries(file_fixture_tool PRIVATE file_adapters)
 add_custom_target(compression_benchmarks DEPENDS
-    openexr_compression_benchmark
-)
-
-if(MSVC)
-    target_compile_options(openexr_compression_benchmark PRIVATE /W4 /permissive-)
-    set_target_properties(openexr_compression_benchmark PROPERTIES
-        VS_DEBUGGER_WORKING_DIRECTORY "${TINYEXR_BENCHMARK_REPO_ROOT_PATH}"
-    )
-else()
-    target_compile_options(openexr_compression_benchmark PRIVATE -Wall -Wextra -Wpedantic)
-endif()
+    openexr_compression_benchmark tinyexr_compression_benchmark file_fixture_tool)

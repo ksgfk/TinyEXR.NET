@@ -10,7 +10,7 @@ The current test strategy is shaped by these constraints:
 - We need separate coverage for the default high-version implementation of `TinyEXR.NET` and the `netstandard2.1` fallback implementation.
 
 The shared library suite uses two test projects backed by one shared codebase.
-OpenEXR interoperability and package/NativeAOT consumption have separate MSTest
+OpenEXR interoperability, whole-file benchmark adapters and package/NativeAOT consumption have separate MSTest
 projects. Test entry points and results are provided by the framework; no custom
 console test runner is used. Performance measurements live under `Benchmark/`.
 
@@ -53,7 +53,7 @@ The reason is that `TinyEXR.NET` only depends on `SharpZipLib` under `netstandar
 - Type: shared test source
 - Purpose: imported by both test projects
 
-All actual test cases live here and are imported into both test projects through `.projitems`, ensuring that both sides execute the same test logic.
+All shared library test cases live here and are imported into both test projects through `.projitems`, ensuring that both sides execute the same test logic.
 
 ## Why Two Test Projects
 
@@ -74,7 +74,7 @@ In other words, the current strategy does not try to validate behavior differenc
 The tests depend on two external data sources:
 
 - The official OpenEXR sample repository `openexr-images`
-- The regression samples bundled with `TinyEXR.Native/tinyexr`
+- The regression samples bundled with `.cache/tinyexr`
 
 The `openexr-images` repository must be prepared under:
 
@@ -84,13 +84,14 @@ Preparation script:
 
 ```powershell
 pwsh .\Scripts\prepare-openexr-images.ps1
+pwsh .\Scripts\prepare-tinyexr.ps1
 ```
 
-The script pins the data repository to a specific commit so test inputs stay stable.
+Both scripts pin their source repositories so test inputs stay stable. The TinyEXR pin is centralized in Scripts/tinyexr-source.json; tests only read the prepared cache.
 
 The suite uses three complementary kinds of test input:
 
-- Pinned EXR files from `openexr-images` and `TinyEXR.Native/tinyexr` for
+- Pinned EXR files from `openexr-images` and `.cache/tinyexr` for
   decoder, metadata, multipart, multi-resolution, deep, HTJ2K, damaged-file,
   and round-trip compatibility tests.
 - Valid EXR files generated in memory by the managed writer for writer,
@@ -109,6 +110,7 @@ Prepare the test data first:
 
 ```powershell
 pwsh .\Scripts\prepare-openexr-images.ps1
+pwsh .\Scripts\prepare-tinyexr.ps1
 ```
 
 Run the default target framework tests:
@@ -236,3 +238,24 @@ $report = [xml](Get-Content artifacts/test-results/interop/*.trx -Raw)
 $caseId = ($report.TestRun.Results.UnitTestResult | Where-Object testName -eq 'CanonicalBlockMatchesOfficialCodec (RLE,2,2,False,0)').testId
 dotnet test --project Test/TinyEXR.Interop/TinyEXR.Interop.csproj -c Release -p:SignAssemblyKey=false --filter-uid $caseId --minimum-expected-tests 1
 ```
+
+## Whole-image benchmark adapter tests
+
+Prepare source with 'pwsh Scripts/prepare-tinyexr.ps1'. The cached checkout supplies
+the same retained TinyEXR regression samples for both managed hosts and official
+interop tests; tests do not download or compile it. Missing files fail with a
+preparation hint. Official OpenEXR remains the only source of expected samples.
+
+The independent TinyEXR.Benchmark.Test project uses MSTest 4.4.1. Run
+'pwsh Benchmark/run-compression-benchmarks.ps1 -Job Dry' to build the native tools,
+prepare official whole-file inputs, run adapter tests and verify 64 report items.
+After preparation:
+
+    dotnet test --project Test/TinyEXR.Benchmark.Test/TinyEXR.Benchmark.Test.csproj -c Release -p:SignAssemblyKey=false --report-trx
+
+All 32 library/compression pairs have separate Encode and Decode tests. TinyEXR
+official-input HTJ2K32/256 Decode must return Unsupported (-3); other errors fail.
+Tests verify complete HALF planes, shared input hashes, official reads of saved
+files, corrupt input, missing tools, process errors/timeouts and report integrity.
+Failed cases attach inputs and concurrently captured stdout/stderr; calls have a
+60-second deadline. See [Benchmark timing contract](../Benchmark/README.md).

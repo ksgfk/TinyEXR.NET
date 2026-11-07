@@ -1,79 +1,104 @@
-# Compression benchmarks
+# Whole-image memory throughput benchmarks
 
-Only TinyEXR.NET and **official OpenEXR 3.5.3** are measured. The native target is
-`openexr_compression_benchmark`. Its library and fixed dependencies come from
-`Scripts/cmake/OpenEXR.cmake`, shared with the correctness oracle. TinyEXR native
-benchmarks and all historical three-library timing tables have been removed.
+The main matrix compares **TinyEXR.NET**, **TinyEXR V3** at
+`eb0ba07f44a33e1ce5bc0fb74142a3a6558f0661`, and **official OpenEXR 3.5.3** at
+`3950290530c4fd4776667d0dc4d65a9d003eb936`. Official OpenEXR alone determines
+correctness. TinyEXR uses its bundled default libdeflate backend; OpenEXR and
+its dependencies use the same pins as the interoperability oracle.
 
-## Reproduce the comparison
+## Run
 
-```powershell
-pwsh ./Benchmark/run-compression-benchmarks.ps1 -Job Default
-```
+    pwsh ./Benchmark/run-compression-benchmarks.ps1 -Job Default
+    pwsh ./Benchmark/run-compression-benchmarks.ps1 -Job Dry -OutputDirectory artifacts/whole-image-dry
 
-The script uses Visual Studio clang-cl on Windows. `Default` uses ordinary
-BenchmarkDotNet calibration and Google Benchmark's five repetitions with a
-0.5-second minimum. `Short` and `Dry` are diagnostics, not performance claims.
-On other systems build `Benchmark/baseline` directly with CMake and GCC/Clang.
+The script prepares pinned TinyEXR source, builds both frameworks, creates official
+input files, runs MSTest adapter tests, measures, and validates the complete report.
+It uses Visual Studio clang-cl on Windows, or Ninja and the selected CMake compiler
+on other platforms. Both native libraries use one toolchain and Release flags.
+A correct `.cache/tinyexr` checkout is reused without network access; an incorrect
+or modified cache is rejected without overwriting it. Standalone CMake requires
+`pwsh Scripts/prepare-tinyexr.ps1` first. Sources and dependencies remain outside
+the package. Private libdeflate symbol names prevent one native backend from
+silently replacing the other.
 
-Generated artifacts live under ignored `.cache` and `artifacts` directories:
-`managed/results`, `openexr.json` and `comparison.csv` (20 managed and 24 official
-rows). No TinyEXR native result is produced. The official DWA-only rows are labeled
-unsupported on the managed side; LJ2K/ZSTD are outside this benchmark matrix.
+`Default` uses BenchmarkDotNet calibration and Google Benchmark warmup,
+calibration and five repetitions (0.5-second minimum). `Short` is diagnostic;
+`Dry` checks execution only. Neither supports a performance conclusion.
+There is no Codec/File suite switch. Old block or differently scoped measurements
+must not be combined with these results.
 
 ## Timing contract
 
-Both implementations process the same deterministic 1920x1080 RGBA HALF image,
-one worker thread, in memory. Shared decode rows consume exactly the same managed
-encoded input. DWA-only official rows consume official output. Encode sizes refer
-to each implementation's own file. No compression-byte equality is assumed.
+Each operation processes the same deterministic **1920 × 1080 RGBA HALF**,
+single-part scanline image, with increasing Y and canonical A/B/G/R channels.
+All three run on one CPU thread with their normal SIMD optimizations and default
+compression settings. Settings, compiler, CPU, runtime and source commits are
+recorded in the framework JSON and environment.json.
 
-Encode includes allocating the result and producing a complete EXR. Decode
-includes allocating and materializing all output pixels. Input preparation,
-headers, fixture I/O, validation and result release are outside timing. OpenEXR
-allocates fresh result buffers inside the timer, while reusing its stream adapter;
-stream callbacks remain timed. Settings and the 15.82 MiB raw payload are shared.
-Managed API context reuse is not enabled for this whole-image comparison.
-
-## Optimization admission
-
-Pure optimizations require at least 5% throughput improvement or 20% allocation
-reduction in the target scenario, with no representative scenario consistently
-more than 5% slower. These thresholds apply to controlled before/after runs,
-never CI timing gates. Codec microbenchmarks use BenchmarkDotNet's own warmup,
-iteration calibration, statistical reports and MemoryDiagnoser:
-
-```powershell
-dotnet build Benchmark/TinyEXR.Benchmark -c Release -p:SignAssemblyKey=false
-dotnet run --project Benchmark/TinyEXR.Benchmark -c Release --no-build -- --filter '*CodecBenchmarks*' '*Htj2kDecodeBenchmarks*'
-```
-
-`CodecBenchmarks` covers sparse/dense HALF blocks at widths 128/512 for RLE/PIZ
-encode and decode. `Htj2kDecodeBenchmarks` covers widths 128/512 and heights
-32/256. Each benchmark owns its reusable warmed workspace; fixture preparation
-and correctness checks happen in GlobalSetup. Add `--job Dry` to check execution.
-These 20 microbenchmark cases are separate from the unchanged 44-row end-to-end
-comparison. No hand-written timing loop or correctness test runner remains.
-Fixture preparation is still available with `--prepare-v3-compression-fixtures`.
-
-## V3.1 optimization measurements (2026-11-07)
-
-Local Windows x64, Core i7-13700K, .NET 10.0.14, Release, tiered compilation off.
-The RLE/PIZ comparison used the prior managed implementation (`e8e3642`) and the
-new implementation in one process pinned to logical CPU 2, alternating order
-across eleven 96-operation batches after 128 warmups. Medians are reported.
-HTJ2K compared adjacent before/after processes with 64 warmups and nine batches
-of 64 operations. This historical measurement predates the framework migration;
-the temporary probes have been retired. New measurements use BenchmarkDotNet.
-Raw historical results remain in ignored local artifacts.
-
-| Change | Target measured benefit | Allocation per operation |
+| Operation | Starting state | Completed result |
 | --- | --- | --- |
-| RLE Span packing and literal boundaries | Encode throughput +16.4% to +49.1% across four block scenarios | 2,976→1,048; 41,032→8,288; 12,240→4,120; 164,152→33,056 bytes |
-| PIZ sparse Huffman/lookup and layout scratch | Decode throughput +62.0% to +143.3% | 848→0 bytes after workspace warmup |
-| HTJ2K decode scratch/band reuse | Allocation reduction 60.5% to 83.3% | 52,096→20,552; 101,904→23,600; 89,080→21,016; 155,904→26,072 bytes |
+| Decode | Complete official EXR bytes already in memory | All four HALF planes materialized |
+| Encode | Prepared image, channels and pixels | Complete EXR with independently owned memory |
 
-Other RLE/PIZ probe scenarios stayed within a 2.1% throughput reduction; the
-HTJ2K adjacent comparison stayed within a 1.6% time increase. These changes pass
-the agreed local admission thresholds. The official/managed `Dry` comparison
-only checks the benchmark pipeline and is not used for these performance claims.
+Timed work includes opening memory input, parsing headers and indexes, format
+validation, codec work, necessary copies, internal allocations and file assembly.
+Disk I/O, preparation, verification, reporting and explicit caller result release
+are outside timing. Native benchmark processes call their libraries directly;
+no subprocess starts inside a measured operation.
+
+Managed calls use ExrFile.LoadFromMemory/SaveToMemory. TinyEXR uses its public V3
+memory APIs with a null context. OpenEXR uses InputFile/OutputFile, planar HALF
+frame buffers and memory streams; no RGBA conversion is added. Every call creates
+new read/write state and result storage. OpenEXR output grows from an empty vector;
+it neither reserves a known encoded length nor reuses previous capacity. Internal
+allocations stay timed. Managed GC remains part of the framework measurement and
+is not represented as pure codec computation.
+
+The preparation tool encodes all 12 complete files with official OpenEXR. Every
+Decode uses those exact bytes. The manifest contains image layout, source version,
+lengths and FNV-1a-64 integrity checks for files and fully decoded samples. These
+checks run outside timing. Encode sizes are each library's own output; Decode
+sizes are the common official input. Compression levels with the same number in
+different backends are not assumed equivalent.
+
+## Results and unsupported cases
+
+The summary always has **64 items: 62 measured, 2 Unsupported**:
+
+- TinyEXR.NET: 20 measured.
+- TinyEXR: 18 measured; official HTJ2K32/256 Decode returns Unsupported (-3) for
+  multiple tile-parts. These two entries retain the diagnostic and have empty
+  time and throughput fields. TinyEXR HTJ2K Encode is measured and officially validated.
+- OpenEXR: 24 measured, including its exclusive DWAA/DWAB entries.
+
+The shared compressions are NONE, RLE, ZIPS, ZIP, PIZ, PXR24, B44, B44A,
+HTJ2K256 and HTJ2K32. LJ2K/ZSTD are outside the matrix. NONE is the uncompressed
+baseline. Any other failure, missing key or duplicate makes reporting fail.
+
+Output contains managed framework reports, tinyexr.json, openexr.json,
+environment.json, input-manifest.csv, MSTest TRX/attachments, and comparison.csv. The primary metric
+is **raw pixel MiB/s = 16,588,800 / mean seconds / 1,048,576**. Also reported:
+images/second, milliseconds/image, complete EXR bytes, raw/file compression ratio
+and managed allocated bytes. Native allocations are unavailable (empty), not zero.
+Interpret speed together with output size and compression settings.
+
+## Correctness and separate diagnostics
+
+    dotnet test --project Test/TinyEXR.Benchmark.Test/TinyEXR.Benchmark.Test.csproj -c Release -p:SignAssemblyKey=false --report-trx
+
+Tests require prepared fixtures and file_fixture_tool; they never download or
+build dependencies. Set TINYEXR_BENCHMARK_NATIVE_DIR for another build directory
+(the Release subdirectory is also recognized). Each test has a separate work
+directory. Native stdout/stderr are drained concurrently; calls time out after
+60 seconds. Failures retain input and log attachments. Lossless samples compare
+byte-for-byte; lossy samples compare official and tested decoding of the same file.
+The two HTJ2K rejection tests assert the real Unsupported status.
+
+Existing RLE/PIZ/HTJ2K microbenchmarks remain independent optimization diagnostics:
+
+    dotnet run --project Benchmark/TinyEXR.Benchmark -c Release --no-build -- --filter `*CodecBenchmarks*` `*Htj2kDecodeBenchmarks*` --job Dry
+
+These 20 cases may reuse warmed codec workspaces and are never mixed into the
+whole-image table. Pure optimizations still require at least 5% target throughput
+improvement or 20% allocation reduction, without stable representative regressions
+over 5%. These are controlled experiment criteria, not CI timing gates.

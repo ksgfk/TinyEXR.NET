@@ -106,11 +106,13 @@ See `Test/README.md` for the current test layout and execution details.
 
 ## Benchmark
 
-Benchmarks compare the managed implementation with official OpenEXR **3.5.3**,
-using the same pinned build as the correctness oracle. TinyEXR native timings
-and their historical comparison tables have been retired. See
-[Benchmark/README.md](Benchmark/README.md) for reproducible timing boundaries,
-commands and optimization acceptance criteria.
+Benchmarks compare **TinyEXR.NET, TinyEXR V3 and official OpenEXR 3.5.3**
+using complete image loads and saves in memory. The main metric is raw pixel
+throughput, including parsing, allocations and file assembly. Decode uses the
+same official input bytes; TinyEXR's two HTJ2K Decode entries are explicitly
+Unsupported. Correctness continues to use official OpenEXR alone. See
+[Benchmark/README.md](Benchmark/README.md) for the 64-item matrix, timing
+boundaries and reproducible commands.
 
 ## Versioning
 

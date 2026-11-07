@@ -148,6 +148,7 @@ public sealed class FileInteropTests : InteropTestBase
         bytes[bytes.AsSpan().IndexOf(marker) + marker.Length + 4] = (byte)compression;
         string path = Path.Combine(Work, "dwa-raw.exr"), dump = Path.Combine(Work, "dwa-raw.bin");
         await File.WriteAllBytesAsync(path, bytes);
+        Assert.IsTrue(File.Exists(path), "Missing regression fixture; run Scripts/prepare-tinyexr.ps1: " + path);
         await OracleAsync("file_oracle", "dump", path, dump);
         Equal(DumpManaged(path), File.ReadAllBytes(dump), compression + " official raw fallback");
     }
@@ -156,7 +157,8 @@ public sealed class FileInteropTests : InteropTestBase
     [DynamicData(nameof(Fixtures))]
     public async Task RetainedFixtureMatchesOfficialInterpretation(string relative)
     {
-        string path = Path.Combine(RepoRoot, "TinyEXR.Native", "tinyexr", relative), dump = Path.Combine(Work, "fixture.bin");
+        string path = Path.Combine(RepoRoot, ".cache", "tinyexr", relative), dump = Path.Combine(Work, "fixture.bin");
+        Assert.IsTrue(File.Exists(path), "Missing regression fixture; run Scripts/prepare-tinyexr.ps1: " + path);
         await OracleAsync("file_oracle", "dump", path, dump);
         Equal(DumpManaged(path), File.ReadAllBytes(dump), "official interpretation of " + relative);
     }
@@ -177,7 +179,8 @@ public sealed class FileInteropTests : InteropTestBase
     [TestMethod]
     public async Task OversizedHtjTileIsRejectedByBothReaders()
     {
-        string path = Path.Combine(RepoRoot, "TinyEXR.Native", "tinyexr", "test/unit/regression/tiled_htj2k256.exr");
+        string path = Path.Combine(RepoRoot, ".cache", "tinyexr", "test/unit/regression/tiled_htj2k256.exr");
+        Assert.IsTrue(File.Exists(path), "Missing regression fixture; run Scripts/prepare-tinyexr.ps1: " + path);
         Assert.AreEqual(ExrResult.Corrupt, ExrFile.LoadFromFile(path).Status);
         NativeOutput output = await ExecuteOracleAsync("file_oracle", "dump", path, Path.Combine(Work, "rejected.bin"));
         Assert.AreNotEqual(0, output.ExitCode, output.StandardOutput);

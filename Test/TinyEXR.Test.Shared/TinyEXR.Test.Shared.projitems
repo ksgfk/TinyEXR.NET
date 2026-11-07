@@ -10,6 +10,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="$(MSBuildThisFileDirectory)V31Tests.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)FixturePathTests.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)V31RegressionTests.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)DeepTests.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)LoadTests.cs" />

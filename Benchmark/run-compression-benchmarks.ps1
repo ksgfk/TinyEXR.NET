@@ -2,240 +2,100 @@
 param(
     [ValidateSet('Dry', 'Short', 'Default')]
     [string] $Job = 'Default',
-
     [string] $OutputDirectory
 )
-
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$managedProject = Join-Path $repoRoot 'Benchmark\TinyEXR.Benchmark\TinyEXR.Benchmark.csproj'
-$nativeSource = Join-Path $repoRoot 'Benchmark\baseline'
-$nativeBuild = Join-Path $repoRoot '.cache\benchmark-native-clang'
-
+$managedProject = Join-Path $repoRoot 'Benchmark/TinyEXR.Benchmark/TinyEXR.Benchmark.csproj'
+$nativeBuild = Join-Path $repoRoot '.cache/benchmark-native-clang'
 if ([string]::IsNullOrWhiteSpace($OutputDirectory)) {
-    $OutputDirectory = Join-Path $repoRoot 'artifacts\compression-benchmarks'
+    $OutputDirectory = Join-Path $repoRoot 'artifacts/compression-benchmarks'
 } elseif (-not [IO.Path]::IsPathRooted($OutputDirectory)) {
     $OutputDirectory = Join-Path $repoRoot $OutputDirectory
 }
-
 $managedOutput = Join-Path $OutputDirectory 'managed'
-$openExrOutput = Join-Path $OutputDirectory 'openexr.json'
 New-Item -ItemType Directory -Force -Path $managedOutput | Out-Null
-
-$vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
-if (-not (Test-Path -LiteralPath $vswhere)) {
-    throw 'Visual Studio Installer vswhere.exe was not found.'
+$comparisonPath = Join-Path $OutputDirectory 'comparison.csv'
+# A failed rerun must not leave a previous success table looking current.
+if (Test-Path -LiteralPath $comparisonPath) { Remove-Item -LiteralPath $comparisonPath }
+if ($env:TINYEXR_BENCHMARK_COMPRESSION) {
+    throw 'Unset TINYEXR_BENCHMARK_COMPRESSION before running the complete 64-item comparison.'
 }
-
-$installationPath = & $vswhere `
-    -latest `
-    -products '*' `
-    -requires Microsoft.VisualStudio.Component.VC.Llvm.Clang `
-    -property installationPath
-if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($installationPath)) {
-    throw 'A Visual Studio installation with the clang-cl component was not found.'
+function Check-Exit([string] $Step) {
+    if ($LASTEXITCODE -ne 0) { throw "$Step failed (exit $LASTEXITCODE)." }
 }
-
-$installationVersion = & $vswhere `
-    -latest `
-    -products '*' `
-    -requires Microsoft.VisualStudio.Component.VC.Llvm.Clang `
-    -property installationVersion
-$visualStudioMajor = [int]($installationVersion.Split('.')[0])
-$visualStudioYear = switch ($visualStudioMajor) {
-    18 { '2026' }
-    17 { '2022' }
-    16 { '2019' }
-    default { throw "Unsupported Visual Studio major version: $visualStudioMajor" }
+function Native-Executable([string] $Name) {
+    if ($IsWindows) { $Name += '.exe' }
+    $path = Join-Path $nativeBuild $Name
+    if (-not (Test-Path -LiteralPath $path)) { $path = Join-Path $nativeBuild "Release/$Name" }
+    if (-not (Test-Path -LiteralPath $path)) { throw "Native tool missing: $path" }
+    return $path
 }
-$generator = "Visual Studio $visualStudioMajor $visualStudioYear"
-
-$clangPath = Join-Path $installationPath 'VC\Tools\Llvm\x64\bin\clang-cl.exe'
-if (-not (Test-Path -LiteralPath $clangPath)) {
-    throw "The Visual Studio clang-cl executable was not found: $clangPath"
-}
-
 Push-Location $repoRoot
+$previousNativeDir = $env:TINYEXR_BENCHMARK_NATIVE_DIR
 try {
-    Write-Host "Building TinyEXR.NET benchmarks ($Job)..."
+    & "$repoRoot/Scripts/prepare-tinyexr.ps1"
     & dotnet build $managedProject -c Release -p:SignAssemblyKey=false
-    if ($LASTEXITCODE -ne 0) {
-        throw 'The managed benchmark build failed.'
+    Check-Exit 'Managed benchmark build'
+    if ($IsWindows) {
+        $vswhere = Join-Path ([Environment]::GetFolderPath('ProgramFilesX86')) 'Microsoft Visual Studio/Installer/vswhere.exe'
+        $version = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Llvm.Clang -property installationVersion
+        Check-Exit 'Visual Studio lookup'
+        if (-not $version) { throw 'Install the Visual Studio clang-cl component.' }
+        $major = [int]($version.Split('.')[0])
+        $year = switch ($major) { 18 { '2026' } 17 { '2022' } default { throw "Unsupported Visual Studio $major" } }
+        & cmake -S Benchmark/baseline -B $nativeBuild -G "Visual Studio $major $year" -A x64 -T ClangCL
+    } else {
+        & cmake -S Benchmark/baseline -B $nativeBuild -G Ninja -DCMAKE_BUILD_TYPE=Release
     }
+    Check-Exit 'Native configure'
+    & cmake --build $nativeBuild --config Release --target compression_benchmarks --parallel 4
+    Check-Exit 'Native build'
 
-    Write-Host 'Preparing shared TinyEXR.NET V3 fixtures...'
-    & dotnet run -c Release --no-build --project $managedProject -- `
-        --prepare-v3-compression-fixtures
-    if ($LASTEXITCODE -ne 0) {
-        throw 'V3 compression fixture preparation failed.'
-    }
+    & (Native-Executable 'file_fixture_tool') prepare (Join-Path $repoRoot '.cache/compression-benchmarks/official')
+    Check-Exit 'Official fixture preparation'
+    Copy-Item -LiteralPath "$repoRoot/.cache/compression-benchmarks/official/manifest.csv" -Destination "$OutputDirectory/input-manifest.csv"
+    & dotnet run -c Release --no-build --project $managedProject -- --prepare-v3-compression-fixtures
+    Check-Exit 'Managed encode size preparation'
+    $env:TINYEXR_BENCHMARK_NATIVE_DIR = $nativeBuild
+    & dotnet test --project Test/TinyEXR.Benchmark.Test/TinyEXR.Benchmark.Test.csproj -c Release -p:SignAssemblyKey=false --minimum-expected-tests 78 --report-trx --report-trx-filename adapters.trx --results-directory "$OutputDirectory/tests"
+    Check-Exit 'Whole-file adapter tests'
 
-    Write-Host "Configuring native benchmarks with $generator and clang-cl..."
-    & cmake -S $nativeSource -B $nativeBuild -G $generator -A x64 -T ClangCL
-    if ($LASTEXITCODE -ne 0) {
-        throw 'The native benchmark configuration failed.'
-    }
+    $started = [DateTime]::UtcNow
+    & dotnet run -c Release --no-build --project $managedProject -- --filter '*V3CompressionBenchmarks*' --job $Job --exporters JSON --artifacts $managedOutput
+    Check-Exit 'Managed measurement'
+    $reports = @(Get-ChildItem (Join-Path $managedOutput 'results') -Filter '*report-full-compressed.json' |
+        Where-Object LastWriteTimeUtc -ge $started.AddSeconds(-1))
+    if ($reports.Count -ne 1) { throw "Expected one current managed report, found $($reports.Count)." }
 
-    Write-Host 'Building the OpenEXR benchmarks...'
-    & cmake --build $nativeBuild `
-        --config Release `
-        --target compression_benchmarks `
-        --parallel
-    if ($LASTEXITCODE -ne 0) {
-        throw 'The native benchmark build failed.'
-    }
-
-    Write-Host 'Running TinyEXR.NET V3 benchmarks...'
-    $managedRunStartedUtc = [DateTime]::UtcNow
-    & dotnet run -c Release --no-build --project $managedProject -- `
-        --filter '*V3CompressionBenchmarks*' `
-        --job $Job `
-        --exporters JSON `
-        --artifacts $managedOutput
-    if ($LASTEXITCODE -ne 0) {
-        throw 'The managed compression benchmark failed.'
-    }
-
-    $nativeExecutable = Join-Path $nativeBuild 'Release\openexr_compression_benchmark.exe'
-    $nativeTimingArguments = switch ($Job) {
+    $timing = switch ($Job) {
         'Dry' { @('--benchmark_min_time=1x', '--benchmark_repetitions=1') }
-        'Short' { @('--benchmark_min_time=0.2s', '--benchmark_repetitions=3') }
-        'Default' { @('--benchmark_min_time=0.5s', '--benchmark_repetitions=5') }
+        'Short' { @('--benchmark_min_time=0.2s', '--benchmark_min_warmup_time=0.2', '--benchmark_repetitions=3') }
+        'Default' { @('--benchmark_min_time=0.5s', '--benchmark_min_warmup_time=0.5', '--benchmark_repetitions=5') }
     }
-
-    Write-Host 'Running OpenEXR benchmarks...'
-    & $nativeExecutable `
-        @nativeTimingArguments `
-        "--benchmark_out=$openExrOutput" `
-        --benchmark_out_format=json
-    if ($LASTEXITCODE -ne 0) {
-        throw 'The OpenEXR compression benchmark failed.'
+    foreach ($name in @('tinyexr', 'openexr')) {
+        & (Native-Executable "$($name)_compression_benchmark") @timing "--benchmark_out=$OutputDirectory/$name.json" --benchmark_out_format=json
+        Check-Exit "$name measurement"
     }
+    & dotnet run -c Release --no-build --project $managedProject -- --summarize-comparison $reports[0].FullName "$OutputDirectory/tinyexr.json" "$OutputDirectory/openexr.json" "$OutputDirectory/comparison.csv"
+    Check-Exit 'Strict 64-item summary'
 
-    $managedJson = Get-ChildItem `
-        (Join-Path $managedOutput 'results') `
-        -Filter '*report-full-compressed.json' |
-        Where-Object { $_.LastWriteTimeUtc -ge $managedRunStartedUtc.AddSeconds(-1) } |
-        Sort-Object LastWriteTimeUtc -Descending |
-        Select-Object -First 1
-    if ($null -eq $managedJson) {
-        throw 'The managed benchmark JSON report was not produced.'
-    }
-
-    $rawByteCount = 1920 * 1080 * 4 * 2
-    $fixtureDirectory = Join-Path $repoRoot '.cache\compression-benchmarks\v3-managed'
-    $sharedCompressions = @(
-        'None', 'RLE', 'ZIPS', 'ZIP', 'PIZ', 'PXR24', 'B44', 'B44A',
-        'HTJ2K256', 'HTJ2K32'
-    )
-    $comparison = [Collections.Generic.List[object]]::new()
-    $managedReport = Get-Content -Raw -LiteralPath $managedJson.FullName | ConvertFrom-Json
-    $managedBenchmarks = @($managedReport.Benchmarks)
-    $failedManagedBenchmarks = @($managedBenchmarks | Where-Object {
-        $null -eq $_.Statistics -or [double]$_.Statistics.Mean -le 0
-    })
-    if ($managedBenchmarks.Count -ne 20 -or $failedManagedBenchmarks.Count -gt 0) {
-        throw "The managed report is incomplete: $($managedBenchmarks.Count) rows, " +
-            "$($failedManagedBenchmarks.Count) failed rows; expected 20 successful rows."
-    }
-
-    foreach ($benchmark in $managedBenchmarks) {
-        $compression = $benchmark.Parameters.Substring('Compression='.Length)
-        $fixturePath = Join-Path $fixtureDirectory "$($compression.ToLowerInvariant()).exr"
-        $encodedBytes = (Get-Item -LiteralPath $fixturePath).Length
-        $meanMilliseconds = [double]$benchmark.Statistics.Mean / 1e6
-        $comparison.Add([pscustomobject][ordered]@{
-            Implementation = 'TinyEXR.NET V3'
-            Operation = $benchmark.Method
-            Compression = $compression
-            MeanMilliseconds = $meanMilliseconds
-            RawMiBPerSecond = $rawByteCount / ($meanMilliseconds / 1000.0) / 1MB
-            EncodedBytes = $encodedBytes
-            CompressionRatio = $rawByteCount / $encodedBytes
-            AllocatedBytes = $benchmark.Memory.BytesAllocatedPerOperation
-            SharedDecodeInput = if ($benchmark.Method -eq 'Decode') {
-                $sharedCompressions -contains $compression
-            } else {
-                $null
-            }
-        })
-    }
-
-    $nativeSuites = @(
-        [pscustomobject]@{
-            Path = $openExrOutput
-            Prefix = 'OpenEXR'
-            Implementation = 'OpenEXR 3.5.3'
-            ExpectedRows = 24
-        }
-    )
-    foreach ($nativeSuite in $nativeSuites) {
-        $nativeReport = Get-Content -Raw -LiteralPath $nativeSuite.Path | ConvertFrom-Json
-        $nativeRows = @($nativeReport.benchmarks | Where-Object {
-            $_.run_type -eq 'aggregate' -and $_.aggregate_name -eq 'mean'
-        })
-        if ($nativeRows.Count -eq 0) {
-            $nativeRows = @($nativeReport.benchmarks | Where-Object {
-                $_.run_type -eq 'iteration'
-            })
-        }
-        $failedNativeRows = @($nativeRows | Where-Object {
-            $_.error_occurred -eq $true -or [double]$_.real_time -le 0
-        })
-        if ($nativeRows.Count -ne $nativeSuite.ExpectedRows -or
-            $failedNativeRows.Count -gt 0) {
-            throw "$($nativeSuite.Implementation) report is incomplete: " +
-                "$($nativeRows.Count) rows, $($failedNativeRows.Count) failed rows; " +
-                "expected $($nativeSuite.ExpectedRows) successful rows."
-        }
-
-        $benchmarkPattern = '^' + [regex]::Escape($nativeSuite.Prefix) +
-            '/(Encode|Decode)/([^/]+)'
-        foreach ($benchmark in $nativeRows) {
-            if ($benchmark.name -notmatch $benchmarkPattern) {
-                continue
-            }
-
-            $operation = $Matches[1]
-            $compression = $Matches[2]
-            $meanMilliseconds = switch ($benchmark.time_unit) {
-                'ns' { [double]$benchmark.real_time / 1e6 }
-                'us' { [double]$benchmark.real_time / 1e3 }
-                'ms' { [double]$benchmark.real_time }
-                's' { [double]$benchmark.real_time * 1e3 }
-                default { throw "Unknown Google Benchmark time unit: $($benchmark.time_unit)" }
-            }
-            $comparison.Add([pscustomobject][ordered]@{
-                Implementation = $nativeSuite.Implementation
-                Operation = $operation
-                Compression = $compression
-                MeanMilliseconds = $meanMilliseconds
-                RawMiBPerSecond = [double]$benchmark.bytes_per_second / 1MB
-                EncodedBytes = [long][Math]::Round([double]$benchmark.EncodedBytes)
-                CompressionRatio = [double]$benchmark.CompressionRatio
-                AllocatedBytes = $null
-                SharedDecodeInput = if ($operation -eq 'Decode') {
-                    [bool]$benchmark.SharedInput
-                } else {
-                    $null
-                }
-            })
-        }
-    }
-
-    if ($comparison.Count -ne 44) {
-        throw "The combined comparison has $($comparison.Count) rows; expected 44."
-    }
-
-    $comparisonPath = Join-Path $OutputDirectory 'comparison.csv'
-    $comparison |
-        Sort-Object Operation, Compression, Implementation |
-        Export-Csv -NoTypeInformation -UseQuotes AsNeeded -LiteralPath $comparisonPath
-
-    Write-Host "Managed results: $managedOutput"
-    Write-Host "OpenEXR results: $openExrOutput"
-    Write-Host "Combined results: $comparisonPath"
+    [ordered]@{
+        Job = $Job
+        Scope = 'Whole-image memory API; 1920x1080 RGBA HALF; single part scanline; fresh state and result storage'
+        Timing = 'Includes parsing, validation, allocation, codec and file assembly. Excludes disk I/O, preparation, validation of results, explicit caller release.'
+        ManagedSettings = 'ZLibStream Optimal (.NET 10); normal SIMD and GC; no retained ExrContext'
+        NativeSettings = 'See settings, compiler and optimization fields in native framework JSON; both use the same CMake toolchain'
+        TinyEXR = (Get-Content Scripts/tinyexr-source.json -Raw | ConvertFrom-Json).commit
+        OpenEXR = '3950290530c4fd4776667d0dc4d65a9d003eb936'
+        Threads = 1
+        Runtime = (& dotnet --info | Out-String)
+        Environment = 'CPU and OS in framework JSON. Native allocated bytes are unmeasured, not zero.'
+        Interpretation = if ($Job -eq 'Default') { 'Full benchmark job; compare only matching scope/settings.' } else { 'Pipeline/diagnostic run; not a performance conclusion.' }
+    } | ConvertTo-Json -Depth 5 | Set-Content "$OutputDirectory/environment.json" -Encoding utf8
+    Write-Host "Whole-image results: $OutputDirectory/comparison.csv (62 measurements, 2 Unsupported)"
 }
 finally {
+    $env:TINYEXR_BENCHMARK_NATIVE_DIR = $previousNativeDir
     Pop-Location
 }
