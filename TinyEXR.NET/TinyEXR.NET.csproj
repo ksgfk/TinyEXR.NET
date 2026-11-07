@@ -7,8 +7,8 @@
     <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
     <RootNamespace>TinyEXR</RootNamespace>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
-    <AssemblyVersion>1.2.0.0</AssemblyVersion>
-    <FileVersion>1.2.0.0</FileVersion>
+    <AssemblyVersion>1.3.0.0</AssemblyVersion>
+    <FileVersion>1.3.0.0</FileVersion>
     <RepositoryType>git</RepositoryType>
     <Description>TinyEXR.NET is a pure managed OpenEXR implementation with V3.1 streaming and convenience APIs</Description>
     <Company>ksgfk</Company>
@@ -17,9 +17,9 @@
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <RepositoryUrl>https://github.com/ksgfk/TinyEXR.NET</RepositoryUrl>
     <PackageTags>OpenEXR,HDR</PackageTags>
-    <PackageReleaseNotes>Breaking V3-only API, now 3.1: official OpenEXR 3.5.3 verification, legal deep NONE/RLE/ZIPS only, official LJ2K/ZSTD IDs, contexts, resource budgets, typed attributes and Preview. V1 models and fallback paths are removed. Rebuild consumers; see docs/migration-v3.1.md and docs/migration-v3-only.md. Package version is unchanged.</PackageReleaseNotes>
-    <PackageLicenseExpression>MIT AND BSD-3-Clause AND BSD-2-Clause</PackageLicenseExpression>
-    <Version>1.2.0</Version>
+    <PackageReleaseNotes>TinyEXR.NET 1.3.0 introduces the breaking V3-only API, now 3.1: official OpenEXR 3.5.3 verification, legal deep NONE/RLE/ZIPS only, official LJ2K/ZSTD IDs, contexts, resource budgets, typed attributes and Preview. V1 models and fallback paths are removed. Rebuild consumers; see docs/migration-v3.1.md and docs/migration-v3-only.md.</PackageReleaseNotes>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <Version>1.3.0</Version>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
@@ -53,6 +53,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <None Include="..\LICENSE" Pack="true" PackagePath="\" />
     <None Include="..\THIRD-PARTY-NOTICES" Pack="true" PackagePath="\" />
     <None Include="..\README.md">
       <Pack>True</Pack>

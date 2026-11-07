@@ -1,10 +1,10 @@
 # Migrating to TinyEXR.NET 1.2.0
 
 TinyEXR.NET 1.2.0 is a deliberate breaking minor release. The modern managed
-API uses unversioned namespaces. The subsequent V3-only refactor also changes
+API uses unversioned namespaces. The subsequent V3-only refactor in 1.3.0 also changes
 `Exr` and removes the V1 models; read [that migration guide](migration-v3-only.md)
-as well. The version has not been bumped during the refactor.
-The NuGet package version is `1.2.0`; `AssemblyVersion` and `FileVersion` are
+as well.
+For the 1.2.0 release, the NuGet package version is `1.2.0`; `AssemblyVersion` and `FileVersion` are
 `1.2.0.0`. `ExrFile.ApiVersionMajor` remains `3`: it identifies the upstream
 API generation, not the package version or managed namespace.
 

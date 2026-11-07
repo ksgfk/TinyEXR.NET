@@ -161,7 +161,7 @@ If both pass, the two main target framework implementations in this repository a
 ## Package and NativeAOT smoke test
 
 `TinyEXR.PackageSmoke` is a standalone consumer of the packed `TinyEXR.NET`
-1.2.0 package, not a project reference. It intentionally stays outside the
+1.3.0 package, not a project reference. It intentionally stays outside the
 solution so ordinary solution restore does not require an unpublished package.
 Its 14 independently reported cases check models and I/O, spectral helpers, all
 ten supported flat codecs, stream-origin restoration, contexts, metadata, file
@@ -179,7 +179,7 @@ dotnet test --test-modules ./artifacts/aot-smoke/TinyEXR.PackageSmoke --report-t
 The `package-aot-smoke` CI job runs this on Ubuntu with the NativeAOT compiler
 prerequisites. The smoke-specific NuGet configuration maps `TinyEXR.NET` only
 to the locally generated package feed; use a fresh isolated consumer cache when rebuilding the unchanged package version,
-so a previous local 1.2.0 package is not reused. On Windows use `win-x64` and the
+so a previous local build of that version is not reused. On Windows use `win-x64` and the
 NativeAOT `.exe` path instead. All test runs produce TRX reports. These unsigned checks do not validate the publisher's private
 strong-name signing key or signed release artifacts.
 

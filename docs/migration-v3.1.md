@@ -1,14 +1,15 @@
-# Migrating to managed API 3.1
+# Migrating to TinyEXR.NET 1.3.0 (managed API 3.1)
 
-This follow-up keeps the current NuGet version **1.2.0** and assembly version
-**1.2.0.0**. Rebuild consumers: optional constructor parameters and format rules
+NuGet version **1.3.0** uses assembly and file versions **1.3.0.0**.
+Rebuild consumers: optional constructor parameters and format rules
 changed. The API identifier is now `ExrFile.ApiVersionMajor = 3`, `Minor = 1`.
 The earlier [V3-only breaking changes](migration-v3-only.md) still apply.
 
 ## Behavior changes
 
-- Correctness and performance comparisons now use official OpenEXR 3.5.3 at
-  `3950290530c4fd4776667d0dc4d65a9d003eb936`; TinyEXR remains port provenance only.
+- Correctness comparisons use official OpenEXR 3.5.3 at
+  `3950290530c4fd4776667d0dc4d65a9d003eb936`. Performance benchmarks compare
+  TinyEXR.NET, TinyEXR V3 and official OpenEXR through whole-image memory APIs.
 - Deep supports only NONE, RLE and ZIPS. Deep ZIP/HTJ2K/PIZ/B44/DWA requests are
   invalid even for raw data. Valid but unimplemented deep ZSTD is `Unsupported`.
 - `Compression.LJ2K = 12`, `ZSTD = 13` follow official numbering. Do not reuse

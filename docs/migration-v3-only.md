@@ -1,9 +1,8 @@
 # Migrating Exr to the V3-only implementation
 
 This is a breaking source and binary change. V1 DTOs, enums, readers, writers,
-adapter and codec implementation are deleted. Rebuild all consumers. The
-current package and assembly versions remain `1.2.0` / `1.2.0.0` during this
-refactor; release versioning is a separate task.
+adapter and codec implementation are deleted. Rebuild all consumers against
+package version `1.3.0`, with assembly and file versions `1.3.0.0`.
 
 ## Method signatures
 

@@ -2,10 +2,11 @@
 
 The public namespace is `TinyEXR`, with data sources and sinks in `TinyEXR.IO`.
 `ExrFile.ApiVersionMajor/Minor/Patch` is **3.1.0**. This API identifier is separate
-from the unchanged package/assembly version 1.2.0/1.2.0.0 and EXR file version 2.
+from package/assembly version 1.3.0/1.3.0.0 and EXR file version 2.
 See [V3-only migration](migration-v3-only.md) and [V3.1 migration](migration-v3.1.md).
 
-Official OpenEXR 3.5.3 is the only correctness and performance reference.
+Official OpenEXR 3.5.3 is the only correctness reference. Performance benchmarks
+compare TinyEXR.NET, TinyEXR V3 and official OpenEXR through whole-image memory APIs.
 TinyEXR's modular V3 sources provide port ancestry; its private extensions and
 accidental permissiveness are not part of the managed format contract.
 

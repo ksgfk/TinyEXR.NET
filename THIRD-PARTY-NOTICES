@@ -1,11 +1,7 @@
 Third-party notices for TinyEXR.NET
 
-Native test/benchmark builds fetch the unmodified TinyEXR commit recorded in
-Scripts/tinyexr-source.json into .cache/tinyexr. Its vendored libdeflate 1.25
-is Copyright 2016 Eric Biggers and Copyright 2024 Google LLC, MIT licensed
-(deps/libdeflate/COPYING). OpenEXR and its fixed dependencies are prepared by
-Scripts/cmake/OpenEXR.cmake. These native dependencies and their source licenses
-remain in the external caches; they are not included in the managed NuGet package.
+Original managed code is covered by LICENSE (MIT). The notices below apply to
+ported codec implementations included in the managed library.
 
 The managed V3 codec ports are derived from TinyEXR's modular C sources at
 commits 1b106618644dbf8a0935c2348ba51a2d863dd7c2 and
@@ -18,7 +14,7 @@ reproduced below; original managed code remains covered by LICENSE (MIT).
 
 BSD 3-Clause License
 
-Copyright (c) 2014 - 2021, Syoyo Fujita and many contributors.
+Copyright (C) 2014 - Present, Syoyo Fujita and many contributors.
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -60,8 +56,7 @@ Redistribution and use in source and binary forms, with or without modification,
 
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-HTJ2K algorithms and table ancestry also include OpenJPH (the version bundled
-with the pinned OpenEXR reference is 0.32.0):
+The managed HTJ2K implementation and lookup tables also derive from OpenJPH:
 
 BSD 2-Clause License
 

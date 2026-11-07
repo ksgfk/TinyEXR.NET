@@ -11,6 +11,11 @@ TinyEXR `eb0ba07f44a33e1ce5bc0fb74142a3a6558f0661` is a port source and performa
 The original V3-only port used `1b106618644dbf8a0935c2348ba51a2d863dd7c2`; unchanged
 source-file annotations retain that history. The unmodified source is cached by Scripts/prepare-tinyexr.ps1; its pin lives in Scripts/tinyexr-source.json. Git submodules are no longer required.
 
+The native TinyEXR benchmark uses vendored libdeflate 1.25, Copyright 2016 Eric
+Biggers and Copyright 2024 Google LLC, under MIT (`deps/libdeflate/COPYING`).
+Native dependency licenses remain with their cached sources; these native tools
+and dependencies are not distributed in the managed package.
+
 | Managed source | Port source / authoritative correction |
 | --- | --- |
 | `BlockCodec`, `CodecContext` | TinyEXR `exr_codec.c`, `exr_core.c`; official compression IDs, deep capabilities and sampling |

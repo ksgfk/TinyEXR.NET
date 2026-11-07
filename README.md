@@ -48,8 +48,8 @@ See the [detailed support matrix](docs/tinyexr-v3.md) and [port provenance and i
 The `TinyEXR` namespace exposes the immutable V3 models and the `Exr` convenience
 methods. Data sources and sinks live in `TinyEXR.IO`. All I/O uses `ExrReader`
 and `ExrWriter`. The former V1 models, status codes and implementation have been
-removed; this is a **breaking source and binary change**. The package version
-remains `1.2.0` during this refactor; release versioning is a separate decision.
+removed; version **1.3.0** introduces this **breaking source and binary change**.
+Rebuild consumers against the new package. The managed API identifier remains **3.1.0**.
 See the [V3-only migration guide](docs/migration-v3-only.md) and
 [V3.1 migration guide](docs/migration-v3.1.md), and [codec port provenance](docs/codec-port.md).
 
@@ -144,4 +144,7 @@ origins and dimensions. See the [support matrix](docs/tinyexr-v3.md).
 
 ## License
 
-Original managed code is MIT licensed. The V3 codec ports retain upstream BSD-3-Clause/BSD-2-Clause notices; see [THIRD-PARTY-NOTICES](THIRD-PARTY-NOTICES).
+The NuGet package declares MIT for the original managed code; see [LICENSE](LICENSE).
+Distributed V3 codec ports retain their upstream BSD-3-Clause/BSD-2-Clause notices
+in [THIRD-PARTY-NOTICES](THIRD-PARTY-NOTICES). Native test and benchmark tools are
+not included in the package.
