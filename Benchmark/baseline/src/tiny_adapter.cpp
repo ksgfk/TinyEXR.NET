@@ -1,7 +1,6 @@
 #include "file_comparison.h"
-extern "C" {
-#include <exr_internal.h>
-}
+#include <exr.h>
+#include <cstdlib>
 #include <cstring>
 
 namespace comparison {
@@ -60,7 +59,8 @@ public:
         return Canonical(planes);
     }
     void ReleaseResults() override {
-        exr_free(nullptr, encoded_); encoded_ = nullptr;
+        // A null operation allocator selects malloc/free in the public API.
+        std::free(encoded_); encoded_ = nullptr;
         exr_image_free(&decoded_);
     }
 };

@@ -18,8 +18,9 @@ on other platforms. Both native libraries use one toolchain and Release flags.
 A correct `.cache/tinyexr` checkout is reused without network access; an incorrect
 or modified cache is rejected without overwriting it. Standalone CMake requires
 `pwsh Scripts/prepare-tinyexr.ps1` first. Sources and dependencies remain outside
-the package. Private libdeflate symbol names prevent one native backend from
-silently replacing the other.
+the package. OpenEXR and TinyEXR run in separate executables; each links only its
+own adapter, library and codec dependencies. Their libdeflate backends cannot
+replace one another, and no symbol-renaming layer is needed.
 
 `Default` uses BenchmarkDotNet calibration and Google Benchmark warmup,
 calibration and five repetitions (0.5-second minimum). `Short` is diagnostic;
@@ -86,13 +87,34 @@ Interpret speed together with output size and compression settings.
 
     dotnet test --project Test/TinyEXR.Benchmark.Test/TinyEXR.Benchmark.Test.csproj -c Release -p:SignAssemblyKey=false --report-trx
 
-Tests require prepared fixtures and file_fixture_tool; they never download or
+Tests require prepared fixtures, `openexr_file_tool` and `tinyexr_file_tool`; they never download or
 build dependencies. Set TINYEXR_BENCHMARK_NATIVE_DIR for another build directory
 (the Release subdirectory is also recognized). Each test has a separate work
 directory. Native stdout/stderr are drained concurrently; calls time out after
 60 seconds. Failures retain input and log attachments. Lossless samples compare
 byte-for-byte; lossy samples compare official and tested decoding of the same file.
 The two HTJ2K rejection tests assert the real Unsupported status.
+
+MSTest selects the executable for each library; neither tool accepts a runtime
+backend selector. Only `openexr_file_tool` provides `prepare` for shared official
+inputs. Both tools expose `encode COMPRESSION OUTPUT`, `decode INPUT OUTPUT`,
+and `--implementation`. For example (add `.exe` on Windows):
+
+    openexr_file_tool prepare .cache/compression-benchmarks/official
+    tinyexr_file_tool encode ZIP tiny.exr
+    openexr_file_tool decode tiny.exr official.raw
+
+These are data generation/export operations. Test discovery, assertions and
+results remain in MSTest. The independent `openexr_compression_benchmark` and
+`tinyexr_compression_benchmark` executables use the same respective adapters for
+timing; no executable links both EXR libraries.
+
+Linux CI also configures `TINYEXR_BENCHMARK_CHECK_LEAKS=ON`. This links both
+file tools with standalone [LeakSanitizer](https://clang.llvm.org/docs/LeakSanitizer.html),
+so the existing MSTest cases fail and retain diagnostics if an adapter leaks
+its native results. The timed benchmark executables remain uninstrumented.
+TinyEXR adapters include only its public C++-safe header, and release encoded
+buffers with `free`, matching the public API's default allocator contract.
 
 Existing RLE/PIZ/HTJ2K microbenchmarks remain independent optimization diagnostics:
 

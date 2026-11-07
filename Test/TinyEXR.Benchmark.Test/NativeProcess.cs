@@ -29,7 +29,7 @@ internal static class NativeProcess
             await process.WaitForExitAsync();
         }
         string output = await stdout, error = await stderr;
-        await File.WriteAllTextAsync(log, string.Join(" ", arguments) + "\n" + output + "\n" + error);
+        await File.WriteAllTextAsync(log, executable + "\n" + string.Join(" ", arguments) + "\n" + output + "\n" + error);
         if (expired) throw new TimeoutException("Native process exceeded " + (limit ?? TimeSpan.FromSeconds(60)) + "; " + log);
         return new(process.ExitCode, output, error);
     }

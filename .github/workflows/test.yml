@@ -124,7 +124,10 @@ jobs:
       run: ./Scripts/prepare-tinyexr.ps1
     - name: Validate whole-image adapters and complete throughput report
       shell: pwsh
-      run: ./Benchmark/run-compression-benchmarks.ps1 -Job Dry -OutputDirectory artifacts/whole-image-dry
+      run: |
+        cmake -S Benchmark/baseline -B .cache/benchmark-native-clang -G Ninja -DCMAKE_BUILD_TYPE=Release -DTINYEXR_BENCHMARK_CHECK_LEAKS=ON
+        if ($LASTEXITCODE -ne 0) { throw 'Native leak-check configuration failed.' }
+        ./Benchmark/run-compression-benchmarks.ps1 -Job Dry -OutputDirectory artifacts/whole-image-dry
     - name: Upload benchmark reports and failure attachments
       if: always()
       uses: actions/upload-artifact@v4

@@ -52,13 +52,13 @@ try {
     & cmake --build $nativeBuild --config Release --target compression_benchmarks --parallel 4
     Check-Exit 'Native build'
 
-    & (Native-Executable 'file_fixture_tool') prepare (Join-Path $repoRoot '.cache/compression-benchmarks/official')
+    & (Native-Executable 'openexr_file_tool') prepare (Join-Path $repoRoot '.cache/compression-benchmarks/official')
     Check-Exit 'Official fixture preparation'
     Copy-Item -LiteralPath "$repoRoot/.cache/compression-benchmarks/official/manifest.csv" -Destination "$OutputDirectory/input-manifest.csv"
     & dotnet run -c Release --no-build --project $managedProject -- --prepare-v3-compression-fixtures
     Check-Exit 'Managed encode size preparation'
     $env:TINYEXR_BENCHMARK_NATIVE_DIR = $nativeBuild
-    & dotnet test --project Test/TinyEXR.Benchmark.Test/TinyEXR.Benchmark.Test.csproj -c Release -p:SignAssemblyKey=false --minimum-expected-tests 78 --report-trx --report-trx-filename adapters.trx --results-directory "$OutputDirectory/tests"
+    & dotnet test --project Test/TinyEXR.Benchmark.Test/TinyEXR.Benchmark.Test.csproj -c Release -p:SignAssemblyKey=false --minimum-expected-tests 85 --report-trx --report-trx-filename adapters.trx --results-directory "$OutputDirectory/tests"
     Check-Exit 'Whole-file adapter tests'
 
     $started = [DateTime]::UtcNow

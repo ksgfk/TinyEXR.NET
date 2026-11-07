@@ -255,6 +255,10 @@ After preparation:
 
 All 32 library/compression pairs have separate Encode and Decode tests. TinyEXR
 official-input HTJ2K32/256 Decode must return Unsupported (-3); other errors fail.
+Native calls use separate `openexr_file_tool` and `tinyexr_file_tool` executables,
+each linked only to its own library and dependencies. Only the OpenEXR tool can
+prepare the shared official fixtures. MSTest checks tool selection, missing tools,
+and rejects the old runtime backend selector; the combined tool is no longer used.
 Tests verify complete HALF planes, shared input hashes, official reads of saved
 files, corrupt input, missing tools, process errors/timeouts and report integrity.
 Failed cases attach inputs and concurrently captured stdout/stderr; calls have a

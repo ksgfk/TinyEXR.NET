@@ -51,21 +51,45 @@ FetchContent_MakeAvailable(googlebenchmark)
 include("${CMAKE_CURRENT_SOURCE_DIR}/../../Scripts/cmake/OpenEXR.cmake")
 file(TO_CMAKE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/../.." TINYEXR_BENCHMARK_REPO_ROOT_PATH)
 
-add_library(file_adapters STATIC src/tiny_adapter.cpp src/official_file.cpp)
-target_link_libraries(file_adapters PUBLIC tinyexr_v3 OpenEXR::OpenEXR)
-target_compile_definitions(file_adapters PUBLIC
+add_library(benchmark_settings INTERFACE)
+target_compile_definitions(benchmark_settings INTERFACE
     TINYEXR_BENCHMARK_REPO_ROOT="${TINYEXR_BENCHMARK_REPO_ROOT_PATH}"
     TINYEXR_BENCHMARK_COMPILER="${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}"
     TINYEXR_BENCHMARK_OPTIMIZATION="${TINYEXR_BENCHMARK_OPTIMIZATION}"
     TINYEXR_SOURCE_COMMIT="${TINYEXR_SOURCE_COMMIT}")
 
-add_executable(openexr_compression_benchmark src/openexr_compression.cpp)
-add_executable(tinyexr_compression_benchmark src/openexr_compression.cpp)
-target_compile_definitions(tinyexr_compression_benchmark PRIVATE USE_TINYEXR)
-foreach(target openexr_compression_benchmark tinyexr_compression_benchmark)
-    target_link_libraries(${target} PRIVATE file_adapters benchmark::benchmark)
+add_library(openexr_file_adapter STATIC src/official_file.cpp)
+target_link_libraries(openexr_file_adapter PUBLIC benchmark_settings OpenEXR::OpenEXR)
+add_library(tinyexr_file_adapter STATIC src/tiny_adapter.cpp)
+target_link_libraries(tinyexr_file_adapter PUBLIC benchmark_settings tinyexr_v3)
+
+# Keep the implementations and their codec dependencies in separate processes,
+# for both MSTest operations and Google Benchmark measurements.
+foreach(implementation openexr tinyexr)
+    add_executable(${implementation}_compression_benchmark src/openexr_compression.cpp)
+    target_link_libraries(${implementation}_compression_benchmark PRIVATE
+        ${implementation}_file_adapter benchmark::benchmark)
+    add_executable(${implementation}_file_tool src/file_fixture_tool.cpp)
+    target_link_libraries(${implementation}_file_tool PRIVATE ${implementation}_file_adapter)
 endforeach()
-add_executable(file_fixture_tool src/file_fixture_tool.cpp)
-target_link_libraries(file_fixture_tool PRIVATE file_adapters)
+target_compile_definitions(tinyexr_compression_benchmark PRIVATE USE_TINYEXR)
+target_compile_definitions(tinyexr_file_tool PRIVATE USE_TINYEXR)
+option(TINYEXR_BENCHMARK_CHECK_LEAKS "Check native fixture/adapter ownership with LeakSanitizer" OFF)
+if(TINYEXR_BENCHMARK_CHECK_LEAKS)
+    if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        message(FATAL_ERROR "TINYEXR_BENCHMARK_CHECK_LEAKS requires a Linux toolchain with LeakSanitizer.")
+    endif()
+    include(CheckCXXCompilerFlag)
+    check_cxx_compiler_flag("-fsanitize=leak" TINYEXR_HAS_LEAK_SANITIZER)
+    if(NOT TINYEXR_HAS_LEAK_SANITIZER)
+        message(FATAL_ERROR "The C++ toolchain must support linking -fsanitize=leak.")
+    endif()
+    # Existing MSTest encode/decode cases check the tool's exit status and attach
+    # sanitizer diagnostics. Keep both timed benchmark executables uninstrumented.
+    foreach(tool openexr_file_tool tinyexr_file_tool)
+        target_link_options(${tool} PRIVATE -fsanitize=leak)
+    endforeach()
+endif()
 add_custom_target(compression_benchmarks DEPENDS
-    openexr_compression_benchmark tinyexr_compression_benchmark file_fixture_tool)
+    openexr_compression_benchmark tinyexr_compression_benchmark
+    openexr_file_tool tinyexr_file_tool)

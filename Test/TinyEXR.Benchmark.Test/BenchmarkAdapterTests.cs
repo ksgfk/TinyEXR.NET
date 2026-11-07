@@ -139,14 +139,54 @@ public sealed class BenchmarkAdapterTests
     }
 
     [TestMethod]
-    public async Task MissingNativeToolFails() =>
-        await Assert.ThrowsExactlyAsync<FileNotFoundException>(() =>
-            NativeProcess.Execute(Path.Combine(_work, "missing"), [], Path.Combine(_work, "missing.log")));
+    [DataRow("TinyEXR")]
+    [DataRow("OpenEXR")]
+    public async Task MissingNativeToolFails(string implementation)
+    {
+        // A leftover combined executable must not stand in for either new tool.
+        File.WriteAllText(Path.Combine(_work, "file_fixture_tool" + (OperatingSystem.IsWindows() ? ".exe" : "")), "obsolete");
+        string executable = NativeExecutable(implementation, _work);
+        var error = await Assert.ThrowsExactlyAsync<FileNotFoundException>(() =>
+            NativeProcess.Execute(executable, [], Path.Combine(_work, "missing.log")));
+        Assert.AreEqual(executable, error.FileName);
+    }
 
     [TestMethod]
-    public async Task NonzeroNativeExitIsNotSwallowed()
+    [DataRow("TinyEXR")]
+    [DataRow("OpenEXR")]
+    public async Task NativeToolIdentifiesItsImplementation(string implementation)
     {
-        var result = await Native("invalid-command");
+        var result = await Native("--implementation", implementation);
+        NativeProcess.RequireSuccess(result);
+        Assert.AreEqual(implementation, result.Output.Trim());
+    }
+
+    [TestMethod]
+    public async Task TinyExrCannotPrepareOfficialFixtures()
+    {
+        string output = Path.Combine(_work, "official");
+        var result = await Native("prepare", "TinyEXR", output);
+        Assert.AreEqual(1, result.ExitCode, result.Error);
+        Assert.IsFalse(Directory.Exists(output));
+    }
+
+    [TestMethod]
+    [DataRow("TinyEXR", "OpenEXR")]
+    [DataRow("OpenEXR", "TinyEXR")]
+    public async Task NativeToolRejectsRuntimeBackendSelection(string implementation, string other)
+    {
+        string output = Path.Combine(_work, "wrong-backend.exr");
+        var result = await Native("encode", implementation, other, "None", output);
+        Assert.AreEqual(1, result.ExitCode, result.Error);
+        Assert.IsFalse(File.Exists(output));
+    }
+
+    [TestMethod]
+    [DataRow("TinyEXR")]
+    [DataRow("OpenEXR")]
+    public async Task NonzeroNativeExitIsNotSwallowed(string implementation)
+    {
+        var result = await Native("invalid-command", implementation);
         Assert.AreEqual(1, result.ExitCode);
         await Assert.ThrowsExactlyAsync<AssertFailedException>(() => Task.Run(() => NativeProcess.RequireSuccess(result)));
     }
@@ -154,7 +194,6 @@ public sealed class BenchmarkAdapterTests
     [TestMethod]
     public async Task NativeTimeoutTerminatesProcessAndRetainsLog()
     {
-        string shell = System.Diagnostics.Process.GetCurrentProcess().MainModule!.FileName!;
         // pwsh is a test helper here; no benchmark timing depends on this process.
         string pwsh = OperatingSystem.IsWindows()
             ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "PowerShell", "7", "pwsh.exe")
@@ -228,14 +267,26 @@ public sealed class BenchmarkAdapterTests
         Assert.AreEqual(head, (await Git("-C", checkout, "rev-parse", "HEAD")).Output);
         if (scenario == "Dirty") Assert.AreEqual("keep this", File.ReadAllText(Path.Combine(checkout, "local-edit.txt")));
     }
-    private Task<NativeResult> Native(params string[] arguments)
+    private Task<NativeResult> Native(string operation, string implementation, params string[] arguments)
     {
-        string root = Environment.GetEnvironmentVariable("TINYEXR_BENCHMARK_NATIVE_DIR") ??
+        return NativeProcess.Execute(NativeExecutable(implementation), [operation, .. arguments],
+            Path.Combine(_work, $"native-{_calls++}.log"));
+    }
+
+    private static string NativeExecutable(string implementation, string? root = null)
+    {
+        root ??= Environment.GetEnvironmentVariable("TINYEXR_BENCHMARK_NATIVE_DIR") ??
             Path.Combine(FileComparisonData.RepoRoot, ".cache", "benchmark-native-clang");
-        string name = "file_fixture_tool" + (OperatingSystem.IsWindows() ? ".exe" : "");
+        string name = implementation switch
+        {
+            "TinyEXR" => "tinyexr_file_tool",
+            "OpenEXR" => "openexr_file_tool",
+            _ => throw new ArgumentOutOfRangeException(nameof(implementation))
+        };
+        name += OperatingSystem.IsWindows() ? ".exe" : "";
         string executable = Path.Combine(root, name);
         if (!File.Exists(executable)) executable = Path.Combine(root, "Release", name);
-        return NativeProcess.Execute(executable, arguments, Path.Combine(_work, $"native-{_calls++}.log"));
+        return executable;
     }
 
     private static void ValidateHeader(byte[] file, Compression compression)

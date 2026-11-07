@@ -22,24 +22,14 @@ foreach(source adler32 deflate_compress deflate_decompress zlib_compress zlib_de
 endforeach()
 add_library(tinyexr_v3 STATIC ${tinyexr_sources} ${tinyexr_deflate_sources}
     "${TINYEXR_SOURCE_DIR}/deps/zstd/tinyexr_zstd.c")
-target_include_directories(tinyexr_v3 PUBLIC "${TINYEXR_SOURCE_DIR}/include" "${TINYEXR_SOURCE_DIR}/src"
-    PRIVATE "${TINYEXR_SOURCE_DIR}/deps/libdeflate" "${TINYEXR_SOURCE_DIR}/deps/zstd")
+# Consumers use only the C++-safe public API; internal headers contain C11-only
+# declarations and must not leak into the C++ benchmark adapters.
+target_include_directories(tinyexr_v3 PUBLIC "${TINYEXR_SOURCE_DIR}/include"
+    PRIVATE "${TINYEXR_SOURCE_DIR}/src" "${TINYEXR_SOURCE_DIR}/deps/libdeflate" "${TINYEXR_SOURCE_DIR}/deps/zstd")
 target_compile_definitions(tinyexr_v3 PRIVATE EXR_USE_LIBDEFLATE EXR_ZLIB_DEFAULT_LIBDEFLATE=1
     EXR_JPH_ENABLE_AVX2_FOUR_QUAD16=1)
-# The export/preparation tool links both libraries. Give TinyEXR's vendored
-# libdeflate private symbol names so the linker cannot substitute OpenEXR's
-# independently pinned backend (or report duplicate symbols with LTO).
-file(GLOB_RECURSE deflate_symbol_files "${TINYEXR_SOURCE_DIR}/deps/libdeflate/*.h" "${TINYEXR_SOURCE_DIR}/deps/libdeflate/*.c")
-set(deflate_symbols)
-foreach(source IN LISTS deflate_symbol_files)
-    file(READ "${source}" text)
-    string(REGEX MATCHALL "libdeflate_[A-Za-z0-9_]+" symbols "${text}")
-    list(APPEND deflate_symbols ${symbols})
-endforeach()
-list(REMOVE_DUPLICATES deflate_symbols)
-foreach(symbol IN LISTS deflate_symbols)
-    target_compile_definitions(tinyexr_v3 PRIVATE "${symbol}=tinyexr_bench_${symbol}")
-endforeach()
+# TinyEXR and OpenEXR are linked into separate executables, so the vendored
+# backend keeps its upstream symbol names without colliding with OpenEXR.
 set_target_properties(tinyexr_v3 PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON C_EXTENSIONS OFF)
 if(NOT MSVC)
     target_link_libraries(tinyexr_v3 PRIVATE m)
