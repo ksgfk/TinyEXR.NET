@@ -23,7 +23,8 @@ namespace TinyEXR
         private readonly bool _forceMultipart;
         private readonly WriterLimits _limits;
         private readonly List<Header> _headers = new List<Header>();
-        private readonly WriterEncodeResources _encodeResources = new WriterEncodeResources();
+        private readonly CodecResources _encodeResources;
+        private readonly ExrContext? _context;
         private readonly SemaphoreSlim _operationGate = new SemaphoreSlim(1, 1);
         private readonly object _stateGate = new object();
 
@@ -50,6 +51,8 @@ namespace TinyEXR
             _leaveOpen = options.LeaveOpen;
             _forceMultipart = options.ForceMultipart;
             _limits = options.Limits;
+            _context = options.Context;
+            _encodeResources = _context?.Acquire() ?? new CodecResources();
         }
 
         public WriterState State
@@ -1419,6 +1422,15 @@ namespace TinyEXR
         private WriterResult? DrainOutput(PendingOutput output, ref long bytesWritten)
         {
             output.InvocationBytesWritten = 0;
+            if (_limits.MaximumFileByteCount != 0 &&
+                (output.AbsolutePosition > _limits.MaximumFileByteCount || output.Length > _limits.MaximumFileByteCount - output.AbsolutePosition))
+            {
+                WriterResult limit = new WriterResult(ExrResult.LimitExceeded, null,
+                    new WriterLimitExceededException(nameof(WriterLimits.MaximumFileByteCount),
+                        checked(output.AbsolutePosition + output.Length), _limits.MaximumFileByteCount));
+                lock (_stateGate) { _terminalResult = limit; _state = WriterState.Faulted; }
+                return limit;
+            }
             if (output.Offset == output.Length)
             {
                 return null;
@@ -1461,6 +1473,15 @@ namespace TinyEXR
             CancellationToken cancellationToken)
         {
             output.InvocationBytesWritten = 0;
+            if (_limits.MaximumFileByteCount != 0 &&
+                (output.AbsolutePosition > _limits.MaximumFileByteCount || output.Length > _limits.MaximumFileByteCount - output.AbsolutePosition))
+            {
+                WriterResult limit = new WriterResult(ExrResult.LimitExceeded, null,
+                    new WriterLimitExceededException(nameof(WriterLimits.MaximumFileByteCount),
+                        checked(output.AbsolutePosition + output.Length), _limits.MaximumFileByteCount));
+                lock (_stateGate) { _terminalResult = limit; _state = WriterState.Faulted; }
+                return limit;
+            }
             if (output.Offset == output.Length)
             {
                 return null;
@@ -1731,7 +1752,8 @@ namespace TinyEXR
             {
                 _disposed = true;
                 ReleasePendingBlock();
-                _encodeResources.Dispose();
+                if (_context == null) _encodeResources.Dispose();
+                else _context.Release();
                 _pending = null;
                 _state = WriterState.Disposed;
             }

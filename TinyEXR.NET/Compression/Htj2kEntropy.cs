@@ -977,7 +977,7 @@ namespace TinyEXR.Codecs
             }
         }
 
-        private sealed class CodeBlockDecodeWorkspace
+        internal sealed class CodeBlockDecodeWorkspace
         {
             private ushort[] _scratch = Array.Empty<ushort>();
             private readonly ulong[] _north = new ulong[516];

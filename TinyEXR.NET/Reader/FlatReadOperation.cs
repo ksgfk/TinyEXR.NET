@@ -150,7 +150,7 @@ namespace TinyEXR
         public static FlatReadOperation Create(
             FlatReadRequest request,
             ReaderPartData part,
-            ReaderLimits limits)
+            ReaderLimits limits, long materializedPrefix = 0)
         {
             if (part.Header.IsDeep)
             {
@@ -279,11 +279,11 @@ namespace TinyEXR
 
                     channelByteCounts[channelIndex] = (int)byteCount;
                     materializedByteCount = checked(materializedByteCount + (long)byteCount);
-                    if (materializedByteCount > limits.MaximumMaterializedByteCount)
+                    if (materializedByteCount > limits.MaximumMaterializedByteCount - materializedPrefix)
                     {
                         throw new ReaderLimitExceededException(
                             nameof(ReaderLimits.MaximumMaterializedByteCount),
-                            materializedByteCount,
+                            checked(materializedPrefix + materializedByteCount),
                             limits.MaximumMaterializedByteCount);
                     }
                 }

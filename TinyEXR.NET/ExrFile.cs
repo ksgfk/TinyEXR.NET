@@ -14,7 +14,7 @@ namespace TinyEXR
     public static class ExrFile
     {
         public const int ApiVersionMajor = 3;
-        public const int ApiVersionMinor = 0;
+        public const int ApiVersionMinor = 1;
         public const int ApiVersionPatch = 0;
 
         private const uint Magic = 20_000_630U;
@@ -50,7 +50,7 @@ namespace TinyEXR
                 leaveOpen: effectiveOptions.LeaveOpen);
             using ExrReader reader = ExrReader.OpenSource(
                 source,
-                new ReaderOptions(effectiveOptions.Limits, leaveOpen: true));
+                new ReaderOptions(effectiveOptions.Limits, leaveOpen: true, context: effectiveOptions.Context));
             return ReadImage(reader);
         }
 
@@ -72,7 +72,7 @@ namespace TinyEXR
                 leaveOpen: effectiveOptions.LeaveOpen);
             await using ExrReader reader = ExrReader.OpenAsyncSource(
                 source,
-                new ReaderOptions(effectiveOptions.Limits, leaveOpen: true));
+                new ReaderOptions(effectiveOptions.Limits, leaveOpen: true, context: effectiveOptions.Context));
             return await ReadImageAsync(reader, cancellationToken).ConfigureAwait(false);
         }
 
@@ -87,7 +87,7 @@ namespace TinyEXR
                 ReaderOptions effectiveOptions = options ?? new ReaderOptions();
                 return LoadFromStream(
                     stream,
-                    new ReaderOptions(effectiveOptions.Limits, leaveOpen: false));
+                    new ReaderOptions(effectiveOptions.Limits, leaveOpen: false, context: effectiveOptions.Context));
             }
             catch (Exception exception) when (IsIoException(exception))
             {
@@ -113,7 +113,7 @@ namespace TinyEXR
                 ReaderOptions effectiveOptions = options ?? new ReaderOptions();
                 return await LoadFromStreamAsync(
                     stream,
-                    new ReaderOptions(effectiveOptions.Limits, leaveOpen: false),
+                    new ReaderOptions(effectiveOptions.Limits, leaveOpen: false, context: effectiveOptions.Context),
                     cancellationToken).ConfigureAwait(false);
             }
             catch (Exception exception) when (IsIoException(exception))
@@ -233,6 +233,7 @@ namespace TinyEXR
                 }
 
                 parts[partIndex] = part.Value;
+                reader.MaterializedPrefixByteCount = checked(reader.MaterializedPrefixByteCount + part.BytesWritten);
                 bytesWritten = checked(bytesWritten + part.BytesWritten);
             }
 
@@ -264,6 +265,7 @@ namespace TinyEXR
                 }
 
                 parts[partIndex] = part.Value;
+                reader.MaterializedPrefixByteCount = checked(reader.MaterializedPrefixByteCount + part.BytesWritten);
                 bytesWritten = checked(bytesWritten + part.BytesWritten);
             }
 
@@ -279,8 +281,13 @@ namespace TinyEXR
         {
             // Size the buffer from the uncompressed payload so the stream never has to grow-and-copy. Compressed
             // output is smaller than this, and a raw fallback block is exactly the payload size plus headers.
-            using MemoryStream stream = new MemoryStream(EstimateEncodedCapacity(image));
             WriterOptions effectiveOptions = options ?? new WriterOptions();
+            WriterResult? budget = CheckImageBudget(image, effectiveOptions.Limits);
+            if (budget.HasValue) return new WriterResult<byte[]>(budget.Value, null);
+            int capacity = EstimateEncodedCapacity(image);
+            if (effectiveOptions.Limits.MaximumFileByteCount > 0)
+                capacity = (int)Math.Min(capacity, effectiveOptions.Limits.MaximumFileByteCount);
+            using MemoryStream stream = new MemoryStream(capacity);
             WriterResult result = SaveToStreamCore(
                 image,
                 stream,
@@ -288,7 +295,7 @@ namespace TinyEXR
                 new WriterOptions(
                     effectiveOptions.Limits,
                     leaveOpen: true,
-                    forceMultipart: effectiveOptions.ForceMultipart));
+                    forceMultipart: effectiveOptions.ForceMultipart, context: effectiveOptions.Context));
             return new WriterResult<byte[]>(result, result.IsSuccess ? stream.ToArray() : null);
         }
 
@@ -337,6 +344,8 @@ namespace TinyEXR
         {
             ValidateSaveArguments(image, stream);
             WriterOptions effectiveOptions = options ?? new WriterOptions();
+            WriterResult? budget = CheckImageBudget(image, effectiveOptions.Limits);
+            if (budget.HasValue) return budget.Value;
             long origin = stream.Position;
             using StreamDataSink sink = new StreamDataSink(
                 stream,
@@ -347,7 +356,7 @@ namespace TinyEXR
                 new WriterOptions(
                     effectiveOptions.Limits,
                     leaveOpen: true,
-                    forceMultipart: effectiveOptions.ForceMultipart));
+                    forceMultipart: effectiveOptions.ForceMultipart, context: effectiveOptions.Context));
             return WriteImage(writer, image, compression);
         }
 
@@ -360,6 +369,8 @@ namespace TinyEXR
         {
             ValidateSaveArguments(image, stream);
             WriterOptions effectiveOptions = options ?? new WriterOptions();
+            WriterResult? budget = CheckImageBudget(image, effectiveOptions.Limits);
+            if (budget.HasValue) return budget.Value;
             long origin = stream.Position;
             await using StreamDataSink sink = new StreamDataSink(
                 stream,
@@ -370,7 +381,7 @@ namespace TinyEXR
                 new WriterOptions(
                     effectiveOptions.Limits,
                     leaveOpen: true,
-                    forceMultipart: effectiveOptions.ForceMultipart));
+                    forceMultipart: effectiveOptions.ForceMultipart, context: effectiveOptions.Context));
             return await WriteImageAsync(writer, image, compression, cancellationToken).ConfigureAwait(false);
         }
 
@@ -392,7 +403,7 @@ namespace TinyEXR
                     new WriterOptions(
                         effectiveOptions.Limits,
                         leaveOpen: false,
-                        forceMultipart: effectiveOptions.ForceMultipart));
+                        forceMultipart: effectiveOptions.ForceMultipart, context: effectiveOptions.Context));
             }
             catch (Exception exception) when (IsIoException(exception))
             {
@@ -425,7 +436,7 @@ namespace TinyEXR
                     new WriterOptions(
                         effectiveOptions.Limits,
                         leaveOpen: false,
-                        forceMultipart: effectiveOptions.ForceMultipart),
+                        forceMultipart: effectiveOptions.ForceMultipart, context: effectiveOptions.Context),
                     cancellationToken).ConfigureAwait(false);
             }
             catch (Exception exception) when (IsIoException(exception))
@@ -817,6 +828,24 @@ namespace TinyEXR
             }
         }
 
+        private static WriterResult? CheckImageBudget(Image image, WriterLimits limits)
+        {
+            if (image == null) throw new ArgumentNullException(nameof(image));
+            long maximum = limits.MaximumMaterializedByteCount;
+            if (maximum == 0) return null;
+            long bytes = 0;
+            foreach (Part part in image.Parts)
+                foreach (PartLevel level in part.Levels)
+                {
+                    if (level is DeepLevel deep) bytes = checked(bytes + deep.SampleCounts.Length * 4L);
+                    foreach (ChannelBuffer channel in level.Channels) bytes = checked(bytes + channel.ByteLength);
+                    if (bytes > maximum)
+                        return new WriterResult(ExrResult.LimitExceeded, null,
+                            new WriterLimitExceededException(nameof(WriterLimits.MaximumMaterializedByteCount), bytes, maximum));
+                }
+            return null;
+        }
+
         private static void ValidateSaveArguments(Image image, Stream stream)
         {
             if (image == null)
@@ -867,9 +896,10 @@ namespace TinyEXR
                 return ExrResult.OutOfMemory;
             }
 
-            if (exception is NotSupportedException ||
-                exception is OverflowException ||
-                exception is WriterLimitExceededException)
+            if (exception is WriterLimitExceededException)
+                return ExrResult.LimitExceeded;
+
+            if (exception is NotSupportedException)
             {
                 return ExrResult.Unsupported;
             }

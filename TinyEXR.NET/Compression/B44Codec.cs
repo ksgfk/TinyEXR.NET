@@ -44,7 +44,7 @@ namespace TinyEXR.Codecs
                                 {
                                     ushort value = block[dy * 4 + dx];
                                     if (channel.PerceptuallyLinear)
-                                        value = B44Tables.Exp[value];
+                                        value = B44Tables.Log[value];
                                     BinaryPrimitives.WriteUInt16LittleEndian(planes.Slice(plane + ((y + dy) * width + x + dx) * 2), value);
                                 }
                             }
@@ -84,11 +84,11 @@ namespace TinyEXR.Codecs
                                     int offset = plane + (Math.Min(y + dy, height - 1) * width + Math.Min(x + dx, width - 1)) * 2;
                                     ushort value = BinaryPrimitives.ReadUInt16LittleEndian(planes.Slice(offset));
                                     if (channel.PerceptuallyLinear)
-                                        value = B44Tables.Log[value];
+                                        value = B44Tables.Exp[value];
                                     block[dy * 4 + dx] = value;
                                 }
                             }
-                            int length = Pack(block, packed, optimizeFlat);
+                            int length = Pack(block, packed, optimizeFlat, !channel.PerceptuallyLinear);
                             output.Write(packed.Slice(0, length));
                         }
                     }
@@ -122,7 +122,7 @@ namespace TinyEXR.Codecs
                 block[i] = (block[i] & 0x8000) != 0 ? (ushort)(block[i] & 0x7fff) : unchecked((ushort)~block[i]);
         }
 
-        private static int Pack(ReadOnlySpan<ushort> block, Span<byte> output, bool optimizeFlat)
+        private static int Pack(ReadOnlySpan<ushort> block, Span<byte> output, bool optimizeFlat, bool exactMaximum)
         {
             Span<ushort> transformed = stackalloc ushort[16];
             Span<int> distances = stackalloc int[16];
@@ -159,7 +159,7 @@ namespace TinyEXR.Codecs
                 return 3;
             }
             output.Clear();
-            BinaryPrimitives.WriteUInt16BigEndian(output, unchecked((ushort)(maximum - (distances[0] << shift))));
+            BinaryPrimitives.WriteUInt16BigEndian(output, exactMaximum ? unchecked((ushort)(maximum - (distances[0] << shift))) : transformed[0]);
             output[2] = (byte)(shift << 2);
             int bit = 22;
             for (int i = 0; i < deltas.Length; i++)

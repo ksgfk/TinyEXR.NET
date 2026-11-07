@@ -264,7 +264,7 @@ namespace TinyEXR
             if (actual > maximum)
             {
                 throw new WriterPlanException(
-                    ExrResult.Unsupported,
+                    ExrResult.LimitExceeded,
                     $"Writer limit '{name}' was exceeded.",
                     new WriterLimitExceededException(name, actual, maximum));
             }

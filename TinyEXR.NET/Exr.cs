@@ -389,6 +389,7 @@ namespace TinyEXR
                 if (result.Status != ExrResult.Success)
                     return result.Status;
                 parts[i] = result.Value!;
+                reader.MaterializedPrefixByteCount = checked(reader.MaterializedPrefixByteCount + result.BytesWritten);
             }
             image = new Image(parts);
             return ExrResult.Success;
@@ -569,28 +570,32 @@ namespace TinyEXR
                 }
                 if (selected.Count > 1 && (r < 0 || g < 0 || b < 0))
                     return ExrResult.InvalidArgument;
-                InterleavedFloatImage pixels = PartConversion.ToInterleavedFloat(part);
-                int count = checked(pixels.Width * pixels.Height);
+                FlatLevel level = PartConversion.GetFullBaseLevel(part);
+                long pixelCount = checked(level.Width * level.Height);
+                long bytes = checked(pixelCount * 4 * sizeof(float));
+                if (bytes > new ReaderLimits().MaximumMaterializedByteCount) return ExrResult.LimitExceeded;
+                int count = checked((int)pixelCount);
                 float[] result = new float[checked(count * 4)];
-                for (int pixel = 0; pixel < count; pixel++)
+                if (selected.Count == 1)
                 {
-                    int source = pixel * pixels.Channels, target = pixel * 4;
-                    if (selected.Count == 1)
+                    PartConversion.CopyInterleavedChannel(part.Header.Channels[selected[0].Index], level, result, 4, 0);
+                    for (int pixel = 0; pixel < count; pixel++)
                     {
-                        float value = pixels.Data[source + selected[0].Index];
-                        result[target] = result[target + 1] = result[target + 2] = result[target + 3] = value;
-                    }
-                    else
-                    {
-                        result[target] = pixels.Data[source + r];
-                        result[target + 1] = pixels.Data[source + g];
-                        result[target + 2] = pixels.Data[source + b];
-                        result[target + 3] = a < 0 ? 1 : pixels.Data[source + a];
+                        int target = pixel * 4;
+                        result[target + 1] = result[target + 2] = result[target + 3] = result[target];
                     }
                 }
+                else
+                {
+                    PartConversion.CopyInterleavedChannel(part.Header.Channels[r], level, result, 4, 0);
+                    PartConversion.CopyInterleavedChannel(part.Header.Channels[g], level, result, 4, 1);
+                    PartConversion.CopyInterleavedChannel(part.Header.Channels[b], level, result, 4, 2);
+                    if (a >= 0) PartConversion.CopyInterleavedChannel(part.Header.Channels[a], level, result, 4, 3);
+                    else for (int pixel = 0; pixel < count; pixel++) result[pixel * 4 + 3] = 1;
+                }
                 rgba = result;
-                width = pixels.Width;
-                height = pixels.Height;
+                width = checked((int)level.Width);
+                height = checked((int)level.Height);
                 return ExrResult.Success;
             }
             catch (Exception exception) when (IsExpected(exception))

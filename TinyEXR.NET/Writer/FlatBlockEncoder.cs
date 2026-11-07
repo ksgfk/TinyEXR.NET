@@ -17,7 +17,7 @@ namespace TinyEXR
             IReadOnlyList<ChannelBuffer> channels,
             bool multipart,
             WriterLimits limits,
-            WriterEncodeResources resources,
+            CodecResources resources,
             out int chunkLength)
         {
             CodecWorkspace workspace = resources.CodecWorkspace;
@@ -199,7 +199,7 @@ namespace TinyEXR
             BlockInfo info,
             byte[] raw,
             int rawLength,
-            WriterEncodeResources resources,
+            CodecResources resources,
             out int payloadLength)
         {
             CodecWorkspace workspace = resources.CodecWorkspace;
@@ -264,7 +264,7 @@ namespace TinyEXR
             if (actual > maximum)
             {
                 throw new WriterPlanException(
-                    ExrResult.Unsupported,
+                    ExrResult.LimitExceeded,
                     $"Writer limit '{name}' was exceeded.",
                     new WriterLimitExceededException(name, actual, maximum));
             }

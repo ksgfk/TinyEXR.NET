@@ -353,7 +353,7 @@ namespace TinyEXR
         private static ReaderResult Limit(string name, long actual, long maximum)
         {
             return new ReaderResult(
-                ExrResult.Unsupported,
+                ExrResult.LimitExceeded,
                 null,
                 new ReaderLimitExceededException(name, actual, maximum));
         }

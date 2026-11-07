@@ -1,4 +1,5 @@
 // Port of tinyexr v3 src/exr_piz.c, revision 1b106618644dbf8a0935c2348ba51a2d863dd7c2.
+// V3.1 sparse range-table and validation follow-up: eb0ba07f44a33e1ce5bc0fb74142a3a6558f0661.
 // Copyright (c) 2014-2026 Syoyo Fujita and TinyEXR authors. SPDX-License-Identifier: BSD-3-Clause
 using System.Buffers.Binary;
 
@@ -28,21 +29,30 @@ namespace TinyEXR.Codecs
                 return ExrResult.Corrupt;
             uint huffmanLength = BinaryPrimitives.ReadUInt32LittleEndian(source.Slice(position));
             position += 4;
-            if (huffmanLength > source.Length - position)
+            if (huffmanLength != source.Length - position)
                 return ExrResult.Corrupt;
             Span<ushort> lut = workspace.Words(1, 65536).AsSpan(0, 65536);
             lut.Clear();
-            int values = 0;
-            for (int i = 0; i < 65536; i++)
-            if (i == 0 || (bitmap[i >> 3] & (1 << (i & 7))) != 0)
-                lut[values++] = (ushort)i;
+            int values = 1;
+            lut[0] = 0;
+            for (int i = minimum; i <= maximum; i++)
+            {
+                int bits = bitmap[i];
+                if (i == 0) bits &= 254;
+                if (bits == 0) continue;
+                for (int bit = 0; bit < 8; bit++)
+                    if ((bits & (1 << bit)) != 0) lut[values++] = (ushort)(i * 8 + bit);
+            }
             Span<ushort> words = workspace.Words(0, destination.Length / 2).AsSpan(0, destination.Length / 2);
             if (!PizHuffman.Decode(source.Slice(position, (int)huffmanLength), words, workspace.Huffman))
                 return ExrResult.Corrupt;
             Transform(context, words, values - 1, false);
             Span<byte> planes = workspace.Bytes(2, destination.Length).AsSpan(0, destination.Length);
             for (int i = 0; i < words.Length; i++)
+            {
+                if (words[i] >= values) return ExrResult.Corrupt;
                 BinaryPrimitives.WriteUInt16LittleEndian(planes.Slice(i * 2), lut[words[i]]);
+            }
             context.Reorder(planes, destination, false);
             return ExrResult.Success;
         }

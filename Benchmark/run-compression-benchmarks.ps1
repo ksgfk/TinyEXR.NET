@@ -19,7 +19,6 @@ if ([string]::IsNullOrWhiteSpace($OutputDirectory)) {
 }
 
 $managedOutput = Join-Path $OutputDirectory 'managed'
-$tinyExrOutput = Join-Path $OutputDirectory 'tinyexr.json'
 $openExrOutput = Join-Path $OutputDirectory 'openexr.json'
 New-Item -ItemType Directory -Force -Path $managedOutput | Out-Null
 
@@ -77,7 +76,7 @@ try {
         throw 'The native benchmark configuration failed.'
     }
 
-    Write-Host 'Building the TinyEXR and OpenEXR benchmarks...'
+    Write-Host 'Building the OpenEXR benchmarks...'
     & cmake --build $nativeBuild `
         --config Release `
         --target compression_benchmarks `
@@ -102,16 +101,6 @@ try {
         'Dry' { @('--benchmark_min_time=1x', '--benchmark_repetitions=1') }
         'Short' { @('--benchmark_min_time=0.2s', '--benchmark_repetitions=3') }
         'Default' { @('--benchmark_min_time=0.5s', '--benchmark_repetitions=5') }
-    }
-
-    $tinyExrExecutable = Join-Path $nativeBuild 'Release\tinyexr_compression_benchmark.exe'
-    Write-Host 'Running TinyEXR v3 C benchmarks...'
-    & $tinyExrExecutable `
-        @nativeTimingArguments `
-        "--benchmark_out=$tinyExrOutput" `
-        --benchmark_out_format=json
-    if ($LASTEXITCODE -ne 0) {
-        throw 'The TinyEXR v3 C compression benchmark failed.'
     }
 
     Write-Host 'Running OpenEXR benchmarks...'
@@ -174,15 +163,9 @@ try {
 
     $nativeSuites = @(
         [pscustomobject]@{
-            Path = $tinyExrOutput
-            Prefix = 'TinyEXR'
-            Implementation = 'TinyEXR v3 C'
-            ExpectedRows = 20
-        },
-        [pscustomobject]@{
             Path = $openExrOutput
             Prefix = 'OpenEXR'
-            Implementation = 'OpenEXR 3.4.13'
+            Implementation = 'OpenEXR 3.5.3'
             ExpectedRows = 24
         }
     )
@@ -240,8 +223,8 @@ try {
         }
     }
 
-    if ($comparison.Count -ne 64) {
-        throw "The combined comparison has $($comparison.Count) rows; expected 64."
+    if ($comparison.Count -ne 44) {
+        throw "The combined comparison has $($comparison.Count) rows; expected 44."
     }
 
     $comparisonPath = Join-Path $OutputDirectory 'comparison.csv'
@@ -250,7 +233,6 @@ try {
         Export-Csv -NoTypeInformation -UseQuotes AsNeeded -LiteralPath $comparisonPath
 
     Write-Host "Managed results: $managedOutput"
-    Write-Host "TinyEXR v3 C results: $tinyExrOutput"
     Write-Host "OpenEXR results: $openExrOutput"
     Write-Host "Combined results: $comparisonPath"
 }

@@ -76,7 +76,9 @@ public sealed class RoundTripTests
             (uint _, Header header, Part image) = ExrTestHelper.LoadSinglePart(path);
             Assert.AreEqual(ExrResult.Success, Exr.EXRSetNameAttr(header, relativePath, out Header? named));
             Assert.IsNotNull(named);
-            header = named!;
+            header = new Header(named!.PartType, named.DataWindow, named.Channels, named.Compression,
+                named.LineOrder, new Box2i(0, 0, 2047, 2047), 1, named.ScreenWindowCenter,
+                named.ScreenWindowWidth, named.Tiles, named.Name, attributes: named.Attributes.Where(a => a.Name != "timeCode").ToArray());
             image = new Part(header, image.Levels, image.IsComplete);
             headers1.Add(header);
             images1.Add(image);

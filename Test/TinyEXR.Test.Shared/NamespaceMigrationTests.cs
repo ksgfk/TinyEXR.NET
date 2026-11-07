@@ -59,6 +59,8 @@ public sealed class NamespaceMigrationTests
             "TinyEXR.InterleavedFloatImage",
             "TinyEXR.PartConversion",
             "TinyEXR.ExrReader",
+            "TinyEXR.ExrContext",
+            "TinyEXR.PreviewImage",
             "TinyEXR.ReaderState",
             "TinyEXR.ReaderLimits",
             "TinyEXR.ReaderOptions",
@@ -82,7 +84,7 @@ public sealed class NamespaceMigrationTests
             "TinyEXR.WriterResult`1",
         };
         Type[] exported = typeof(ExrFile).Assembly.GetExportedTypes();
-        Assert.AreEqual(69, expected.Length);
+        Assert.AreEqual(71, expected.Length);
         foreach (string name in expected)
         {
             Assert.IsTrue(exported.Any(type => type.FullName == name), name);
@@ -90,6 +92,7 @@ public sealed class NamespaceMigrationTests
         Assert.IsFalse(exported.Any(type => type.Namespace?.StartsWith("TinyEXR.V3", StringComparison.Ordinal) == true));
         Assert.AreEqual(new Version(1, 2, 0, 0), typeof(ExrFile).Assembly.GetName().Version);
         Assert.AreEqual(3, typeof(ExrFile).GetField(nameof(ExrFile.ApiVersionMajor))!.GetRawConstantValue());
+        Assert.AreEqual(1, typeof(ExrFile).GetField(nameof(ExrFile.ApiVersionMinor))!.GetRawConstantValue());
     }
 
     [TestMethod]
@@ -112,6 +115,8 @@ public sealed class NamespaceMigrationTests
     [TestMethod]
     public void RemovedTypesAndImplementationsAreAbsent()
     {
+        Assert.IsTrue(File.ReadAllText(Path.Combine(TinyEXR.Test.TestPaths.RepoRoot, "TinyEXR.NET", "TinyEXR.NET.csproj"))
+            .Contains("<AllowUnsafeBlocks>false</AllowUnsafeBlocks>", StringComparison.Ordinal));
         string[] removed = { "ExrVersion", "ExrHeader", "ExrImage", "ExrDeepImage", "ExrMultipartHeader",
             "ExrMultipartImage", "ExrChannel", "ExrAttribute", "ResultCode", "ExrPixelType", "CompressionType",
             "LineOrderType", "SpectrumType", "ExrBox2i", "ExrTile", "ExrImageLevel", "ExrImageChannel",

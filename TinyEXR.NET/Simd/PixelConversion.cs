@@ -688,7 +688,7 @@ namespace TinyEXR
             return (ulong)Math.Round(value, MidpointRounding.ToEven);
         }
 
-        private static ushort SingleToHalfBits(float value)
+        internal static ushort SingleToHalfBits(float value)
         {
             uint bits = (uint)BitConverter.SingleToInt32Bits(value);
             uint sign = (bits >> 16) & 0x8000U;

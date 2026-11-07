@@ -1,6 +1,5 @@
-<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="MSTest.Sdk">
   <PropertyGroup>
-    <OutputType>Exe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
@@ -8,6 +7,7 @@
     <LibraryFramework Condition="'$(LibraryFramework)' == ''">net8.0</LibraryFramework>
   </PropertyGroup>
   <ItemGroup>
+    <Using Include="Microsoft.VisualStudio.TestTools.UnitTesting" />
     <ProjectReference Include="../../TinyEXR.NET/TinyEXR.NET.csproj" SetTargetFramework="TargetFramework=$(LibraryFramework)" SkipGetTargetFrameworkProperties="true" />
     <PackageReference Include="SharpZipLib" Version="1.4.2" />
   </ItemGroup>

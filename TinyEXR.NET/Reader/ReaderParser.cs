@@ -200,7 +200,7 @@ namespace TinyEXR
             {
                 if (_stringLength >= _nameByteLimit)
                 {
-                    throw Failure(ExrResult.Corrupt, "An EXR name exceeds the version-field byte limit.");
+                    throw Failure(ExrResult.InvalidFile, "An EXR name exceeds the version-field byte limit.");
                 }
 
                 _stringBytes[_stringLength++] = value;
@@ -215,7 +215,7 @@ namespace TinyEXR
 
             if (_stringLength == 0)
             {
-                throw Failure(ExrResult.Corrupt, "An EXR attribute type name is empty.");
+                throw Failure(ExrResult.InvalidFile, "An EXR attribute type name is empty.");
             }
 
             string decoded;
@@ -226,7 +226,7 @@ namespace TinyEXR
             }
             catch (System.Text.DecoderFallbackException exception)
             {
-                throw Failure(ExrResult.Corrupt, "An EXR name is not valid UTF-8.", exception);
+                throw Failure(ExrResult.InvalidFile, "An EXR name is not valid UTF-8.", exception);
             }
             finally
             {
@@ -261,7 +261,7 @@ namespace TinyEXR
 
                 if (!_attributeNames.Add(decoded))
                 {
-                    throw Failure(ExrResult.Corrupt, $"Duplicate EXR attribute '{decoded}'.");
+                    throw Failure(ExrResult.InvalidFile, $"Duplicate EXR attribute '{decoded}'.");
                 }
 
                 _attributeName = decoded;
@@ -279,7 +279,7 @@ namespace TinyEXR
             int byteCount = BinaryPrimitives.ReadInt32LittleEndian(_sizeBytes);
             if (byteCount < 0)
             {
-                throw Failure(ExrResult.Corrupt, "An EXR attribute has a negative byte count.");
+                throw Failure(ExrResult.InvalidFile, "An EXR attribute has a negative byte count.");
             }
 
             EnforceLimit(
@@ -300,7 +300,7 @@ namespace TinyEXR
             if (knownLength.HasValue && end > knownLength.Value)
             {
                 throw Failure(
-                    ExrResult.Corrupt,
+                    ExrResult.InvalidFile,
                     "An EXR attribute payload extends past the source length.");
             }
 
@@ -348,7 +348,7 @@ namespace TinyEXR
                     return;
                 }
 
-                throw Failure(ExrResult.Corrupt, "An EXR header does not contain attributes.");
+                throw Failure(ExrResult.InvalidFile, "An EXR header does not contain attributes.");
             }
 
             EnforceChannelLimit();
@@ -384,15 +384,15 @@ namespace TinyEXR
             }
             catch (OverflowException exception)
             {
-                throw Failure(ExrResult.Corrupt, "The EXR part geometry overflows its index.", exception);
+                throw Failure(ExrResult.InvalidFile, "The EXR part geometry overflows its index.", exception);
             }
             catch (ArgumentException exception)
             {
-                throw Failure(ExrResult.Corrupt, "The EXR part geometry is invalid.", exception);
+                throw Failure(ExrResult.InvalidFile, "The EXR part geometry is invalid.", exception);
             }
             catch (InvalidOperationException exception)
             {
-                throw Failure(ExrResult.Corrupt, "The EXR part geometry is inconsistent.", exception);
+                throw Failure(ExrResult.InvalidFile, "The EXR part geometry is inconsistent.", exception);
             }
 
             _parts.Add(new ReaderPartDraft(
@@ -444,14 +444,14 @@ namespace TinyEXR
 
                 if (offset == data.Length || offset - nameStart > _nameByteLimit)
                 {
-                    throw Failure(ExrResult.Corrupt, "The EXR channel list is truncated or has an overlong name.");
+                    throw Failure(ExrResult.InvalidFile, "The EXR channel list is truncated or has an overlong name.");
                 }
 
                 offset++;
                 const int channelDescriptorByteCount = 16;
                 if (data.Length - offset < channelDescriptorByteCount)
                 {
-                    throw Failure(ExrResult.Corrupt, "The EXR channel list is truncated.");
+                    throw Failure(ExrResult.InvalidFile, "The EXR channel list is truncated.");
                 }
 
                 offset += channelDescriptorByteCount;
@@ -470,7 +470,7 @@ namespace TinyEXR
         {
             if (_parts.Count == 0)
             {
-                throw Failure(ExrResult.Corrupt, "The EXR file has an invalid number of parts.");
+                throw Failure(ExrResult.InvalidFile, "The EXR file has an invalid number of parts.");
             }
 
             Header[] headers = new Header[_parts.Count];
@@ -501,7 +501,7 @@ namespace TinyEXR
             if (knownLength.HasValue && offsetTableEnd > knownLength.Value)
             {
                 throw Failure(
-                    ExrResult.Corrupt,
+                    ExrResult.InvalidFile,
                     "The EXR offset tables extend past the source length.");
             }
 
@@ -543,7 +543,7 @@ namespace TinyEXR
             long pixelDataStart = _position;
             if (knownLength.HasValue && knownLength.Value < pixelDataStart)
             {
-                throw Failure(ExrResult.Corrupt, "The EXR offset tables extend past the source length.");
+                throw Failure(ExrResult.InvalidFile, "The EXR offset tables extend past the source length.");
             }
 
             ReaderPartData[] completed = new ReaderPartData[_parts.Count];
@@ -562,7 +562,7 @@ namespace TinyEXR
 
                     if (offset < (ulong)pixelDataStart)
                     {
-                        throw Failure(ExrResult.Corrupt, "An EXR chunk offset points into the header or index.");
+                        throw Failure(ExrResult.InvalidFile, "An EXR chunk offset points into the header or index.");
                     }
 
                     if (knownLength.HasValue)
@@ -570,7 +570,7 @@ namespace TinyEXR
                         ulong length = checked((ulong)knownLength.Value);
                         if (offset > length || (ulong)headerByteCount > length - offset)
                         {
-                            throw Failure(ExrResult.Corrupt, "An EXR chunk header is outside the source length.");
+                            throw Failure(ExrResult.InvalidFile, "An EXR chunk header is outside the source length.");
                         }
                     }
                 }
@@ -603,7 +603,7 @@ namespace TinyEXR
         private static ReaderParseException Limit(string name, long actual, long maximum)
         {
             ReaderLimitExceededException error = new ReaderLimitExceededException(name, actual, maximum);
-            return new ReaderParseException(ExrResult.Unsupported, error.Message, error);
+            return new ReaderParseException(ExrResult.LimitExceeded, error.Message, error);
         }
 
         private static ReaderParseException Failure(

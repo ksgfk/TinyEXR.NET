@@ -27,16 +27,24 @@ jobs:
       run: ./Scripts/prepare-openexr-images.ps1
 
     - name: Test default target
-      run: dotnet test --project ./Test/TinyEXR.Test/TinyEXR.Test.csproj --configuration Release --report-trx --report-trx-filename TinyEXR.Test.trx -p:SignAssemblyKey=false
+      run: dotnet test --project ./Test/TinyEXR.Test/TinyEXR.Test.csproj --configuration Release --report-trx --report-trx-filename TinyEXR.Test.trx --results-directory artifacts/test-results/default -p:SignAssemblyKey=false
 
     - name: Test netstandard fallback target
-      run: dotnet test --project ./Test/TinyEXR.NetStandardFallback.Test/TinyEXR.NetStandardFallback.Test.csproj --configuration Release --report-trx --report-trx-filename TinyEXR.NetStandardFallback.Test.trx -p:SignAssemblyKey=false
+      run: dotnet test --project ./Test/TinyEXR.NetStandardFallback.Test/TinyEXR.NetStandardFallback.Test.csproj --configuration Release --report-trx --report-trx-filename TinyEXR.NetStandardFallback.Test.trx --results-directory artifacts/test-results/fallback -p:SignAssemblyKey=false
 
-  native-v3-interop:
-    runs-on: ubuntu-latest
+    - name: Upload managed test reports
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: managed-tests-${{ matrix.os }}
+        path: artifacts/test-results
+
+  openexr-interop:
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm]
         framework: [net8.0, netstandard2.1]
     steps:
     - uses: actions/checkout@v4
@@ -45,17 +53,26 @@ jobs:
     - uses: actions/setup-dotnet@v4
       with:
         dotnet-version: '10.0.x'
-    - name: Build pinned native V3 reference
+    - name: Build pinned official OpenEXR reference
       run: |
-        cmake -S Test/NativeReference -B .cache/v3-reference -G Ninja -DCMAKE_BUILD_TYPE=Release
-        cmake --build .cache/v3-reference --parallel 4
+        cmake -S Test/NativeReference -B .cache/openexr-reference -G Ninja -DCMAKE_BUILD_TYPE=Release
+        cmake --build .cache/openexr-reference --parallel 4
     - name: Cross-check codecs, complete levels, deep samples and B44 tables
-      run: dotnet run --project Test/TinyEXR.Interop/TinyEXR.Interop.csproj -c Release -p:SignAssemblyKey=false -p:LibraryFramework=${{ matrix.framework }} -- .cache/v3-reference
+      env:
+        TINYEXR_OPENEXR_REFERENCE_DIR: ${{ github.workspace }}/.cache/openexr-reference
+      run: dotnet test --project Test/TinyEXR.Interop/TinyEXR.Interop.csproj -c Release -p:SignAssemblyKey=false -p:LibraryFramework=${{ matrix.framework }} --minimum-expected-tests 427 --report-trx --report-trx-filename interop.trx --results-directory artifacts/test-results/interop
     - name: Cross-check with managed hardware intrinsics disabled
       if: matrix.framework == 'net8.0'
       env:
         DOTNET_EnableHWIntrinsic: '0'
-      run: dotnet run --project Test/TinyEXR.Interop/TinyEXR.Interop.csproj -c Release -p:SignAssemblyKey=false -p:LibraryFramework=net8.0 --no-build -- .cache/v3-reference
+        TINYEXR_OPENEXR_REFERENCE_DIR: ${{ github.workspace }}/.cache/openexr-reference
+      run: dotnet test --project Test/TinyEXR.Interop/TinyEXR.Interop.csproj -c Release -p:SignAssemblyKey=false -p:LibraryFramework=net8.0 --no-build --minimum-expected-tests 427 --report-trx --report-trx-filename scalar.trx --results-directory artifacts/test-results/scalar
+    - name: Upload interoperability reports and failure artifacts
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: openexr-tests-${{ matrix.os }}-${{ matrix.framework }}
+        path: artifacts/test-results
 
   package-aot-smoke:
     runs-on: ubuntu-latest
@@ -80,7 +97,14 @@ jobs:
       run: dotnet publish ./Test/TinyEXR.PackageSmoke/TinyEXR.PackageSmoke.csproj --configuration Release --runtime linux-x64 -p:PublishAot=true --no-restore --output ./artifacts/aot-smoke -p:RestorePackagesPath=${{ github.workspace }}/artifacts/consumer-packages
 
     - name: Run ordinary package consumer
-      run: dotnet run --project ./Test/TinyEXR.PackageSmoke/TinyEXR.PackageSmoke.csproj --configuration Release --runtime linux-x64 --no-restore -p:RestorePackagesPath=${{ github.workspace }}/artifacts/consumer-packages
+      run: dotnet test --project ./Test/TinyEXR.PackageSmoke/TinyEXR.PackageSmoke.csproj --configuration Release --runtime linux-x64 --no-restore -p:RestorePackagesPath=${{ github.workspace }}/artifacts/consumer-packages --minimum-expected-tests 14 --report-trx --report-trx-filename package.trx --results-directory artifacts/test-results/package
 
     - name: Run NativeAOT package consumer
-      run: ./artifacts/aot-smoke/TinyEXR.PackageSmoke
+      run: dotnet test --test-modules ./artifacts/aot-smoke/TinyEXR.PackageSmoke --minimum-expected-tests 14 --report-trx --report-trx-filename aot.trx --results-directory artifacts/test-results/aot
+
+    - name: Upload package and NativeAOT test reports
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: package-aot-tests
+        path: artifacts/test-results

@@ -16,6 +16,7 @@ namespace TinyEXR
         private int _sampleBlockIndex;
         private bool _materialized;
         private long _materializedByteCount;
+        private readonly long _materializedPrefix;
 
         private DeepReadOperation(
             FlatReadRequest request,
@@ -24,7 +25,7 @@ namespace TinyEXR
             DeepReadTarget[] targets,
             DeepReadBlock[] blocks,
             bool isCompletePart,
-            long countByteCount)
+            long countByteCount, long materializedPrefix)
         {
             Request = request;
             _part = part;
@@ -33,6 +34,7 @@ namespace TinyEXR
             _blocks = blocks;
             IsCompletePart = isCompletePart;
             _materializedByteCount = countByteCount;
+            _materializedPrefix = materializedPrefix;
         }
 
         public FlatReadRequest Request { get; }
@@ -56,7 +58,7 @@ namespace TinyEXR
         public static DeepReadOperation Create(
             FlatReadRequest request,
             ReaderPartData part,
-            ReaderLimits limits)
+            ReaderLimits limits, long materializedPrefix = 0)
         {
             if (!part.Header.IsDeep)
             {
@@ -174,11 +176,11 @@ namespace TinyEXR
                 }
 
                 countByteCount = checked(countByteCount + checked((long)pixelCount * sizeof(int)));
-                if (countByteCount > limits.MaximumMaterializedByteCount)
+                if (countByteCount > limits.MaximumMaterializedByteCount - materializedPrefix)
                 {
                     throw new ReaderLimitExceededException(
                         nameof(ReaderLimits.MaximumMaterializedByteCount),
-                        countByteCount,
+                        checked(materializedPrefix + countByteCount),
                         limits.MaximumMaterializedByteCount);
                 }
 
@@ -208,7 +210,7 @@ namespace TinyEXR
                 targets,
                 blocks,
                 isCompletePart,
-                countByteCount);
+                countByteCount, materializedPrefix);
         }
 
         public Memory<int> GetCountDestination()
@@ -400,11 +402,11 @@ namespace TinyEXR
 
                     targetByteCounts[channelIndex] = (int)byteCount;
                     materializedByteCount = checked(materializedByteCount + (long)byteCount);
-                    if (materializedByteCount > _limits.MaximumMaterializedByteCount)
+                    if (materializedByteCount > _limits.MaximumMaterializedByteCount - _materializedPrefix)
                     {
                         return Limit(
                             nameof(ReaderLimits.MaximumMaterializedByteCount),
-                            materializedByteCount,
+                            checked(_materializedPrefix + materializedByteCount),
                             _limits.MaximumMaterializedByteCount);
                     }
                 }
@@ -562,7 +564,7 @@ namespace TinyEXR
         private static ReaderResult Limit(string name, long actual, long maximum)
         {
             return new ReaderResult(
-                ExrResult.Unsupported,
+                ExrResult.LimitExceeded,
                 null,
                 new ReaderLimitExceededException(name, actual, maximum));
         }

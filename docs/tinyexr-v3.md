@@ -1,208 +1,86 @@
-# TinyEXR v3 API notes
+# Managed V3.1 API and format support
 
-## Upstream snapshot
+The public namespace is `TinyEXR`, with data sources and sinks in `TinyEXR.IO`.
+`ExrFile.ApiVersionMajor/Minor/Patch` is **3.1.0**. This API identifier is separate
+from the unchanged package/assembly version 1.2.0/1.2.0.0 and EXR file version 2.
+See [V3-only migration](migration-v3-only.md) and [V3.1 migration](migration-v3.1.md).
 
-`TinyEXR.Native/tinyexr` tracks upstream `origin/release` at commit
-`1b106618644dbf8a0935c2348ba51a2d863dd7c2`, described by Git as
-`v3.2.0-38-g1b10661` on 2026-07-20.
+Official OpenEXR 3.5.3 is the only correctness and performance reference.
+TinyEXR's modular V3 sources provide port ancestry; its private extensions and
+accidental permissiveness are not part of the managed format contract.
 
-The v3 API is not a source-compatible revision of the legacy `tinyexr.h` API.
-It is a new pure-C11 API in `include/exr.h`, with the old header retained for
-legacy users and tests.
+## Support matrix
 
-## V1 and v3 differences
+| Compression | Official ID | Flat read/write | Deep read/write |
+| --- | --- | --- | --- |
+| NONE | 0 | Yes | Yes |
+| RLE | 1 | Yes | Yes |
+| ZIPS | 2 | Yes | Yes |
+| ZIP | 3 | Yes | Invalid combination |
+| PIZ | 4 | Yes | Invalid combination |
+| PXR24 | 5 | Yes | Invalid combination |
+| B44 / B44A | 6 / 7 | Yes | Invalid combination |
+| DWAA / DWAB | 8 / 9 | Official raw fallback subset / no encoding | Invalid combination |
+| HTJ2K256 / HTJ2K32 | 10 / 11 | Yes | Invalid combination |
+| LJ2K | 12 | Unsupported | Invalid combination |
+| ZSTD | 13 | Unsupported | Unsupported |
 
-| Area | Legacy v1 API | Upstream v3 API |
-| --- | --- | --- |
-| Implementation | Single-header legacy implementation with C-style entry points | Modular pure-C11 core in `src/*.c` |
-| API shape | Independent `ParseEXR*`, `LoadEXR*`, and `SaveEXR*` function families | High-level whole-image calls plus stateful reader/writer and block APIs |
-| Ownership | Caller-initialized structs, raw pointers, explicit free calls, optional error strings | Opaque reader/writer state, allocator hooks, and explicit image/part ownership |
-| Results | Legacy integer result codes | `exr_result`, including `EXR_WOULD_BLOCK`, I/O, corrupt, and unsupported distinctions |
-| I/O | Primarily file and complete-memory entry points | Memory, file, callback source, supplied ranges, seekable sink, suspend/resume |
-| Partial reads | Separate legacy paths, without a common block contract | Whole part, scanline range, tile, or canonical block decode |
-| Partial writes | Whole-image save paths | One scanline block or tile at a time with bounded working memory and offset backpatching |
-| Multipart and levels | Separate structures and function families | Parts and mip/rip levels are part of the central image model |
-| Deep data | Separate deep loader representation | Unified deep parts plus two-stage count/sample block decoding |
-| Metadata | Parsed legacy header fields and custom attributes | First-class immutable header/channel/attribute model with round-trip attributes |
-| Compression additions | Values through DWAB in the historical API | Adds HTJ2K256 (10) and HTJ2K32 (11) |
-| Utility surface | EXR loading and saving | Also includes spectral, conversion, resize, tone-map, color, transfer, LUT, and RGBA helpers |
+Deep validity follows OpenEXR Core `exr_compression_is_valid_for_deep` at the
+pinned commit. Canonical raw fallback does not make an invalid combination legal.
+Compressed DWA input returns `Unsupported`; no alternative decoder is attempted.
 
-Upstream v3 intentionally leaves DWAA and DWAB unsupported. Its HTJ2K support
-is a dedicated JPEG 2000 Part 15 implementation, not an alias for ordinary
-JPEG 2000 Part 1.
+All flat/deep scanline/tiled parts, edge tiles, mipmaps, ripmaps and mixed multipart
+containers use the same Reader/Writer model. Tiled and deep channels require unit
+sampling. Flat scanline origins, widths and heights must be divisible by channel
+sampling factors, including negative origins. Channels use UTF-8 byte name order.
+Multipart headers must agree on shared display geometry and attributes.
 
-## Managed mapping
+## Streaming and ownership
 
-As of TinyEXR.NET 1.2.0, the modern managed surface lives in the unversioned
-`TinyEXR` namespace, including the V3-based `Exr` convenience interface. Data-source and sink
-contracts live in `TinyEXR.IO`. The v3 label in these notes refers to the
-upstream API generation, not the managed namespace or NuGet package version.
-`ExrFile.ApiVersionMajor` therefore remains `3`.
+`ExrReader` supports whole parts, levels, scanline ranges, tiles and canonical
+blocks. Deep block decode reads counts before samples. `ExrWriter` writes blocks
+and backpatches offsets. Synchronous/asynchronous sources and sinks support
+cancellation and `WouldBlock` retries; supplied sources may have unknown length.
 
-Upgrading from 1.1.x requires source updates and a rebuild of every dependent
-assembly. See the [1.2.0 migration guide](migration-1.2.0.md) for the complete
-public type mapping and binary compatibility limits.
+Optional `ExrContext` resources are exclusively leased until Reader/Writer disposal.
+Without a context each object owns independent resources. Pools are private,
+never `ArrayPool<T>.Shared`. `Trim()` releases idle retained buffers. Limits are
+per-options, not stored in the context. Headers, previews and image models own
+immutable input copies; codec scratch never escapes into returned image data.
 
-| Upstream v3 concept | Managed API |
-| --- | --- |
-| `exr_result` | `ExrResult`, `ReaderResult`, `WriterResult` |
-| `exr_box2i` | `Box2i` |
-| `exr_channel` | `Channel` |
-| `exr_header` / attributes | `Header`, `HeaderAttribute`, `TileDescription` |
-| `exr_part` / `exr_image` | `Part`, `Image`, `FlatLevel`, `DeepLevel`, `ChannelBuffer` |
-| `exr_reader` | `ExrReader` |
-| `exr_writer` | `ExrWriter` |
-| `exr_block_info` | `BlockInfo` |
-| source callback / pending range | `IExactDataSource`, `IAsyncExactDataSource`, `SuppliedDataSource`, `DataRange` |
-| seekable output sink | `ISeekableDataSink`, `IAsyncSeekableDataSink`, `StreamDataSink` |
-| allocator limits | `ReaderLimits`, `WriterLimits` resource ceilings |
-| spectral header/cube API | `Spectral`, `SpectralImage`, `SpectralType` |
-| pixel conversion | `PixelConversion`, `PixelConversionMode` |
-| one-shot / streaming resize | `ImageProcessing.Resize`, `StreamingImageResizer` |
-| tone map, color, transfer | `ImageProcessing`, `ToneMapParameters`, `ColorMatrix3x3` |
-| baked 3D LUT | `Lut3D`, `LutInterpolation` |
-| planar/interleaved bridges | `PartConversion`, `InterleavedFloatImage` |
+Explicit quotas produce `LimitExceeded`, invalid file structures `InvalidFile`,
+invalid save models `InvalidArgument`, malformed blocks `Corrupt`, and valid
+unimplemented features `Unsupported`. Defaults retain the existing protection
+ceilings. Whole-image read budgets include all parts/levels and deep counts/samples.
+File limits charge maximum accessed extent from the logical origin, not total
+traffic; retries and output backpatches do not consume the budget twice.
 
-The managed API adds .NET-specific asynchronous operations, cancellation,
-atomic retry rules, `IDisposable`/`IAsyncDisposable`, and immutable owned model
-objects. It does not expose pointers or require unsafe code in this repository.
+## Metadata, spectral and utilities
 
-## Current managed API coverage
+`Header.WithIntAttribute`, `WithFloatAttribute` and `WithPreviewImage` return new
+headers. Matching `TryGet...` methods report missing/type mismatches as false.
+Float custom attributes preserve their original bits, including NaNs. Preview
+images contain copied RGBA8 pixels and are limited to 2^24 pixels and configured
+metadata budgets.
 
-| Capability | Status |
-| --- | --- |
-| Header-only parsing and chunk indexing | Implemented |
-| Single/multipart scanline and tiled parts | Implemented |
-| One-level, mipmap, and ripmap levels | Implemented |
-| Flat whole-part, scanline-range, tile, and block reads | Implemented |
-| Deep scanline/tiled reads and two-stage block decode | Implemented |
-| Whole deep-part materialization | Implemented |
-| Sync/async exact sources and supplied-range resume | Implemented |
-| Sync/async seekable streaming writer | Implemented |
-| Missing/zero chunk-offset reconstruction | Implemented |
-| Half/float plus u8/u16 and raw u32-to-float SIMD conversion | Implemented |
-| ZIP/RLE predictor/reorder SIMD on x64 and ARM64 | Implemented |
-| RGB color-matrix SIMD | Implemented |
-| UInt/Half/Float plus u8/u16 conversion | Implemented |
-| Spectral header helpers and wavelength-cube memory/file load | Implemented |
-| Emissive/reflective spectral `Part` setup | Implemented |
-| Whole-image and O(filter-support) streaming resize | Implemented |
-| Tone-map, color matrix, luminance, and transfer functions | Implemented |
-| `.cube` 3D LUT parse plus trilinear/tetrahedral apply | Implemented |
-| Flat planar/interleaved and luminance-chroma bridges | Implemented |
+Spectral loads default to the first flat spectral part, with explicit part-index
+overloads for memory/file input. Only the selected part is decoded. Wavelengths
+are finite and within 0..10^7 nm. Expanded budgets include wavelengths and all
+Stokes planes. Sampling expansion uses absolute EXR coordinates.
 
-The CPU utilities operate on caller-owned spans or immutable owned results.
-Resize preserves HDR values and supports alpha-aware premultiplication; the
-streaming variant accepts UInt, Half, or Float rows and returns `WouldBlock`
-until its next contributor row is available. Half conversions reuse the modern
-SIMD path, while UInt narrowing follows upstream clamp and round-to-nearest,
-ties-to-even behavior.
+Pixel conversion, resize/streaming resize, tone mapping, color/transfer transforms,
+3D LUTs and planar/interleaved bridges remain available. Safe x64/ARM64 SIMD paths
+are checked against scalar implementations; netstandard2.1 uses scalar fallbacks.
+HTJ2K is a fully managed Part 15 codec, including RCT, NLT and multiple tile-parts.
+No native code or unsafe context is required by consumers.
 
-On `net8.0`, the conversion and EXR predictor paths use safe `Vector128`
-operations when the current x86-64 or ARM64 runtime supports them. Color-matrix
-application uses `System.Numerics.Vector3`. Scalar paths remain available for
-unsupported hardware and `netstandard2.1`, and parity tests compare exact output
-across every vector tail. Normalized `uint` conversion deliberately remains
-scalar so it preserves the existing double-precision scaling semantics.
+## Exr convenience contract
 
-### Buffer ownership
-
-The library never uses `ArrayPool<T>.Shared`. Every reader, writer, and HTJ2K
-operation creates its own pool with `ArrayPool<T>.Create` and holds it in an
-instance-scoped resource set, so TinyEXR.NET neither retains buffers in
-process-wide state nor competes with host application code for shared pool
-buckets. Disposing an `ExrReader` or `ExrWriter` drops its pools and codec
-workspaces, leaving no retained arrays behind.
-
-Pools are created with an explicit maximum array length because the
-`ArrayPool<T>.Create()` default of 1 MiB is far below a typical EXR block or
-HTJ2K coefficient plane, and oversized rentals bypass a pool entirely. Retention
-per size class is likewise sized so that all buffers live at once during a single
-block stay poolable.
-
-Within one part, block decode and encode reuse their chunk, payload, plane, and
-codec scratch buffers across every block, so a whole-image read or write
-allocates roughly the materialized pixel data rather than a multiple of it. Codec
-buffers whose final length is only known after encoding are returned with an
-explicit length; callers must honour that length rather than the array length.
-
-`SpectralImage` materializes part 0 into wavelength-major float planes, sorts
-and merges wavelengths using the upstream 0.01 nm rule, preserves units and
-polarisation handedness, and point-expands sampled spectral channels. Files are
-still written by the central `ExrWriter`; `Spectral.CreateEmissivePart` and
-`CreateReflectivePart` produce complete parts ready for that writer.
-
-The optional CUDA/Vulkan APIs in `exr_gpu.h` / `exr_vk.h` are not mapped. The
-native process-global worker-thread setting is also not exposed: managed I/O is
-instance-scoped, supports async coordination, and does not rely on a mutable
-global thread count.
-
-### Compression matrix
-
-Raw fallback retains the compression tag and stores canonical bytes when
-compression is not smaller. Equal packed and canonical sizes denote raw data,
-including B44/B44A edge tiles. Unsupported codecs are never silently encoded
-using a different implementation.
-
-| Compression | Flat decode | Flat encode | Deep decode | Deep encode |
-| --- | --- | --- | --- | --- |
-| NONE | Raw | Raw | Raw | Raw |
-| RLE | Implemented | Implemented | Implemented | Implemented |
-| ZIPS / ZIP | Implemented | Implemented | Implemented | Implemented |
-| PIZ / PXR24 | Implemented | Implemented | Raw-only input | Unsupported |
-| B44 / B44A | Implemented | Implemented | Raw-only input | Unsupported |
-| DWAA / DWAB | Raw-only input | Unsupported | Raw-only input | Unsupported |
-| HTJ2K256 / HTJ2K32 | Implemented | Implemented | Raw only, matching upstream deep policy | Raw fallback only |
-
-tinyexr v3 also defines ZSTD (12). OpenEXR does not support ZSTD, so
-TinyEXR.NET does not implement it either; the value is absent from
-`TinyEXR.Compression` and files that declare it are rejected as
-`Unsupported`.
-
-Deep RLE, ZIPS, and ZIP encoding applies the OpenEXR byte reorder/predictor and
-compresses the cumulative count table and sample payload independently. The
-writer uses canonical raw fallback separately for either payload when the
-encoded form is not smaller.
-
-## Exr convenience interface
-
-The V1 implementation, adapter, public models and status codes are removed.
-`Exr` keeps familiar method names and `out` parameters, using the same V3
-`Header`, `Part`, `Image` and `ExrResult` as the stateful APIs. Parsing always
-uses `ExrReader`, except magic/version probes, which read four/eight bytes.
-There is no retry through a legacy parser or codec.
-
-The convenience layer selects layers, expands RGBA and normalizes flat
-scanline saves to `IncreasingY` without mutating the input. `ExrWriter` and
-`ExrFile` continue respecting the supplied line order. Single-part methods
-reject the multipart flag even for one part. Multipart saves always emit it.
-Deep multilevel and mixed multipart files use the same `Part` / `Image` models.
-All stream reads begin at the current position, leave the stream open, and
-restore its position on success or failure. Default reader/writer resource
-limits apply. See [migration-v3-only.md](migration-v3-only.md) for signatures
-and [codec-port.md](codec-port.md) for provenance and native validation.
-
-## HTJ2K implementation
-
-No suitable managed HTJ2K backend was available during the v3 port:
-
-- NuGet has no OpenJPH or HTJ2K package.
-- Active pure-C# JPEG 2000 packages such as CoreJ2K implement Part 1 and parts
-  of Part 2. They do not implement the Part 15 HT block coder.
-- Native OpenJPEG wrappers also do not provide the OpenJPH Part 15 path and
-  would conflict with the package's pure-managed and NativeAOT goals.
-
-The managed reader and writer therefore include a dedicated safe-C# Part 15
-implementation aligned with the upstream OpenEXR profile. The decoder validates
-the codestream, parses JPEG 2000 markers and packets, decodes cleanup,
-significance-propagation, and magnitude-refinement passes, and applies
-reversible 5/3, RCT, and NLT reconstruction. The encoder writes genuine
-HTJ2K32/HTJ2K256 codestreams for flat HALF, UINT, and FLOAT scanline or tiled
-blocks, including sampled scanline components and upstream RCT/full-width UINT
-profiles.
-
-The codec is covered by genuine upstream fixtures, malformed payload tests,
-all-zero codeblocks, mixed 32-bit channels, and encode/decode round trips.
-Compressed deep HTJ2K data remains unsupported, matching the upstream deep
-codec policy; deep writers can only use canonical raw fallback under those
-compression tags.
+`Exr` retains familiar method names and out arguments over V3 types. All parsing
+and coding use Reader/Writer; magic/version probes read four/eight bytes only.
+Layer, multiview, RGBA expansion, single-channel replication, default compression
+and flat-scanline `IncreasingY` save normalization remain library contracts.
+Direct Reader/Writer/ExrFile calls respect supplied line order. Caller streams
+remain open and Exr convenience calls restore their original position on failure
+or success. Single-part calls reject multipart flags, even for one part;
+multipart saving always sets the flag. There is no V1 model or fallback path.

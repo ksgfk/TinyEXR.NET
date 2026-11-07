@@ -11,7 +11,7 @@ namespace TinyEXR
         private readonly ReaderPartData _part;
         private readonly bool _multipart;
         private readonly ReaderLimits _limits;
-        private readonly ReaderDecodeResources _resources;
+        private readonly CodecResources _resources;
         private byte[] _chunkHeader;
         private int _chunkHeaderLength;
         private int _chunkHeaderOffset;
@@ -26,7 +26,7 @@ namespace TinyEXR
             BlockInfo info,
             bool multipart,
             ReaderLimits limits,
-            ReaderDecodeResources resources)
+            CodecResources resources)
         {
             _part = part;
             _header = part.Header;
@@ -216,14 +216,20 @@ namespace TinyEXR
                 return Corrupt("An uncompressed EXR block does not match its canonical byte count.");
             }
 
-            if (_header.Compression != Compression.B44 &&
-                _header.Compression != Compression.B44A &&
-                _header.Compression != Compression.HTJ2K256 &&
-                _header.Compression != Compression.HTJ2K32 &&
-                packedSize > expectedSize)
+            long maximumPackedSize = expectedSize;
+            if (!Info.IsTiled && _header.Compression is Compression.HTJ2K32 or Compression.HTJ2K256)
             {
-                return Corrupt("A compressed EXR block is larger than its permitted raw fallback.");
+                // Official scanline chunk leaders are bounded by a full nominal
+                // compression block, including the last partial block.
+                int rows = Format.ExrFormatParser.LinesPerBlock(_header.Compression);
+                maximumPackedSize = 0;
+                foreach (Channel channel in _header.Channels)
+                    maximumPackedSize = checked(maximumPackedSize +
+                        ModelValidation.CountSampleLocations(Info.Region.MinX, Info.Region.MaxX, channel.XSampling) *
+                        ((rows + (long)channel.YSampling - 1) / channel.YSampling) * ModelValidation.PixelTypeSize(channel.PixelType));
             }
+            if (packedSize > maximumPackedSize || (packedSize == 0 && expectedSize != 0))
+                return Corrupt("A compressed EXR block exceeds its permitted chunk size.");
 
             long payloadEnd = checked(Info.FileOffset + _chunkHeaderLength + (long)packedSize);
             if (knownLength.HasValue && payloadEnd > knownLength.Value)
@@ -327,7 +333,7 @@ namespace TinyEXR
         private static ReaderResult Limit(string name, long actual, long maximum)
         {
             return new ReaderResult(
-                ExrResult.Unsupported,
+                ExrResult.LimitExceeded,
                 null,
                 new ReaderLimitExceededException(name, actual, maximum));
         }

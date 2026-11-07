@@ -34,7 +34,7 @@ namespace TinyEXR.Codecs
         // Convert the canonical scanline/channel layout to consecutive channel planes and back.
         public void Reorder(ReadOnlySpan<byte> source, Span<byte> destination, bool toPlanar)
         {
-            int[] positions = new int[Channels.Count];
+            Span<int> positions = Channels.Count <= 256 ? stackalloc int[Channels.Count] : new int[Channels.Count];
             int planeStart = 0;
             for (int c = 0; c < positions.Length; c++)
             {

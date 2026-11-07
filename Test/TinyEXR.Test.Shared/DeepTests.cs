@@ -12,7 +12,6 @@ public sealed class DeepTests
         yield return new object[] { Compression.None };
         yield return new object[] { Compression.RLE };
         yield return new object[] { Compression.ZIPS };
-        yield return new object[] { Compression.ZIP };
     }
 
     [TestMethod(DisplayName = "[TinyEXR.NET Test] Deep scanline compression matrix")]
@@ -51,7 +50,7 @@ public sealed class DeepTests
         {
             File.WriteAllBytes(path, encoded);
 
-            Assert.AreEqual(ExrResult.Unsupported, Exr.LoadDeepEXR(path, out _));
+            Assert.AreEqual(ExrResult.InvalidFile, Exr.LoadDeepEXR(path, out _));
         }
         finally
         {

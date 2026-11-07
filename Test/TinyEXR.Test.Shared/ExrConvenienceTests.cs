@@ -9,7 +9,7 @@ namespace TinyEXR.Test;
 public sealed class ExrConvenienceTests
 {
     public static IEnumerable<object[]> Compressions()
-        => Enum.GetValues<Compression>().Where(c => c != Compression.DWAA && c != Compression.DWAB)
+        => Enum.GetValues<Compression>().Where(c => c <= Compression.HTJ2K32 && c != Compression.DWAA && c != Compression.DWAB)
             .Select(c => new object[] { c });
 
     [TestMethod(DisplayName = "Exr unsorted RGB input matches Reader for every supported codec")]
@@ -134,7 +134,7 @@ public sealed class ExrConvenienceTests
     [TestMethod(DisplayName = "Exr mixed flat/deep multipart preserves every mip and rip level")]
     public void MixedMultipartAndDeepLevels()
     {
-        foreach (Compression compression in new[] { Compression.None, Compression.RLE, Compression.ZIPS, Compression.HTJ2K32, Compression.HTJ2K256 })
+        foreach (Compression compression in new[] { Compression.None, Compression.RLE, Compression.ZIPS })
         {
             Part[] parts =
             {
@@ -168,16 +168,16 @@ public sealed class ExrConvenienceTests
         Assert.AreEqual(2U, version);
         BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(4), 2U | (1U << 31));
         Assert.IsTrue(Exr.IsEXRFromMemory(bytes));
-        Assert.AreEqual(ExrResult.Unsupported, Exr.ParseEXRVersionFromMemory(bytes, out version));
+        Assert.AreEqual(ExrResult.InvalidFile, Exr.ParseEXRVersionFromMemory(bytes, out version));
         Assert.AreEqual(0U, version);
         using MemoryStream stream = new(new byte[17].Concat(bytes).ToArray());
         stream.Position = 17;
-        Assert.AreEqual(ExrResult.Unsupported, Exr.ParseEXRVersionFromStream(stream, out _));
+        Assert.AreEqual(ExrResult.InvalidFile, Exr.ParseEXRVersionFromStream(stream, out _));
         Assert.AreEqual(17, stream.Position);
-        Assert.AreEqual(ExrResult.Unsupported, Exr.ParseEXRHeaderFromStream(stream, out _, out Header? header));
+        Assert.AreEqual(ExrResult.InvalidFile, Exr.ParseEXRHeaderFromStream(stream, out _, out Header? header));
         Assert.IsNull(header);
         Assert.AreEqual(17, stream.Position);
-        Assert.AreEqual(ExrResult.Unsupported, Exr.LoadEXRFromStream(stream, out float[] rgba, out int width, out int height));
+        Assert.AreEqual(ExrResult.InvalidFile, Exr.LoadEXRFromStream(stream, out float[] rgba, out int width, out int height));
         Assert.AreEqual(0, rgba.Length);
         Assert.AreEqual(0, width);
         Assert.AreEqual(0, height);

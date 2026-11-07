@@ -18,10 +18,10 @@ namespace TinyEXR
                 throw new ArgumentOutOfRangeException(nameof(expectedSize));
             }
 
+            if (compression != Compression.None && compression != Compression.RLE && compression != Compression.ZIPS)
+                return Unsupported($"Compression '{compression}' is not supported for deep payloads.");
             if (expectedSize == 0)
-            {
-                return null;
-            }
+                return payload.Length == 0 ? null : Corrupt("An empty deep block has unexpected sample data.");
 
             if (payload.Length == expectedSize)
             {
@@ -29,18 +29,9 @@ namespace TinyEXR
                 return null;
             }
 
-            if (compression == Compression.None ||
-                compression == Compression.HTJ2K256 ||
-                compression == Compression.HTJ2K32)
+            if (compression == Compression.None)
             {
                 return Corrupt($"Compression '{compression}' cannot encode a non-raw deep payload.");
-            }
-
-            if (compression != Compression.RLE &&
-                compression != Compression.ZIPS &&
-                compression != Compression.ZIP)
-            {
-                return Unsupported($"Compression '{compression}' is not permitted for compressed deep payloads.");
             }
 
             decoded = new byte[expectedSize];

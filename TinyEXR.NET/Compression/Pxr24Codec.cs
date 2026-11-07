@@ -20,14 +20,10 @@ namespace TinyEXR.Codecs
         {
             int length = IntermediateSize(context);
             Span<byte> planes = workspace.Bytes(0, length).AsSpan(0, length);
-            if (source.Length == length)
-                source.CopyTo(planes);
-            else
-            {
-                ExrResult result = ZlibBackend.Inflate(source, planes);
-                if (result != ExrResult.Success)
-                    return result;
-            }
+            // Only the full canonical byte count denotes raw fallback. A zlib
+            // payload may coincidentally equal the reduced 24-bit plane size.
+            ExrResult result = ZlibBackend.Inflate(source, planes);
+            if (result != ExrResult.Success) return result;
             int input = 0, output = 0;
             for (long y = context.Region.MinY; y <= context.Region.MaxY; y++)
             {

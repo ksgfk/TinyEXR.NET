@@ -9,6 +9,8 @@ namespace TinyEXR.Codecs
         {
             try
             {
+                if (!Format.FormatCapabilities.IsImplemented(compression))
+                    return ExrResult.Unsupported;
                 if (context.ByteCount != destination.Length)
                     return ExrResult.Corrupt;
                 if (source.Length == destination.Length)
@@ -104,6 +106,8 @@ namespace TinyEXR.Codecs
         // Deep count and sample payloads share the same byte transform, independently of channel layout.
         public static ExrResult DecodeDeep(Compression compression, ReadOnlySpan<byte> source, Span<byte> destination, CodecWorkspace workspace)
         {
+            if (compression is not (Compression.None or Compression.RLE or Compression.ZIPS))
+                return ExrResult.Unsupported;
             if (source.Length == destination.Length)
             {
                 source.CopyTo(destination);
@@ -114,8 +118,8 @@ namespace TinyEXR.Codecs
             return compression switch
             {
                 Compression.RLE => RleCodec.Decode(source, destination, workspace),
-                Compression.ZIP or Compression.ZIPS => ZipCodec.Decode(source, destination, workspace),
-                Compression.None or Compression.HTJ2K32 or Compression.HTJ2K256 => ExrResult.Corrupt,
+                Compression.ZIPS => ZipCodec.Decode(source, destination, workspace),
+                Compression.None => ExrResult.Corrupt,
                 _ => ExrResult.Unsupported,
             };
         }
@@ -125,8 +129,8 @@ namespace TinyEXR.Codecs
             byte[] payload = compression switch
             {
                 Compression.RLE => RleCodec.Encode(source, workspace),
-                Compression.ZIP or Compression.ZIPS => ZipCodec.Encode(source, workspace),
-                Compression.None or Compression.HTJ2K32 or Compression.HTJ2K256 => source.ToArray(),
+                Compression.ZIPS => ZipCodec.Encode(source, workspace),
+                Compression.None => source.ToArray(),
                 _ => throw new NotSupportedException($"Compression '{compression}' cannot encode deep payloads."),
             };
             return payload.Length < source.Length ? payload : source.ToArray();

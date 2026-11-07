@@ -33,6 +33,9 @@ namespace TinyEXR.Codecs
             private ArrayPool<byte>? _bytePool =
                 ArrayPool<byte>.Create(MaximumByteLength, MaximumArraysPerBucket);
 
+            private CodeBlockDecodeWorkspace? _decodeWorkspace;
+            internal CodeBlockDecodeWorkspace DecodeWorkspace => _decodeWorkspace ??= new CodeBlockDecodeWorkspace();
+
             public long[] RentInt64(int minimumLength)
             {
                 ArrayPool<long> pool = _int64Pool ??
@@ -72,6 +75,7 @@ namespace TinyEXR.Codecs
                 // Drop both pools so every retained array becomes collectable immediately.
                 _int64Pool = null;
                 _bytePool = null;
+                _decodeWorkspace = null;
             }
         }
 
@@ -220,6 +224,12 @@ namespace TinyEXR.Codecs
                 Require(nlt == 0 || nlt == 3, "A JPEG 2000 component has an invalid nonlinear transform.");
                 if (nlt != 3)
                 {
+                    if ((profile.Ssiz[component] & 0x80) == 0)
+                    {
+                        long levelShift = 1L << (profile.Ssiz[component] & 0x7f);
+                        Span<long> unsigned = planes[component].Data.AsSpan(0, planes[component].ElementCount);
+                        for (int i = 0; i < unsigned.Length; i++) unsigned[i] += levelShift;
+                    }
                     continue;
                 }
 

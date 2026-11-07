@@ -1,88 +1,78 @@
-# V3 codec port and verification
+# Codec provenance and official verification
 
-The reference is `TinyEXR.Native/tinyexr` commit
-`1b106618644dbf8a0935c2348ba51a2d863dd7c2`. No upstream sources are modified.
-The new managed codec files were ported from the modular V3 C sources, rather
-than relocated from the removed V1 implementation.
+Official **OpenEXR v3.5.3**, commit
+`3950290530c4fd4776667d0dc4d65a9d003eb936`, is the sole format, sample and performance
+reference. `Scripts/cmake/OpenEXR.cmake` is shared by tests and benchmarks. It pins
+Imath 3.2.3 (`5f27ba266d3ea1565e912570c30b5eafc89959f1`) and uses OpenEXR's bundled
+OpenJPH 0.32, libdeflate and ZSTD sources. No system dependency silently replaces
+these sources. Native dependencies are test/benchmark-only and do not ship in NuGet.
 
-| Managed files under `TinyEXR.NET/Compression` | Pinned V3 reference |
+TinyEXR `eb0ba07f44a33e1ce5bc0fb74142a3a6558f0661` is a port source, never an oracle.
+The original V3-only port used `1b106618644dbf8a0935c2348ba51a2d863dd7c2`; unchanged
+source-file annotations retain that history. Upstream submodules are unmodified.
+
+| Managed source | Port source / authoritative correction |
 | --- | --- |
-| `BlockCodec`, `CodecContext`, `CodecWorkspace` | `src/exr_codec.c`, canonical layouts and sampling in `src/exr_core.c` |
-| `RleCodec` | `src/exr_rle.c` |
-| `ZipCodec` | `src/exr_zip.c` |
-| `Pxr24Codec` | `src/exr_pxr24.c` |
-| `PizCodec`, `PizWavelet`, `PizHuffman` | `src/exr_piz.c` bitmap/LUT, lifting, canonical Huffman and run coding |
-| `B44Codec`, `B44Tables` | `src/exr_b44.c` pack/unpack, edge padding, flat blocks and perceptual tables |
-| `ZlibBackend` | Bounded zlib backend contract; .NET `ZLibStream` and `SharpZipLib` implement DEFLATE |
+| `BlockCodec`, `CodecContext` | TinyEXR `exr_codec.c`, `exr_core.c`; official compression IDs, deep capabilities and sampling |
+| `RleCodec` | TinyEXR `exr_rle.c`, including `15dc739` run boundaries; bounded Span packing |
+| `ZipCodec`, `Pxr24Codec` | TinyEXR EXR transforms; official `internal_pxr24.c` payload interpretation |
+| `PizCodec`, `PizHuffman`, `PizWavelet` | TinyEXR `exr_piz.c`; sparse canonical tables (`be487f7`), reusable workspace, bounded lookup and bitmap handling |
+| `B44Codec`, `B44Tables` | TinyEXR pack/unpack ancestry; official `internal_b44.c` and `internal_b44_table_init.c` quantization, exp/log direction and HALF rounding |
+| `Htj2k*` | OpenJPH/TinyEXR Part 15 ancestry; official unsigned level shift, NLT and multiple tile-parts; reused decode scratch and packet storage |
+| `ZlibBackend` | Bounded zlib contract, implemented by `ZLibStream` / SharpZipLib; no generic DEFLATE re-port |
 
-The existing V3 HTJ2K implementation remains integrated through the block
-reader/writer and pooled HTJ2K resources. ZIP/RLE use the existing SIMD
-predictor/reorder implementation, whose selected and scalar paths are compared
-in shared tests. Each reader/writer owns reusable codec scratch, including deep
-count/sample transforms. Pixel data stays in V3 types throughout.
+TinyEXR/OpenEXR BSD-3-Clause and OpenJPH BSD-2-Clause attribution is retained in
+[THIRD-PARTY-NOTICES](../THIRD-PARTY-NOTICES). Original managed code remains MIT.
 
-Ports retain the BSD-3-Clause attribution to Syoyo Fujita and TinyEXR authors.
-The complete upstream license is in `THIRD-PARTY-NOTICES`, included in NuGet
-packages. Original managed code remains MIT licensed.
+## Upstream follow-up decisions
 
-## Reference tools and tests
+The V3.1 follow-up includes reusable contexts, explicit quota status/file budgets,
+aggregate materialization limits, typed metadata, preview validation, selective
+spectral loading and wavelength bounds. Managed Span lengths, checked offsets,
+request-size caps and destination validation provide the applicable sized-C-API
+and input-hardening protections. RLE literal boundaries, PIZ sparse Huffman work,
+range-table handling and HTJ2K scratch reuse were adopted and measured.
 
-`Test/NativeReference` builds the pinned C sources, rejects any different Git
-revision, and disables unsupported ZSTD. It builds the upstream `parse_harness`,
-`encode_harness`, `compare_exr` plus two test-only tools:
+Existing safe SIMD predictor/conversion paths remain paired with scalar tests.
+Architecture-specific C AVX/NEON cleanup kernels are not copied into managed code
+without matching managed performance evidence. Generic DEFLATE changes do not
+apply to the retained .NET/SharpZipLib backends. GPU, texture compression and
+unrelated tocio features are outside the EXR library scope.
 
-- `codec_oracle`: bidirectional canonical-block encode/decode.
-- `file_oracle`: dumps every block, level, deep count and sample; reencodes with
-  the native streaming API; exports both B44 perceptual tables.
+The two managed deep fixes remain: cumulative counts restart on each row, and
+samples are serialized by row then channel. Tests exercise multirow, multichannel
+deep tiles in both directions with OpenEXR; there are no TinyEXR bug exemptions.
+Illegal deep ZIP/HTJ2K combinations are rejected instead of retained for testing.
+Official edge tiles can include a full nominal raw count table; only its compact
+valid prefix is materialized.
 
-`Test/TinyEXR.Interop` checks 288 codec scenarios and 161 generated file
-scenarios. Codec cases include mixed HALF/FLOAT/UINT, sampling, negative origins,
-odd dimensions, zeros, random bits, NaN, infinities, denormals, signed zero and
-perceptually linear channels. Both 65,536-entry B44 tables must match exactly.
-B44 perceptually linear zero follows the native table mapping (log zero maps
-to zero, whose inverse table value is one); no legacy zero special case remains.
+## Oracle tools
 
-File checks cover all supported compressions, edge tiles, mip/rip levels,
-sampled scanlines, multipart, deep and mixed parts. Lossless samples are compared
-byte for byte. Lossy codec checks compare native quantization and both decoders
-on the same encoded file; compressed file bytes need not match. The full-block
-dump comparison supplements the upstream tool, which compares base flat images
-only. Shared MSTest coverage includes pinned OpenEXR fixtures and malformed data.
+`Test/NativeReference/codec_oracle.cpp` uses OpenEXR Core compression/decompression
+and the C++ compressor context. `file_oracle.cpp` uses official multipart, tiled,
+scanline and deep C++ APIs. It can independently generate mixed/sampled/negative
+window/ripmap files, reencode files, dump every part/level/channel/count/sample and header attributes,
+and export both complete B44 tables. No RGBA-only comparator is used.
 
 ```sh
-cmake -S Test/NativeReference -B .cache/v3-reference -G Ninja -DCMAKE_BUILD_TYPE=Release
-cmake --build .cache/v3-reference
-dotnet run --project Test/TinyEXR.Interop -p:SignAssemblyKey=false -- .cache/v3-reference
-dotnet run --project Test/TinyEXR.Interop -p:SignAssemblyKey=false -p:LibraryFramework=netstandard2.1 -- .cache/v3-reference
+cmake -S Test/NativeReference -B .cache/openexr-reference -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build .cache/openexr-reference --parallel 4
+dotnet test --project Test/TinyEXR.Interop/TinyEXR.Interop.csproj -c Release -p:SignAssemblyKey=false --report-trx
+dotnet test --project Test/TinyEXR.Interop/TinyEXR.Interop.csproj -c Release -p:SignAssemblyKey=false -p:LibraryFramework=netstandard2.1 --report-trx
 ```
 
-On Windows, use a Visual Studio developer shell and select its Clang compiler
-with `-DCMAKE_C_COMPILER=<path-to-clang.exe>`; the upstream C11 sources require
-a C11 compiler. CI runs the matrix on Ubuntu, including an explicitly scalar
-.NET run. No native library ships in the managed package.
+On Windows use a Visual Studio developer shell and add
+`-DCMAKE_C_COMPILER=clang-cl -DCMAKE_CXX_COMPILER=clang-cl` to CMake. On x64 Windows,
+the shared configuration enables SSE4.1 for official code requiring those
+intrinsics and disables OpenJPH AVX512 in clang-cl. Upstream sources stay unchanged.
 
-## Native reference limitations
-
-The pinned commit contains two independently reproduced deep encoder defects:
-
-1. `src/exr_deep.c:exr_deep_encode_tile` loops channels before rows, whereas
-   `exr_deep_decode_samples` expects channel planes within each row. Multiple
-   channels and multiple tile rows therefore change samples even on native
-   self-roundtrip.
-2. `exr_deep_encode_block` accumulates counts across rows. The block decoder
-   requires the cumulative table to reset for each row. Multi-row deep ZIP
-   output can therefore fail the native decoder's size validation.
-
-`FileChecks.VerifyPinnedDeepWriterLimitations` reproduces these defects and
-requires their observed behavior. The matrix does not hide them by patching the
-reference or changing managed wire layout. Of 161 generated file cases, 122
-exercise native encoding in both directions; 39 multi-row deep cases exercise
-managed encoding → native decoding, including every mip/rip level and sample.
-Native deep encode checks use one-row tiles/blocks. Thus **unrestricted
-bidirectional multi-row deep encoding cannot be certified against this fixed
-commit**. A reference upgrade/fix is required to remove that qualification.
-
-The managed writer emits the row-wise count/sample layout accepted by the
-native decoder; tests retain multi-row managed roundtrips and full native decode
-comparison. Native defects do not introduce a legacy fallback or relax managed
-validation.
+The matrix is an independent MSTest project with individually discovered cases.
+Set `TINYEXR_OPENEXR_REFERENCE_DIR` to override the default native build directory.
+Missing tools fail the test; failed inputs and process logs are attached to TRX.
+The matrix compares lossless bytes exactly. Lossy codecs compare native
+quantization and both decoders on the same file, not compressed byte identity.
+It covers all supported codecs, sampling, negative origins, edge tiles, mip/rip,
+multipart, zero/variable deep counts, all HALF inputs for B44, NaNs, infinities,
+denormals and signed zero. Both B44 tables have all 65,536 entries checked.
+Retained TinyEXR fixtures are inputs whose expected samples are checked with
+OpenEXR. CI repeats the oracle on x64/ARM64, net8/netstandard and scalar paths.

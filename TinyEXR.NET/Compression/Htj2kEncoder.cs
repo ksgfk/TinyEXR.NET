@@ -331,6 +331,8 @@ namespace TinyEXR.Codecs
                 Channel channel = header.Channels[component];
                 if (channel.PixelType == PixelType.UInt)
                 {
+                    Span<long> unsigned = planes[component].Data.AsSpan(0, planes[component].ElementCount);
+                    for (int i = 0; i < unsigned.Length; i++) unsigned[i] -= 1L << 31;
                     continue;
                 }
 
@@ -681,6 +683,7 @@ namespace TinyEXR.Codecs
             for (int component = 0; component < componentToFile.Length; component++)
             {
                 Channel channel = header.Channels[componentToFile[component]];
+                if (channel.PixelType == PixelType.UInt) continue;
                 int bitDepth = channel.PixelType == PixelType.Half ? 16 : 32;
                 int signed = channel.PixelType == PixelType.UInt ? 0 : 1;
                 output.WriteUInt16BigEndian(MarkerNlt);

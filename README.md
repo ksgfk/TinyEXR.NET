@@ -22,13 +22,14 @@ The `net8.0` target has no third-party runtime dependencies. The `netstandard2.1
 - [x] Multipart EXR parse/load/save for flat, deep and mixed parts, including single-entry multipart containers.
 - [x] Deep scanline and tiled EXR read/write, including every mip/rip level.
 - [x] Regular image compression support for `NONE`, `RLE`, `ZIP`, `ZIPS`, `PIZ`, `PXR24`, `B44`, `B44A`, `HTJ2K32`, and `HTJ2K256`.
-- [x] Deep compression support for `NONE`, `RLE`, `ZIPS`, and `ZIP`; HTJ2K deep tags use raw storage.
+- [x] Deep compression support for `NONE`, `RLE`, and `ZIPS`, following official OpenEXR.
 - [x] Layer- and multiview-aware helpers such as `EXRLayers` and `LoadEXRWithLayer`, including RGBA expansion for subsampled channels in the convenience load path.
 - [x] Managed header/image models that preserve EXR metadata needed by tools and inspectors, including data/display windows, tile descriptions, custom attributes, channel sampling, line order, and long names.
 - [x] Stateful `TinyEXR` reader/writer APIs for multipart, mip/rip, flat/deep, partial block reads, bounded-memory streaming writes, synchronous/asynchronous data sources, cancellation, and `WouldBlock` resume.
 - [x] HTJ2K32/HTJ2K256 flat decode and genuine encode through a safe managed JPEG 2000 Part 15 implementation.
 - [x] Safe SIMD paths for pixel conversion, RGB color matrices, and ZIP/RLE byte reorder and prediction, with scalar parity fallbacks.
 - [x] Spectral wavelength cubes and CPU image utilities: typed pixel conversion, whole-image and streaming resize, tone mapping, color/transfer transforms, `.cube` 3D LUTs, planar/interleaved bridges, and luminance-chroma reconstruction.
+- [x] Reusable exclusive `ExrContext`, file/image budgets, typed custom attributes and immutable RGBA8 previews.
 - [x] One V3 reader, writer and codec layer for every public entry point; no legacy fallback.
 
 ## Usage
@@ -39,7 +40,7 @@ and `ExrWriter`. The former V1 models, status codes and implementation have been
 removed; this is a **breaking source and binary change**. The package version
 remains `1.2.0` during this refactor; release versioning is a separate decision.
 See the [V3-only migration guide](docs/migration-v3-only.md) and
-[codec port provenance](docs/codec-port.md).
+[V3.1 migration guide](docs/migration-v3.1.md), and [codec port provenance](docs/codec-port.md).
 
 RGBA convenience loading:
 
@@ -71,7 +72,7 @@ Console.WriteLine(
     $"{firstPart.Header.PartType}: {baseLevel.Width}x{baseLevel.Height}, " +
     $"{baseLevel.Channels.Count} channels");
 
-WriterResult save = ExrFile.SaveToFile(image, outputPath, Compression.ZIP);
+WriterResult save = ExrFile.SaveToFile(image, outputPath);
 if (!save.IsSuccess)
 {
     throw new InvalidOperationException($"EXR save failed: {save.Status}", save.Error);
@@ -94,35 +95,11 @@ See `Test/README.md` for the current test layout and execution details.
 
 ## Benchmark
 
-The recorded compression benchmark compares the modern TinyEXR.NET API, the
-complete vendored TinyEXR v3 C library, and OpenEXR 3.4.13 on the same deterministic
-1920x1080 RGBA HALF image. The 2026-07-26 run used BenchmarkDotNet's normal
-`DefaultJob` and clang-cl 22.1.3 native builds. These historical results predate
-the namespace migration and V3 codec replacement; they have not been rerun for the current implementation. Every
-timed operation includes result allocation and complete in-memory encode/decode,
-while preparation,
-validation, and result release are excluded.
-
-Representative means are `encode ms / decode ms`:
-
-| Compression | TinyEXR.NET (managed) | TinyEXR v3 C | OpenEXR 3.4.13 |
-| --- | ---: | ---: | ---: |
-| None | 5.89 / 3.46 | 6.71 / 4.44 | 6.82 / 3.28 |
-| RLE | 16.54 / 7.37 | 17.07 / 8.03 | 16.22 / 14.74 |
-| ZIPS | 17.88 / 7.54 | 24.72 / 9.45 | 37.06 / 7.70 |
-| ZIP | 11.08 / 5.45 | 19.64 / 6.43 | 22.75 / 4.55 |
-| PIZ | 38.99 / 28.59 | 49.72 / 24.71 | 40.49 / 15.01 |
-| PXR24 | 15.91 / 12.69 | 16.17 / 7.60 | 19.63 / 5.26 |
-| HTJ2K256 | 104.28 / 82.23 | 47.77 / 33.53 | 30.35 / 24.07 |
-| HTJ2K32 | 104.95 / 81.37 | 39.31 / 24.45 | 52.44 / 39.86 |
-
-Managed encode is the fastest of the three implementations for `NONE`, `ZIP`,
-`ZIPS`, and `PIZ`, with `RLE` and `PXR24` close to both native libraries.
-Managed decode leads on `RLE` and `ZIPS`. The native libraries remain
-substantially faster for `B44`/`B44A` and for HTJ2K in both directions.
-See [`Benchmark/README.md`](Benchmark/README.md) for the complete timing,
-throughput, allocation, encoded-size, build, fairness, and MSVC compatibility
-report.
+Benchmarks compare the managed implementation with official OpenEXR **3.5.3**,
+using the same pinned build as the correctness oracle. TinyEXR native timings
+and their historical comparison tables have been retired. See
+[Benchmark/README.md](Benchmark/README.md) for reproducible timing boundaries,
+commands and optimization acceptance criteria.
 
 ## Versioning
 
@@ -145,13 +122,13 @@ native structs and P/Invoke calls with these managed models.
 
 ## Known limitations
 
-DWAA/DWAB read only raw blocks; compressed reads and encoding return `Unsupported`.
-ZSTD remains unsupported. Compressed deep HTJ2K is unsupported; deep encoding
-under HTJ2K tags uses raw storage. See [native reference limitations](docs/codec-port.md#native-reference-limitations)
-for the fixed upstream commit's multi-row deep encoder defects and the exact
-cross-validation scope. The managed writer uses the row-wise layout accepted
-by the native reader.
+DWAA/DWAB accept only raw fallback blocks that official OpenEXR can read;
+compressed decoding and all encoding requests return `Unsupported`.
+`LJ2K = 12` and `ZSTD = 13` use official compression IDs and are not implemented.
+Deep ZIP, PIZ, B44, DWA and HTJ2K are invalid combinations, including raw blocks.
+Tiled/deep sampling must be one; flat scanline sampling must align to window
+origins and dimensions. See the [support matrix](docs/tinyexr-v3.md).
 
 ## License
 
-Original managed code is MIT licensed. The V3 codec ports retain the upstream BSD-3-Clause notices; see [THIRD-PARTY-NOTICES](THIRD-PARTY-NOTICES).
+Original managed code is MIT licensed. The V3 codec ports retain upstream BSD-3-Clause/BSD-2-Clause notices; see [THIRD-PARTY-NOTICES](THIRD-PARTY-NOTICES).

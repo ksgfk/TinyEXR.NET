@@ -34,8 +34,14 @@ namespace TinyEXR
             long maximumDimension = 1L << 20,
             int maximumUncompressedBlockByteCount = 256 * 1024 * 1024,
             int maximumEncodedBlockByteCount = 256 * 1024 * 1024,
-            long maximumDeepSampleCount = 256L * 1024L * 1024L)
+            long maximumDeepSampleCount = 256L * 1024L * 1024L,
+            long maximumFileByteCount = 0,
+            long maximumMaterializedByteCount = 0)
         {
+            if (maximumFileByteCount < 0) throw new ArgumentOutOfRangeException(nameof(maximumFileByteCount));
+            MaximumFileByteCount = maximumFileByteCount;
+            if (maximumMaterializedByteCount < 0) throw new ArgumentOutOfRangeException(nameof(maximumMaterializedByteCount));
+            MaximumMaterializedByteCount = maximumMaterializedByteCount;
             MaximumParts = Positive(maximumParts, nameof(maximumParts));
             MaximumChannelsPerPart = Positive(maximumChannelsPerPart, nameof(maximumChannelsPerPart));
             MaximumAttributesPerPart = Positive(maximumAttributesPerPart, nameof(maximumAttributesPerPart));
@@ -56,6 +62,10 @@ namespace TinyEXR
                 maximumDeepSampleCount,
                 nameof(maximumDeepSampleCount));
         }
+
+        public long MaximumFileByteCount { get; }
+
+        public long MaximumMaterializedByteCount { get; }
 
         public int MaximumParts { get; }
 
@@ -108,10 +118,12 @@ namespace TinyEXR
         public WriterOptions(
             WriterLimits? limits = null,
             bool leaveOpen = true,
-            bool forceMultipart = false)
+            bool forceMultipart = false,
+            ExrContext? context = null)
         {
             Limits = limits ?? new WriterLimits();
             LeaveOpen = leaveOpen;
+            Context = context;
             ForceMultipart = forceMultipart;
         }
 
@@ -122,6 +134,8 @@ namespace TinyEXR
         /// </summary>
         public bool LeaveOpen { get; }
 
+        public ExrContext? Context { get; }
+
         /// <summary>
         /// Whether a single-part image uses multipart headers and chunk framing.
         /// Images with multiple parts are always multipart.
@@ -130,7 +144,7 @@ namespace TinyEXR
     }
 
     /// <summary>
-    /// Diagnostic attached to an Unsupported result caused by a configured resource ceiling.
+    /// Diagnostic attached to a LimitExceeded result caused by a configured resource ceiling.
     /// </summary>
     public sealed class WriterLimitExceededException : Exception
     {

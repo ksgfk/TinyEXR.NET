@@ -14,6 +14,7 @@ namespace TinyEXR
         OutOfMemory = -4,
         IO = -5,
         Corrupt = -6,
+        LimitExceeded = -7,
     }
 
     public enum PixelType
@@ -37,6 +38,10 @@ namespace TinyEXR
         DWAB = 9,
         HTJ2K256 = 10,
         HTJ2K32 = 11,
+        /// <summary>Official lossy HTJ2K identifier; coding is not implemented.</summary>
+        LJ2K = 12,
+        /// <summary>Official ZSTD identifier; coding is not implemented.</summary>
+        ZSTD = 13,
     }
 
     public enum LineOrder

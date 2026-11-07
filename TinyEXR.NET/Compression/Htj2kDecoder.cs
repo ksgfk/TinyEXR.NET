@@ -120,14 +120,29 @@ namespace TinyEXR.Codecs
 
             Profile profile = ParseProfile(source, codestreamOffset, source.Length);
             ValidateProfile(context, profile, channelMap);
-            if (pool != null)
+            using Htj2kBufferPool? privatePool = pool == null ? new Htj2kBufferPool() : null;
+            pool ??= privatePool!;
+            byte[]? packets = null;
+            try
             {
+                if (profile.TileParts.Count > 1)
+                {
+                    packets = pool.RentBytes(profile.TileDataLength);
+                    int offset = 0;
+                    foreach ((int start, int length) in profile.TileParts)
+                    {
+                        source.AsSpan(start, length).CopyTo(packets.AsSpan(offset));
+                        offset = checked(offset + length);
+                    }
+                    source = packets;
+                    profile.TileDataOffset = 0;
+                }
                 DecodeTilePayload(context, profile, channelMap, source, destination, pool);
-                return;
             }
-
-            using Htj2kBufferPool privatePool = new Htj2kBufferPool();
-            DecodeTilePayload(context, profile, channelMap, source, destination, privatePool);
+            finally
+            {
+                pool.ReturnBytes(packets);
+            }
         }
 
         private static int ParseHtHeader(DecodeContext context, byte[] source, out ushort[] channelMap)
@@ -413,7 +428,9 @@ namespace TinyEXR.Codecs
             uint tilePartLength = reader.ReadUInt32BigEndian();
             byte tilePartIndex = reader.ReadByte();
             byte tilePartCount = reader.ReadByte();
-            Require(tileIndex == 0 && tilePartIndex == 0 && tilePartCount <= 1, "Only one JPEG 2000 tile-part is supported.");
+            Require(tileIndex == 0 && tilePartIndex == profile.TileParts.Count, "JPEG 2000 tile-parts must be consecutive within one tile.");
+            Require(profile.TileParts.Count == 0 || tilePartCount == profile.TilePartCount, "Inconsistent JPEG 2000 tile-part count.");
+            profile.TilePartCount = tilePartCount;
             Require(tilePartLength == 0 || tilePartLength >= 14, "The JPEG 2000 tile-part length is invalid.");
             profile.Psot = tilePartLength;
             profile.SawSot = true;
@@ -421,27 +438,34 @@ namespace TinyEXR.Codecs
 
         private static void FinishTilePayload(ByteReader reader, Profile profile)
         {
-            int payloadEnd;
-            if (profile.Psot != 0)
+            int total = 0;
+            while (true)
             {
-                long tilePartEnd = (long)profile.SotStart + profile.Psot;
-                Require(tilePartEnd >= reader.Position && tilePartEnd <= reader.End,
-                    "The JPEG 2000 tile-part extends outside the codestream.");
-                payloadEnd = checked((int)tilePartEnd);
-                Require(payloadEnd + 2 <= reader.End, "The JPEG 2000 codestream is missing EOC.");
-                Require(ReadUInt16BigEndian(reader.Data, payloadEnd) == MarkerEoc,
-                    "The JPEG 2000 tile-part is not followed by EOC.");
+                int start = reader.Position;
+                long end = profile.Psot == 0 ? reader.End - 2L : (long)profile.SotStart + profile.Psot;
+                Require(end >= start && end <= reader.End - 2L, "JPEG 2000 tile-part extends outside the codestream.");
+                int length = checked((int)end - start);
+                profile.TileParts.Add((start, length));
+                total = checked(total + length);
+                reader.Position = (int)end;
+                ushort marker = reader.NextMarker();
+                if (marker == MarkerEoc)
+                {
+                    Require(reader.Position == reader.End, "Trailing bytes follow JPEG 2000 EOC.");
+                    Require(profile.TilePartCount == 0 || profile.TilePartCount == profile.TileParts.Count, "Missing JPEG 2000 tile-parts.");
+                    break;
+                }
+                Require(profile.Psot != 0 && marker == MarkerSot, "Expected JPEG 2000 SOT or EOC.");
+                profile.SotStart = reader.Position - 2;
+                ParseSot(reader, profile);
+                while ((marker = reader.NextMarker()) != MarkerSod)
+                {
+                    Support(marker == MarkerPlt || marker == MarkerCom, "Unsupported JPEG 2000 tile-part header override.");
+                    reader.SkipSegment();
+                }
             }
-            else
-            {
-                payloadEnd = FindEoc(reader.Data, reader.Position, reader.End);
-            }
-
-            Require(payloadEnd > reader.Position, "The JPEG 2000 tile-part has no packet data.");
-            Require(payloadEnd + 2 == reader.End, "The JPEG 2000 codestream has trailing bytes after EOC.");
-            profile.TileDataOffset = reader.Position;
-            profile.TileDataLength = payloadEnd - reader.Position;
-            reader.Position = payloadEnd + 2;
+            profile.TileDataOffset = profile.TileParts[0].Offset;
+            profile.TileDataLength = total;
         }
 
         private static int FindEoc(byte[] data, int start, int end)
@@ -588,14 +612,17 @@ namespace TinyEXR.Codecs
             Plane[] planes = AllocatePlanes(profile, pool);
             try
             {
-                CodeBlockDecodeWorkspace workspace = new CodeBlockDecodeWorkspace();
+                CodeBlockDecodeWorkspace workspace = pool.DecodeWorkspace;
+                int component = -1, resolution = -1;
+                BandGeometry[] bands = Array.Empty<BandGeometry>();
                 foreach (CodeBlock codeBlock in codeBlocks)
                 {
-                    BandGeometry[] bands = BuildBandGeometries(
-                        profile,
-                        codeBlock.Component,
-                        codeBlock.Resolution,
-                        out _);
+                    if (component != codeBlock.Component || resolution != codeBlock.Resolution)
+                    {
+                        component = codeBlock.Component;
+                        resolution = codeBlock.Resolution;
+                        bands = BuildBandGeometries(profile, component, resolution, out _);
+                    }
                     Require(codeBlock.Band >= 0 && codeBlock.Band < bands.Length && bands[codeBlock.Band].Exists,
                         "An HT codeblock references a nonexistent subband.");
                     long[] coefficients = DecodeCodeBlock(
@@ -1389,6 +1416,8 @@ namespace TinyEXR.Codecs
             public uint Ytosiz;
             public uint Psot;
             public int SotStart;
+            public readonly List<(int Offset, int Length)> TileParts = new List<(int, int)>();
+            public int TilePartCount;
             public int TileDataOffset;
             public int TileDataLength;
             public ushort Rsiz;

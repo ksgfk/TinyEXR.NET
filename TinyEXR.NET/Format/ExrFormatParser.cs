@@ -22,7 +22,6 @@ namespace TinyEXR.Format
 
         private const int ShortNameByteLimit = 31;
         private const int LongNameByteLimit = 255;
-        private const long MaximumDimension = 1L << 20;
         private const int WindowCoordinateLimit = int.MaxValue / 2;
 
         private static readonly HashSet<string> ModeledAttributeNames = new HashSet<string>(StringComparer.Ordinal)
@@ -70,11 +69,11 @@ namespace TinyEXR.Format
             }
             catch (OverflowException)
             {
-                return ExrResult.Corrupt;
+                return ExrResult.InvalidFile;
             }
             catch (ArgumentException)
             {
-                return ExrResult.Corrupt;
+                return ExrResult.InvalidFile;
             }
         }
 
@@ -93,7 +92,7 @@ namespace TinyEXR.Format
             }
             catch (ArgumentException)
             {
-                return ExrResult.Corrupt;
+                return ExrResult.InvalidFile;
             }
         }
 
@@ -117,7 +116,7 @@ namespace TinyEXR.Format
 
             if ((versionField & ~KnownVersionBits) != 0)
             {
-                return ExrResult.Unsupported;
+                return ExrResult.InvalidFile;
             }
 
             flags = new ParsedFileFlags(
@@ -127,7 +126,7 @@ namespace TinyEXR.Format
                 (versionField & MultipartFlag) != 0);
             if (flags.Multipart && flags.Tiled)
             {
-                return ExrResult.Corrupt;
+                return ExrResult.InvalidFile;
             }
 
             nameByteLimit = flags.LongNames ? LongNameByteLimit : ShortNameByteLimit;
@@ -141,7 +140,10 @@ namespace TinyEXR.Format
             Dictionary<string, HeaderAttribute> attributes = new Dictionary<string, HeaderAttribute>(rawAttributes.Count, StringComparer.Ordinal);
             for (int i = 0; i < rawAttributes.Count; i++)
             {
-                attributes.Add(rawAttributes[i].Name, rawAttributes[i]);
+                HeaderAttribute attribute = rawAttributes[i];
+                if (attribute.TypeName == "preview" && !PreviewImage.IsValid(attribute.Data))
+                    throw Failure(ExrResult.InvalidFile);
+                attributes.Add(attribute.Name, attribute);
             }
 
             List<Channel> channels = ParseChannels(
@@ -152,10 +154,6 @@ namespace TinyEXR.Format
             Box2i displayWindow = ParseBox(Required(attributes, "displayWindow", "box2i", 16));
             ValidateWindowEndpoints(dataWindow);
             ValidateWindowEndpoints(displayWindow);
-            if (dataWindow.Width > MaximumDimension || dataWindow.Height > MaximumDimension)
-            {
-                throw Failure(ExrResult.Corrupt);
-            }
 
             LineOrder lineOrder = ParseLineOrder(Required(attributes, "lineOrder", "lineOrder", 1));
             float pixelAspectRatio = ParseSingle(Required(attributes, "pixelAspectRatio", "float", 4));
@@ -165,6 +163,10 @@ namespace TinyEXR.Format
             PartType partType = ParsePartType(attributes, flags);
             bool tiled = partType == PartType.Tiled || partType == PartType.DeepTiled;
             bool deep = partType == PartType.DeepScanline || partType == PartType.DeepTiled;
+            if (deep && !FormatCapabilities.IsValidDeepCompression(compression))
+                throw Failure(ExrResult.InvalidFile);
+            if (!FormatCapabilities.IsImplemented(compression))
+                throw Failure(ExrResult.Unsupported);
             TileDescription? tiles = null;
             if (tiled)
             {
@@ -180,22 +182,7 @@ namespace TinyEXR.Format
 
             if (lineOrder == LineOrder.RandomY && !tiled)
             {
-                throw Failure(ExrResult.Corrupt);
-            }
-
-            if (tiled || deep)
-            {
-                for (int i = 0; i < channels.Count; i++)
-                {
-                    if (channels[i].XSampling != 1 || channels[i].YSampling != 1)
-                    {
-                        throw Failure(ExrResult.Corrupt);
-                    }
-                }
-            }
-            else
-            {
-                ValidateFlatScanlineSampling(dataWindow, channels);
+                throw Failure(ExrResult.InvalidFile);
             }
 
             uint? declaredChunkCount = null;
@@ -205,7 +192,7 @@ namespace TinyEXR.Format
                 int signedCount = ReadInt32(chunkCountAttribute.Data);
                 if (signedCount < 0)
                 {
-                    throw Failure(ExrResult.Corrupt);
+                    throw Failure(ExrResult.InvalidFile);
                 }
 
                 declaredChunkCount = (uint)signedCount;
@@ -213,12 +200,12 @@ namespace TinyEXR.Format
 
             if (flags.Multipart && declaredChunkCount == null)
             {
-                throw Failure(ExrResult.Corrupt);
+                throw Failure(ExrResult.InvalidFile);
             }
 
             if (flags.Multipart && name.Length == 0)
             {
-                throw Failure(ExrResult.Corrupt);
+                throw Failure(ExrResult.InvalidFile);
             }
 
             if (deep)
@@ -232,7 +219,7 @@ namespace TinyEXR.Format
                 HeaderAttribute? maxSamples = Optional(attributes, "maxSamplesPerPixel", "int", 4);
                 if (maxSamples != null && ReadInt32(maxSamples.Data) < -1)
                 {
-                    throw Failure(ExrResult.Corrupt);
+                    throw Failure(ExrResult.InvalidFile);
                 }
             }
 
@@ -271,10 +258,13 @@ namespace TinyEXR.Format
                 chromaticities,
                 customAttributes);
 
+            foreach (Channel channel in channels)
+                if (!FormatCapabilities.IsValidSampling(header, channel))
+                    throw Failure(ExrResult.InvalidFile);
             int computedChunkCount = ComputeChunkCount(header);
             if (declaredChunkCount != null && declaredChunkCount.Value != (uint)computedChunkCount)
             {
-                throw Failure(ExrResult.Corrupt);
+                throw Failure(ExrResult.InvalidFile);
             }
 
             return (header, computedChunkCount);
@@ -290,15 +280,17 @@ namespace TinyEXR.Format
             {
                 Header header = headers[i];
                 anyDeep |= header.IsDeep;
+                if (flags.Multipart && !FormatCapabilities.HasMatchingSharedAttributes(headers[0], header))
+                    throw Failure(ExrResult.InvalidFile);
                 if (flags.Multipart && !partNames.Add(header.Name))
                 {
-                    throw Failure(ExrResult.Corrupt);
+                    throw Failure(ExrResult.InvalidFile);
                 }
             }
 
             if (flags.NonImage != anyDeep)
             {
-                throw Failure(ExrResult.Corrupt);
+                throw Failure(ExrResult.InvalidFile);
             }
 
             if (!flags.Multipart)
@@ -306,7 +298,7 @@ namespace TinyEXR.Format
                 bool requiresTiledFlag = headers[0].PartType == PartType.Tiled;
                 if (flags.Tiled != requiresTiledFlag)
                 {
-                    throw Failure(ExrResult.Corrupt);
+                    throw Failure(ExrResult.InvalidFile);
                 }
             }
         }
@@ -329,7 +321,7 @@ namespace TinyEXR.Format
                 int pixelTypeValue = cursor.ReadInt32();
                 if (pixelTypeValue < 0)
                 {
-                    throw Failure(ExrResult.Corrupt);
+                    throw Failure(ExrResult.InvalidFile);
                 }
 
                 if (pixelTypeValue > (int)PixelType.Float)
@@ -340,7 +332,7 @@ namespace TinyEXR.Format
                 byte pLinear = cursor.ReadByte();
                 if (pLinear > 1 || cursor.ReadByte() != 0 || cursor.ReadByte() != 0 || cursor.ReadByte() != 0)
                 {
-                    throw Failure(ExrResult.Corrupt);
+                    throw Failure(ExrResult.InvalidFile);
                 }
 
                 int xSampling = cursor.ReadInt32();
@@ -348,7 +340,7 @@ namespace TinyEXR.Format
                 if (xSampling <= 0 || ySampling <= 0 || !names.Add(name) ||
                     (previousName != null && ModelValidation.Utf8ByteComparer.Compare(previousName, name) >= 0))
                 {
-                    throw Failure(ExrResult.Corrupt);
+                    throw Failure(ExrResult.InvalidFile);
                 }
 
                 channels.Add(new Channel(name, (PixelType)pixelTypeValue, xSampling, ySampling, pLinear != 0));
@@ -357,7 +349,7 @@ namespace TinyEXR.Format
 
             if (channels.Count == 0 || cursor.Remaining != 0)
             {
-                throw Failure(ExrResult.Corrupt);
+                throw Failure(ExrResult.InvalidFile);
             }
 
             return channels;
@@ -366,9 +358,9 @@ namespace TinyEXR.Format
         private static Compression ParseCompression(HeaderAttribute attribute)
         {
             byte value = attribute.Data[0];
-            if (value > (byte)Compression.HTJ2K32)
+            if (value > (byte)Compression.ZSTD)
             {
-                throw Failure(ExrResult.Unsupported);
+                throw Failure(ExrResult.InvalidFile);
             }
 
             return (Compression)value;
@@ -379,7 +371,7 @@ namespace TinyEXR.Format
             byte value = attribute.Data[0];
             if (value > (byte)LineOrder.RandomY)
             {
-                throw Failure(ExrResult.Corrupt);
+                throw Failure(ExrResult.InvalidFile);
             }
 
             return (LineOrder)value;
@@ -427,7 +419,7 @@ namespace TinyEXR.Format
                 levelMode > (int)TileLevelMode.RipmapLevels ||
                 roundingMode > (int)TileRoundingMode.RoundUp)
             {
-                throw Failure(ExrResult.Corrupt);
+                throw Failure(ExrResult.InvalidFile);
             }
 
             return new TileDescription(
@@ -447,7 +439,7 @@ namespace TinyEXR.Format
             {
                 if (flags.Multipart || flags.NonImage)
                 {
-                    throw Failure(ExrResult.Corrupt);
+                    throw Failure(ExrResult.InvalidFile);
                 }
 
                 partType = flags.Tiled ? PartType.Tiled : PartType.Scanline;
@@ -484,28 +476,7 @@ namespace TinyEXR.Format
                 window.MaxX >= WindowCoordinateLimit ||
                 window.MaxY >= WindowCoordinateLimit)
             {
-                throw Failure(ExrResult.Corrupt);
-            }
-        }
-
-        private static void ValidateFlatScanlineSampling(Box2i dataWindow, List<Channel> channels)
-        {
-            long minimumX = dataWindow.MinX;
-            long minimumY = dataWindow.MinY;
-            long width = dataWindow.Width;
-            long height = dataWindow.Height;
-            for (int i = 0; i < channels.Count; i++)
-            {
-                Channel channel = channels[i];
-                long xSampling = channel.XSampling;
-                long ySampling = channel.YSampling;
-                if (minimumX % xSampling != 0 ||
-                    minimumY % ySampling != 0 ||
-                    width % xSampling != 0 ||
-                    height % ySampling != 0)
-                {
-                    throw Failure(ExrResult.Corrupt);
-                }
+                throw Failure(ExrResult.InvalidFile);
             }
         }
 
@@ -527,7 +498,7 @@ namespace TinyEXR.Format
 
             if (count == 0 || count > int.MaxValue)
             {
-                throw Failure(ExrResult.Corrupt);
+                throw Failure(ExrResult.InvalidFile);
             }
 
             return (int)count;
@@ -667,7 +638,7 @@ namespace TinyEXR.Format
         {
             if (!attributes.TryGetValue(name, out HeaderAttribute? attribute))
             {
-                throw Failure(ExrResult.Corrupt);
+                throw Failure(ExrResult.InvalidFile);
             }
 
             ValidateAttribute(attribute, typeName, byteCount);
@@ -694,7 +665,7 @@ namespace TinyEXR.Format
             if (!string.Equals(attribute.TypeName, typeName, StringComparison.Ordinal) ||
                 (byteCount != null && attribute.ByteLength != byteCount.Value))
             {
-                throw Failure(ExrResult.Corrupt);
+                throw Failure(ExrResult.InvalidFile);
             }
         }
 
@@ -703,7 +674,7 @@ namespace TinyEXR.Format
             ReadOnlySpan<byte> data = attribute.Data;
             if ((!allowEmpty && data.Length == 0) || data.IndexOf((byte)0) >= 0)
             {
-                throw Failure(ExrResult.Corrupt);
+                throw Failure(ExrResult.InvalidFile);
             }
 
             try
@@ -712,7 +683,7 @@ namespace TinyEXR.Format
             }
             catch (DecoderFallbackException)
             {
-                throw Failure(ExrResult.Corrupt);
+                throw Failure(ExrResult.InvalidFile);
             }
         }
 
@@ -814,7 +785,7 @@ namespace TinyEXR.Format
                 int length = remaining.IndexOf((byte)0);
                 if (length < 0 || length > byteLimit || (!allowEmpty && length == 0))
                 {
-                    throw Failure(ExrResult.Corrupt);
+                    throw Failure(ExrResult.InvalidFile);
                 }
 
                 string value;
@@ -824,7 +795,7 @@ namespace TinyEXR.Format
                 }
                 catch (DecoderFallbackException)
                 {
-                    throw Failure(ExrResult.Corrupt);
+                    throw Failure(ExrResult.InvalidFile);
                 }
 
                 Position += length + 1;
@@ -841,7 +812,7 @@ namespace TinyEXR.Format
             {
                 if (byteCount < 0 || Position < 0 || Position > _source.Length || byteCount > _source.Length - Position)
                 {
-                    throw Failure(ExrResult.Corrupt);
+                    throw Failure(ExrResult.InvalidFile);
                 }
             }
         }

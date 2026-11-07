@@ -135,7 +135,7 @@ namespace TinyEXR
     /// <summary>
     /// Immutable description of one image part. Pixel ownership lives in the part levels.
     /// </summary>
-    public sealed class Header
+    public sealed partial class Header
     {
         private readonly ReadOnlyCollection<Channel> _channels;
         private readonly ReadOnlyCollection<HeaderAttribute> _attributes;
@@ -359,7 +359,6 @@ namespace TinyEXR
 
         public static int PixelTypeSize(PixelType pixelType)
         {
-            ValidateEnum(pixelType, nameof(pixelType));
             switch (pixelType)
             {
                 case PixelType.Half:

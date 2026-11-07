@@ -197,7 +197,7 @@ public sealed class V3FormatTests
         wrongChunkCount.Add(new SyntheticAttribute("chunkCount", "int", Int32(1)));
         AssertResult(
             BuildSingle(wrongChunkCount, 2, flags: NonImageFlag).Bytes,
-            V3.ExrResult.Corrupt,
+            V3.ExrResult.InvalidFile,
             "single deep declared chunk count mismatch");
 
         List<SyntheticAttribute> negativeTwo = DeepAttributes(
@@ -206,7 +206,7 @@ public sealed class V3FormatTests
             maxSamplesPerPixel: -2);
         AssertResult(
             BuildSingle(negativeTwo, 1, flags: NonImageFlag).Bytes,
-            V3.ExrResult.Corrupt,
+            V3.ExrResult.InvalidFile,
             "maxSamplesPerPixel below unknown sentinel");
 
         List<SyntheticAttribute> deepTiledAttributes = DeepAttributes(
@@ -227,7 +227,7 @@ public sealed class V3FormatTests
             BuildMultipart(
                 new SyntheticPart(multipartWithoutChunkCountA, 1),
                 new SyntheticPart(multipartWithoutChunkCountB, 1)),
-            V3.ExrResult.Corrupt,
+            V3.ExrResult.InvalidFile,
             "multipart still requires chunkCount");
     }
 
@@ -253,7 +253,7 @@ public sealed class V3FormatTests
                 BuildSingle(
                     StandardAttributes(dataWindow: invalid.Window, channels: sampledChannels),
                     invalid.OffsetCount).Bytes,
-                V3.ExrResult.Corrupt,
+                V3.ExrResult.InvalidFile,
                 $"subsampled {invalid.Name} must align");
         }
 
@@ -274,7 +274,7 @@ public sealed class V3FormatTests
                     Channel(supplementary, V3.PixelType.Half),
                     Channel(bmpPrivateUse, V3.PixelType.Half))),
                 offsetCount: 1).Bytes,
-            V3.ExrResult.Corrupt,
+            V3.ExrResult.InvalidFile,
             "UTF-8 byte-reversed channels");
     }
 
@@ -303,7 +303,7 @@ public sealed class V3FormatTests
 
         AssertResult(
             BuildSingle(StandardAttributes(), 1, flags: TiledFlag).Bytes,
-            V3.ExrResult.Corrupt,
+            V3.ExrResult.InvalidFile,
             "tiled storage requires tiles attribute");
 
         List<SyntheticAttribute> scanlineRandomY = StandardAttributes();
@@ -311,7 +311,7 @@ public sealed class V3FormatTests
         scanlineRandomY.Add(new SyntheticAttribute("tiles", "tiledesc", TileDescriptionBytes(1, 1)));
         AssertResult(
             BuildSingle(scanlineRandomY, 1).Bytes,
-            V3.ExrResult.Corrupt,
+            V3.ExrResult.InvalidFile,
             "ignored tiles must not enable RandomY");
 
         List<SyntheticAttribute> tiledRandomY = StandardAttributes();
@@ -361,7 +361,7 @@ public sealed class V3FormatTests
                 TileDescriptionBytes(invalidTile.TileX, invalidTile.TileY)));
             AssertResult(
                 BuildSingle(attributes, 1, flags: TiledFlag).Bytes,
-                V3.ExrResult.Corrupt,
+                V3.ExrResult.InvalidFile,
                 invalidTile.Name);
         }
 
@@ -369,25 +369,25 @@ public sealed class V3FormatTests
         BinaryPrimitives.WriteUInt64LittleEndian(
             headerOffset.Bytes.AsSpan(headerOffset.OffsetTableStart),
             8UL);
-        AssertResult(headerOffset.Bytes, V3.ExrResult.Corrupt, "chunk offset points into header");
+        AssertResult(headerOffset.Bytes, V3.ExrResult.InvalidFile, "chunk offset points into header");
 
         byte[] invalidAttributeName = BuildSingle(StandardAttributes(), 1).Bytes;
         invalidAttributeName[8] = 0xff;
-        AssertResult(invalidAttributeName, V3.ExrResult.Corrupt, "invalid UTF-8 attribute name");
+        AssertResult(invalidAttributeName, V3.ExrResult.InvalidFile, "invalid UTF-8 attribute name");
 
         byte[] invalidAttributeType = BuildSingle(StandardAttributes(), 1).Bytes;
         invalidAttributeType[FindAttributeTypeOffset(invalidAttributeType, "channels")] = 0xff;
-        AssertResult(invalidAttributeType, V3.ExrResult.Corrupt, "invalid UTF-8 attribute type");
+        AssertResult(invalidAttributeType, V3.ExrResult.InvalidFile, "invalid UTF-8 attribute type");
 
         byte[] invalidChannelName = BuildSingle(StandardAttributes(), 1).Bytes;
         invalidChannelName[FindAttributeDataOffset(invalidChannelName, "channels")] = 0xff;
-        AssertResult(invalidChannelName, V3.ExrResult.Corrupt, "invalid UTF-8 channel name");
+        AssertResult(invalidChannelName, V3.ExrResult.InvalidFile, "invalid UTF-8 channel name");
     }
 
     [TestMethod(DisplayName = "[TinyEXR.NET Test] V3 format handles compression, long names, and malformed bounds")]
     public void Case_V3Format_ValidatesCompressionNamesAndMalformedBounds()
     {
-        foreach (V3.Compression compression in Enum.GetValues(typeof(V3.Compression)))
+        foreach (V3.Compression compression in Enum.GetValues<V3.Compression>().Where(c => c <= V3.Compression.HTJ2K32))
         {
             int blockLines = LinesPerBlock(compression);
             SyntheticFile source = BuildSingle(
@@ -401,11 +401,11 @@ public sealed class V3FormatTests
         }
 
         AssertResult(BuildWithCustomName(new string('a', 31), 0).Bytes, V3.ExrResult.Success, "short 31");
-        AssertResult(BuildWithCustomName(new string('a', 32), 0).Bytes, V3.ExrResult.Corrupt, "short 32");
+        AssertResult(BuildWithCustomName(new string('a', 32), 0).Bytes, V3.ExrResult.InvalidFile, "short 32");
         AssertResult(BuildWithCustomName(new string('a', 255), LongNamesFlag).Bytes, V3.ExrResult.Success, "long 255");
-        AssertResult(BuildWithCustomName(new string('a', 256), LongNamesFlag).Bytes, V3.ExrResult.Corrupt, "long 256");
+        AssertResult(BuildWithCustomName(new string('a', 256), LongNamesFlag).Bytes, V3.ExrResult.InvalidFile, "long 256");
         AssertResult(BuildWithCustomName(new string('色', 10), 0).Bytes, V3.ExrResult.Success, "UTF-8 30 bytes");
-        AssertResult(BuildWithCustomName(new string('色', 11), 0).Bytes, V3.ExrResult.Corrupt, "UTF-8 33 bytes");
+        AssertResult(BuildWithCustomName(new string('色', 11), 0).Bytes, V3.ExrResult.InvalidFile, "UTF-8 33 bytes");
         AssertResult(BuildWithCustomName(new string('色', 11), LongNamesFlag).Bytes, V3.ExrResult.Success, "UTF-8 long name");
 
         ReaderSnapshot onePartMultipart = ParseMemory(BuildOnePartMultipart(), "one-part multipart");
@@ -433,52 +433,52 @@ public sealed class V3FormatTests
 
         byte[] futureFlag = BuildSingle(StandardAttributes(), 1).Bytes;
         BinaryPrimitives.WriteUInt32LittleEndian(futureFlag.AsSpan(4), 2U | (1U << 13));
-        yield return (futureFlag, V3.ExrResult.Unsupported, "future flag");
+        yield return (futureFlag, V3.ExrResult.InvalidFile, "future flag");
 
         List<SyntheticAttribute> missing = StandardAttributes();
         missing.RemoveAll(attribute => attribute.Name == "channels");
-        yield return (BuildSingle(missing, 1).Bytes, V3.ExrResult.Corrupt, "missing attribute");
+        yield return (BuildSingle(missing, 1).Bytes, V3.ExrResult.InvalidFile, "missing attribute");
 
         List<SyntheticAttribute> duplicate = StandardAttributes();
         duplicate.Add(new SyntheticAttribute("compression", "compression", new byte[] { 0 }));
-        yield return (BuildSingle(duplicate, 1).Bytes, V3.ExrResult.Corrupt, "duplicate attribute");
+        yield return (BuildSingle(duplicate, 1).Bytes, V3.ExrResult.InvalidFile, "duplicate attribute");
 
         List<SyntheticAttribute> wrongType = StandardAttributes();
         Replace(wrongType, "compression", new SyntheticAttribute("compression", "int", new byte[] { 0 }));
-        yield return (BuildSingle(wrongType, 1).Bytes, V3.ExrResult.Corrupt, "wrong standard type");
+        yield return (BuildSingle(wrongType, 1).Bytes, V3.ExrResult.InvalidFile, "wrong standard type");
 
         List<SyntheticAttribute> futureCompression = StandardAttributes();
-        Replace(futureCompression, "compression", new SyntheticAttribute("compression", "compression", new byte[] { 13 }));
-        yield return (BuildSingle(futureCompression, 1).Bytes, V3.ExrResult.Unsupported, "future compression");
+        Replace(futureCompression, "compression", new SyntheticAttribute("compression", "compression", new byte[] { 14 }));
+        yield return (BuildSingle(futureCompression, 1).Bytes, V3.ExrResult.InvalidFile, "future compression");
 
         List<SyntheticAttribute> badSampling = StandardAttributes(
             channels: Channels(Channel("Y", V3.PixelType.Float, xSampling: 0)));
-        yield return (BuildSingle(badSampling, 1).Bytes, V3.ExrResult.Corrupt, "zero sampling");
+        yield return (BuildSingle(badSampling, 1).Bytes, V3.ExrResult.InvalidFile, "zero sampling");
 
         List<SyntheticAttribute> badLinear = StandardAttributes(
             channels: Channels(Channel("Y", V3.PixelType.Float, pLinearByte: 2)));
-        yield return (BuildSingle(badLinear, 1).Bytes, V3.ExrResult.Corrupt, "bad pLinear");
+        yield return (BuildSingle(badLinear, 1).Bytes, V3.ExrResult.InvalidFile, "bad pLinear");
 
         List<SyntheticAttribute> unsorted = StandardAttributes(
             channels: Channels(Channel("Z", V3.PixelType.Float), Channel("A", V3.PixelType.Float)));
-        yield return (BuildSingle(unsorted, 1).Bytes, V3.ExrResult.Corrupt, "unsorted channels");
+        yield return (BuildSingle(unsorted, 1).Bytes, V3.ExrResult.InvalidFile, "unsorted channels");
 
         List<SyntheticAttribute> wrongChunkCount = StandardAttributes();
         wrongChunkCount.Add(new SyntheticAttribute("chunkCount", "int", Int32(2)));
-        yield return (BuildSingle(wrongChunkCount, 2).Bytes, V3.ExrResult.Corrupt, "chunk count mismatch");
+        yield return (BuildSingle(wrongChunkCount, 2).Bytes, V3.ExrResult.InvalidFile, "chunk count mismatch");
 
-        yield return (BuildSingle(StandardAttributes(dataWindow: Box(1, 0, 0, 0)), 1).Bytes, V3.ExrResult.Corrupt, "reversed window");
+        yield return (BuildSingle(StandardAttributes(dataWindow: Box(1, 0, 0, 0)), 1).Bytes, V3.ExrResult.InvalidFile, "reversed window");
 
         SyntheticFile truncatedTable = BuildSingle(StandardAttributes(), 1);
-        yield return (truncatedTable.Bytes.AsSpan(0, truncatedTable.Bytes.Length - 1).ToArray(), V3.ExrResult.Corrupt, "truncated table");
+        yield return (truncatedTable.Bytes.AsSpan(0, truncatedTable.Bytes.Length - 1).ToArray(), V3.ExrResult.InvalidFile, "truncated table");
 
         SyntheticFile outOfRange = BuildSingle(StandardAttributes(), 1);
         BinaryPrimitives.WriteUInt64LittleEndian(outOfRange.Bytes.AsSpan(outOfRange.OffsetTableStart), (ulong)outOfRange.Bytes.Length);
-        yield return (outOfRange.Bytes, V3.ExrResult.Corrupt, "offset at eof");
+        yield return (outOfRange.Bytes, V3.ExrResult.InvalidFile, "offset at eof");
 
         byte[] maliciousSize = BuildSingle(StandardAttributes(), 1).Bytes;
         BinaryPrimitives.WriteInt32LittleEndian(maliciousSize.AsSpan(FindAttributeSizeOffset(maliciousSize, "compression")), int.MaxValue);
-        yield return (maliciousSize, V3.ExrResult.Unsupported, "malicious size exceeds ReaderLimits");
+        yield return (maliciousSize, V3.ExrResult.LimitExceeded, "malicious size exceeds ReaderLimits");
     }
 
     private static ReaderSnapshot ParseFile(string path)
@@ -626,7 +626,7 @@ public sealed class V3FormatTests
     {
         List<SyntheticAttribute> attributes = StandardAttributes(dataWindow: dataWindow);
         Replace(attributes, "displayWindow", new SyntheticAttribute("displayWindow", "box2i", displayWindow));
-        AssertResult(BuildSingle(attributes, 1).Bytes, V3.ExrResult.Corrupt, message);
+        AssertResult(BuildSingle(attributes, 1).Bytes, V3.ExrResult.InvalidFile, message);
     }
 
     private static SyntheticFile BuildWithCustomName(string name, uint flags)

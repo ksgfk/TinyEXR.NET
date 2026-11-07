@@ -142,8 +142,8 @@ public sealed class V3ReaderTests
     {
         SyntheticFile file = BuildSingle(StandardAttributes(), 1);
         AssertCompletedTruncation(file.Bytes, 4, V3.ExrResult.InvalidFile, V3.ReaderState.ReadingPrefix);
-        AssertCompletedTruncation(file.Bytes, file.OffsetTableStart - 2, V3.ExrResult.Corrupt, V3.ReaderState.Faulted);
-        AssertCompletedTruncation(file.Bytes, file.OffsetTableStart + 4, V3.ExrResult.Corrupt, V3.ReaderState.Faulted);
+        AssertCompletedTruncation(file.Bytes, file.OffsetTableStart - 2, V3.ExrResult.InvalidFile, V3.ReaderState.Faulted);
+        AssertCompletedTruncation(file.Bytes, file.OffsetTableStart + 4, V3.ExrResult.InvalidFile, V3.ReaderState.Faulted);
     }
 
     [TestMethod(DisplayName = "[TinyEXR.NET Test] V3 reader never reads pixel bytes and bounds every request")]
@@ -186,7 +186,7 @@ public sealed class V3ReaderTests
             new V3.ReaderOptions(smallAttribute)))
         {
             V3.ReaderResult result = reader.ParseHeader();
-            Assert.AreEqual(V3.ExrResult.Unsupported, result.Status);
+            Assert.AreEqual(V3.ExrResult.LimitExceeded, result.Status);
             Assert.IsTrue(result.Error is V3.ReaderLimitExceededException);
             Assert.AreNotEqual(V3.ReaderState.Faulted, reader.State);
             Assert.AreEqual(result.Status, reader.ParseHeader().Status);
@@ -231,7 +231,7 @@ public sealed class V3ReaderTests
             8UL);
         using (V3.ExrReader reader = V3.ExrReader.OpenMemory(headerOffset.Bytes))
         {
-            Assert.AreEqual(V3.ExrResult.Corrupt, reader.ParseHeader().Status);
+            Assert.AreEqual(V3.ExrResult.InvalidFile, reader.ParseHeader().Status);
             Assert.AreEqual(V3.ReaderState.Faulted, reader.State);
         }
     }
@@ -254,7 +254,7 @@ public sealed class V3ReaderTests
                 maximumTotalAttributeByteCount: declaredPayloadByteCount))))
         {
             V3.ReaderResult result = reader.ParseHeader();
-            Assert.AreEqual(V3.ExrResult.Unsupported, result.Status);
+            Assert.AreEqual(V3.ExrResult.LimitExceeded, result.Status);
             Assert.IsTrue(result.Error is V3.ReaderLimitExceededException);
             Assert.AreEqual(declaredPayload.Length, source.MaximumRequestedEnd);
             Assert.IsTrue(source.MaximumRequestLength <= sizeof(long));
@@ -268,7 +268,7 @@ public sealed class V3ReaderTests
                 maximumAttributeByteCount: declaredPayloadByteCount,
                 maximumTotalAttributeByteCount: declaredPayloadByteCount))))
         {
-            Assert.AreEqual(V3.ExrResult.Corrupt, reader.ParseHeader().Status);
+            Assert.AreEqual(V3.ExrResult.InvalidFile, reader.ParseHeader().Status);
             Assert.AreEqual(declaredPayload.Length, source.MaximumRequestedEnd);
             Assert.IsTrue(source.MaximumRequestLength <= sizeof(long));
         }
@@ -279,7 +279,7 @@ public sealed class V3ReaderTests
             BuildSingle(attributes, 1).Bytes,
             new V3.ReaderOptions(new V3.ReaderLimits(maximumChannelsPerPart: 1)));
         V3.ReaderResult channelResult = channelReader.ParseHeader();
-        Assert.AreEqual(V3.ExrResult.Unsupported, channelResult.Status);
+        Assert.AreEqual(V3.ExrResult.LimitExceeded, channelResult.Status);
         Assert.IsTrue(channelResult.Error is V3.ReaderLimitExceededException);
     }
 
@@ -839,7 +839,7 @@ public sealed class V3ReaderTests
         };
         int[] expectedCounts = { 1, 2, 0, 1 };
         DeepSyntheticFile file = BuildDeepBlockFile(
-            V3.Compression.ZIP,
+            V3.Compression.ZIPS,
             new V3.Box2i(-1, 4, 0, 5),
             channels,
             expectedCounts);
@@ -869,7 +869,7 @@ public sealed class V3ReaderTests
         }
     }
 
-    [TestMethod(DisplayName = "[TinyEXR.NET Test] V3 deep block supports raw RLE ZIP and ZIPS payloads")]
+    [TestMethod(DisplayName = "[TinyEXR.NET Test] V3 deep block supports raw RLE and ZIPS payloads")]
     public void Case_V3Reader_DeepBlockCompressionMatrix()
     {
         V3.Compression[] compressions =
@@ -877,7 +877,6 @@ public sealed class V3ReaderTests
             V3.Compression.None,
             V3.Compression.RLE,
             V3.Compression.ZIPS,
-            V3.Compression.ZIP,
         };
         ChannelSpec[] channels =
         {
@@ -980,7 +979,7 @@ public sealed class V3ReaderTests
         }
 
         DeepSyntheticFile valid = BuildDeepBlockFile(
-            V3.Compression.ZIP,
+            V3.Compression.ZIPS,
             new V3.Box2i(0, 0, 1, 0),
             channels,
             expectedCounts);
@@ -991,7 +990,7 @@ public sealed class V3ReaderTests
             Assert.AreEqual(V3.ExrResult.Success, limited.ParseHeader().Status);
             int[] counts = { -5, -5 };
             V3.ReaderResult result = limited.DecodeDeepCounts(0, 0, counts);
-            Assert.AreEqual(V3.ExrResult.Unsupported, result.Status);
+            Assert.AreEqual(V3.ExrResult.LimitExceeded, result.Status);
             Assert.IsTrue(result.Error is V3.ReaderLimitExceededException);
             CollectionAssert.AreEqual(new[] { -5, -5 }, counts);
         }
@@ -1026,7 +1025,7 @@ public sealed class V3ReaderTests
         }
 
         DeepSyntheticFile corruptSamples = BuildDeepBlockFile(
-            V3.Compression.ZIP,
+            V3.Compression.ZIPS,
             new V3.Box2i(0, 0, 1, 0),
             channels,
             expectedCounts);
@@ -1055,7 +1054,7 @@ public sealed class V3ReaderTests
         ChannelSpec[] channels = { new ChannelSpec("Z", V3.PixelType.Float, 1, 1) };
         int[] expectedCounts = { 1, 2, 0, 1 };
         DeepSyntheticFile file = BuildDeepBlockFile(
-            V3.Compression.ZIP,
+            V3.Compression.ZIPS,
             new V3.Box2i(0, 0, 3, 0),
             channels,
             expectedCounts);
@@ -1166,7 +1165,7 @@ public sealed class V3ReaderTests
         };
         int[] expectedCounts = { 1, 0, 2, 1 };
         DeepSyntheticFile file = BuildDeepBlockFile(
-            V3.Compression.ZIP,
+            V3.Compression.ZIPS,
             new V3.Box2i(-2, -1, -1, 0),
             channels,
             expectedCounts,
@@ -1232,7 +1231,7 @@ public sealed class V3ReaderTests
             .Select(static index => index % 7 == 0 ? 0 : (index % 3) + 1)
             .ToArray();
         DeepMaterializedSyntheticFile file = BuildDeepScanlineFile(
-            V3.Compression.ZIP,
+            V3.Compression.ZIPS,
             region,
             channels,
             counts);
@@ -1286,7 +1285,7 @@ public sealed class V3ReaderTests
 
         int[] tileCounts = { 1, 0, 2, 1 };
         DeepSyntheticFile tile = BuildDeepBlockFile(
-            V3.Compression.ZIP,
+            V3.Compression.ZIPS,
             new V3.Box2i(-2, -1, -1, 0),
             channels,
             tileCounts,
@@ -1356,7 +1355,7 @@ public sealed class V3ReaderTests
         };
         int[] counts = { 1, 0, 2, 1 };
         DeepSyntheticFile deepFile = BuildDeepBlockFile(
-            V3.Compression.ZIP,
+            V3.Compression.ZIPS,
             new V3.Box2i(-2, -1, -1, 0),
             deepChannels,
             counts,
@@ -1385,7 +1384,7 @@ public sealed class V3ReaderTests
         ChannelSpec[] channels = { new ChannelSpec("Z", V3.PixelType.Float, 1, 1) };
         int[] counts = { 1, 2, 0, 1 };
         DeepSyntheticFile file = BuildDeepBlockFile(
-            V3.Compression.ZIP,
+            V3.Compression.ZIPS,
             new V3.Box2i(0, 0, 3, 0),
             channels,
             counts);
@@ -1398,7 +1397,7 @@ public sealed class V3ReaderTests
         {
             Assert.AreEqual(V3.ExrResult.Success, reader.ParseHeader().Status);
             V3.ReaderResult<V3.Part> result = reader.ReadPart(0);
-            Assert.AreEqual(V3.ExrResult.Unsupported, result.Status);
+            Assert.AreEqual(V3.ExrResult.LimitExceeded, result.Status);
             Assert.IsTrue(result.Error is V3.ReaderLimitExceededException);
             Assert.IsNull(result.Value);
             Assert.IsTrue(source.MaximumRequestedEnd <= file.SamplePayloadStart);
@@ -1749,7 +1748,7 @@ public sealed class V3ReaderTests
         Assert.AreEqual(V3.ExrResult.Success, limited.ParseHeader().Status);
         int callsAfterHeader = spy.ReadCallCount;
         V3.ReaderResult<V3.Part> limitedResult = limited.ReadPart(0);
-        Assert.AreEqual(V3.ExrResult.Unsupported, limitedResult.Status);
+        Assert.AreEqual(V3.ExrResult.LimitExceeded, limitedResult.Status);
         Assert.IsTrue(limitedResult.Error is V3.ReaderLimitExceededException);
         Assert.IsNull(limitedResult.Value);
         Assert.AreEqual(callsAfterHeader, spy.ReadCallCount);
@@ -1899,7 +1898,7 @@ public sealed class V3ReaderTests
             bytes,
             new V3.ReaderOptions(limits));
         V3.ReaderResult result = reader.ParseHeader();
-        Assert.AreEqual(V3.ExrResult.Unsupported, result.Status);
+        Assert.AreEqual(V3.ExrResult.LimitExceeded, result.Status);
         Assert.IsTrue(result.Error is V3.ReaderLimitExceededException);
         Assert.AreNotEqual(V3.ReaderState.Faulted, reader.State);
     }
@@ -2000,6 +1999,8 @@ public sealed class V3ReaderTests
     {
         int width = checked((int)region.Width);
         int height = checked((int)region.Height);
+        // Multi-row blocks are legal deep tiles; deep scanline chunks have one row.
+        tiled |= height > 1;
         if (counts.Count != checked(width * height))
         {
             throw new ArgumentException("A deep fixture requires one count per pixel.", nameof(counts));

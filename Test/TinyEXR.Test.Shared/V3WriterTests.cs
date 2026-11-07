@@ -175,14 +175,13 @@ public sealed class V3WriterTests
         AssertPartMatches(decoded.Value);
     }
 
-    [TestMethod(DisplayName = "[TinyEXR.NET Test] V3 deep writer genuinely compresses RLE and ZIP payloads")]
+    [TestMethod(DisplayName = "[TinyEXR.NET Test] V3 deep writer genuinely compresses RLE and ZIPS payloads")]
     public void Case_V3DeepWriter_CompressesRleAndZipPayloads()
     {
         foreach (V3.Compression compression in new[]
         {
             V3.Compression.RLE,
             V3.Compression.ZIPS,
-            V3.Compression.ZIP,
         })
         {
             V3.Header header = new(
@@ -260,6 +259,7 @@ public sealed class V3WriterTests
                 2,
                 V3.TileLevelMode.MipmapLevels,
                 V3.TileRoundingMode.RoundDown),
+            displayWindow: scanline.DisplayWindow,
             name: "mip");
         V3.Header rip = new(
             V3.PartType.Tiled,
@@ -272,6 +272,7 @@ public sealed class V3WriterTests
                 2,
                 V3.TileLevelMode.RipmapLevels,
                 V3.TileRoundingMode.RoundUp),
+            displayWindow: scanline.DisplayWindow,
             name: "rip");
         V3.Header[] headers = { scanline, mip, rip };
 
@@ -331,14 +332,14 @@ public sealed class V3WriterTests
                 new V3.Channel("Z", V3.PixelType.Float),
                 new V3.Channel("A", V3.PixelType.Half),
             },
-            compression: V3.Compression.ZIP);
+            compression: V3.Compression.ZIPS);
 
         using MemoryStream stream = new();
         using V3IO.StreamDataSink sink = new(stream, leaveOpen: true);
         using V3.ExrWriter writer = V3.ExrWriter.OpenSink(sink);
         writer.AddPart(header);
         Assert.AreEqual(V3.ExrResult.Success, writer.Begin().Status);
-        Assert.AreEqual(2, writer.GetNumBlocks(0));
+        Assert.AreEqual(19, writer.GetNumBlocks(0));
 
         for (int blockIndex = writer.GetNumBlocks(0) - 1; blockIndex >= 0; blockIndex--)
         {
@@ -371,8 +372,8 @@ public sealed class V3WriterTests
 
     }
 
-    [TestMethod(DisplayName = "[TinyEXR.NET Test] V3 deep writer output loads through the V1 API")]
-    public void Case_V3DeepWriter_OutputLoadsThroughV1Api()
+    [TestMethod(DisplayName = "[TinyEXR.NET Test] V3 deep writer output loads through the Exr convenience API")]
+    public void Case_V3DeepWriter_OutputLoadsThroughExrApi()
     {
         V3.Header header = new(
             V3.PartType.DeepScanline,
@@ -437,7 +438,7 @@ public sealed class V3WriterTests
                 new V3.Channel("A", V3.PixelType.Half),
                 new V3.Channel("Z", V3.PixelType.Float),
             },
-            compression: V3.Compression.ZIP,
+            compression: V3.Compression.ZIPS,
             tiles: new V3.TileDescription(
                 3,
                 2,
@@ -448,13 +449,14 @@ public sealed class V3WriterTests
             V3.PartType.DeepTiled,
             new V3.Box2i(-3, 4, 1, 6),
             new[] { new V3.Channel("ID", V3.PixelType.UInt) },
-            compression: V3.Compression.HTJ2K256,
+            compression: V3.Compression.ZIPS,
             lineOrder: V3.LineOrder.RandomY,
             tiles: new V3.TileDescription(
                 2,
                 2,
                 V3.TileLevelMode.RipmapLevels,
                 V3.TileRoundingMode.RoundUp),
+            displayWindow: mip.DisplayWindow,
             name: "deep-rip");
         V3.Header[] headers = { mip, rip };
         int[] maximumSamples = new int[headers.Length];
@@ -584,8 +586,9 @@ public sealed class V3WriterTests
             V3.PartType.DeepTiled,
             new V3.Box2i(-1, 2, 0, 3),
             new[] { new V3.Channel("A", V3.PixelType.Half) },
-            compression: V3.Compression.ZIP,
+            compression: V3.Compression.ZIPS,
             tiles: new V3.TileDescription(2, 2),
+            displayWindow: scanline.DisplayWindow,
             name: "tile");
         V3.Header[] headers = { scanline, tiled };
 
@@ -817,7 +820,7 @@ public sealed class V3WriterTests
                 info.Region.MinY,
                 new[] { 2 },
                 CreateDeepChannels(deep, info.Region, new[] { 2 }));
-            Assert.AreEqual(V3.ExrResult.Unsupported, limited.Status);
+            Assert.AreEqual(V3.ExrResult.LimitExceeded, limited.Status);
             Assert.IsInstanceOfType<V3.WriterLimitExceededException>(limited.Error);
         }
 
@@ -865,8 +868,8 @@ public sealed class V3WriterTests
             using V3.ExrWriter writer = V3.ExrWriter.OpenSink(sink);
             writer.AddPart(header);
             V3.WriterResult result = writer.Begin();
-            Assert.AreEqual(V3.ExrResult.Unsupported, result.Status);
-            Assert.IsInstanceOfType<NotSupportedException>(result.Error);
+            Assert.AreEqual(V3.ExrResult.InvalidArgument, result.Status);
+            Assert.IsNotNull(result.Error);
             Assert.AreEqual(0, stream.Length);
         }
     }

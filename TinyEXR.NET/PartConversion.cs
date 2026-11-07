@@ -87,36 +87,43 @@ namespace TinyEXR
             {
                 Channel channel = part.Header.Channels[channelIndex];
                 names[channelIndex] = channel.Name;
-                ChannelBuffer buffer = level.GetChannel(channel.Name);
-                ValidateBuffer(channel, buffer, level.Region, out int sampledWidth, out int sampledHeight);
-                if (sampledWidth == 0 || sampledHeight == 0)
-                {
-                    continue;
-                }
-
-                for (int y = 0; y < height; y++)
-                {
-                    int absoluteY = checked(level.Region.MinY + y);
-                    int sampledY = GetPointSampleCoordinate(
-                        level.Region.MinY,
-                        absoluteY,
-                        channel.YSampling,
-                        sampledHeight);
-                    for (int x = 0; x < width; x++)
-                    {
-                        int absoluteX = checked(level.Region.MinX + x);
-                        int sampledX = GetPointSampleCoordinate(
-                            level.Region.MinX,
-                            absoluteX,
-                            channel.XSampling,
-                            sampledWidth);
-                        output[(((y * width) + x) * channelCount) + channelIndex] =
-                            ReadSample(buffer, (sampledY * sampledWidth) + sampledX);
-                    }
-                }
+                CopyInterleavedChannel(channel, level, output, channelCount, channelIndex);
             }
 
             return new InterleavedFloatImage(width, height, names, output);
+        }
+
+        internal static void CopyInterleavedChannel(Channel channel, FlatLevel level, Span<float> output, int channelCount, int channelIndex)
+        {
+            int width = checked((int)level.Width);
+            int height = checked((int)level.Height);
+            ChannelBuffer buffer = level.GetChannel(channel.Name);
+            ValidateBuffer(channel, buffer, level.Region, out int sampledWidth, out int sampledHeight);
+            if (sampledWidth == 0 || sampledHeight == 0)
+            {
+                return;
+            }
+
+            for (int y = 0; y < height; y++)
+            {
+                int absoluteY = checked(level.Region.MinY + y);
+                int sampledY = GetPointSampleCoordinate(
+                    level.Region.MinY,
+                    absoluteY,
+                    channel.YSampling,
+                    sampledHeight);
+                for (int x = 0; x < width; x++)
+                {
+                    int absoluteX = checked(level.Region.MinX + x);
+                    int sampledX = GetPointSampleCoordinate(
+                        level.Region.MinX,
+                        absoluteX,
+                        channel.XSampling,
+                        sampledWidth);
+                    output[(((y * width) + x) * channelCount) + channelIndex] =
+                        ReadSample(buffer, (sampledY * sampledWidth) + sampledX);
+                }
+            }
         }
 
         public static Part FromInterleavedFloat(
@@ -310,7 +317,7 @@ namespace TinyEXR
                 output);
         }
 
-        private static FlatLevel GetFullBaseLevel(Part part)
+        internal static FlatLevel GetFullBaseLevel(Part part)
         {
             if (part == null)
             {

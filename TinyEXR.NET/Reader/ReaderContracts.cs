@@ -38,9 +38,12 @@ namespace TinyEXR
             int maximumCompressedBlockByteCount = 256 * 1024 * 1024,
             int maximumUncompressedBlockByteCount = 256 * 1024 * 1024,
             long maximumMaterializedByteCount = int.MaxValue,
-            long maximumDeepSampleCount = 256L * 1024L * 1024L)
+            long maximumDeepSampleCount = 256L * 1024L * 1024L,
+            long maximumFileByteCount = 0)
         {
             MaximumHeaderByteCount = Positive(maximumHeaderByteCount, nameof(maximumHeaderByteCount));
+            if (maximumFileByteCount < 0) throw new ArgumentOutOfRangeException(nameof(maximumFileByteCount));
+            MaximumFileByteCount = maximumFileByteCount;
             MaximumParts = Positive(maximumParts, nameof(maximumParts));
             MaximumAttributesPerPart = Positive(maximumAttributesPerPart, nameof(maximumAttributesPerPart));
             MaximumTotalAttributes = Positive(maximumTotalAttributes, nameof(maximumTotalAttributes));
@@ -81,6 +84,8 @@ namespace TinyEXR
         }
 
         public long MaximumHeaderByteCount { get; }
+
+        public long MaximumFileByteCount { get; }
 
         public int MaximumParts { get; }
 
@@ -138,10 +143,11 @@ namespace TinyEXR
     /// </summary>
     public sealed class ReaderOptions
     {
-        public ReaderOptions(ReaderLimits? limits = null, bool leaveOpen = true)
+        public ReaderOptions(ReaderLimits? limits = null, bool leaveOpen = true, ExrContext? context = null)
         {
             Limits = limits ?? new ReaderLimits();
             LeaveOpen = leaveOpen;
+            Context = context;
         }
 
         public ReaderLimits Limits { get; }
@@ -150,10 +156,12 @@ namespace TinyEXR
         /// Whether disposing the reader leaves the externally supplied source open.
         /// </summary>
         public bool LeaveOpen { get; }
+
+        public ExrContext? Context { get; }
     }
 
     /// <summary>
-    /// Diagnostic attached to an Unsupported result caused by a configured resource ceiling.
+    /// Diagnostic attached to a LimitExceeded result caused by a configured resource ceiling.
     /// </summary>
     public sealed class ReaderLimitExceededException : Exception
     {

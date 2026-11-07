@@ -10,15 +10,15 @@
     <AssemblyVersion>1.2.0.0</AssemblyVersion>
     <FileVersion>1.2.0.0</FileVersion>
     <RepositoryType>git</RepositoryType>
-    <Description>TinyEXR.NET is a pure managed C# implementation of tinyexr v3 with streaming and convenience APIs</Description>
+    <Description>TinyEXR.NET is a pure managed OpenEXR implementation with V3.1 streaming and convenience APIs</Description>
     <Company>ksgfk</Company>
     <Authors>ksgfk</Authors>
     <Copyright>Copyright (c) 2023-2026 ksgfk</Copyright>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <RepositoryUrl>https://github.com/ksgfk/TinyEXR.NET</RepositoryUrl>
     <PackageTags>OpenEXR,HDR</PackageTags>
-    <PackageReleaseNotes>Breaking V3-only refactor: removes V1 models and implementation. Exr uses Header, Part, Image, SpectralType and ExrResult; all I/O shares the V3 reader/writer and newly ported codecs. Rebuild consumers and see docs/migration-v3-only.md. Package version remains unchanged pending release versioning.</PackageReleaseNotes>
-    <PackageLicenseExpression>MIT AND BSD-3-Clause</PackageLicenseExpression>
+    <PackageReleaseNotes>Breaking V3-only API, now 3.1: official OpenEXR 3.5.3 verification, legal deep NONE/RLE/ZIPS only, official LJ2K/ZSTD IDs, contexts, resource budgets, typed attributes and Preview. V1 models and fallback paths are removed. Rebuild consumers; see docs/migration-v3.1.md and docs/migration-v3-only.md. Package version is unchanged.</PackageReleaseNotes>
+    <PackageLicenseExpression>MIT AND BSD-3-Clause AND BSD-2-Clause</PackageLicenseExpression>
     <Version>1.2.0</Version>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>

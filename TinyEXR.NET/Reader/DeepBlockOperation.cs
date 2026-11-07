@@ -14,6 +14,7 @@ namespace TinyEXR
         private readonly byte[] _chunkHeader;
         private readonly int _pixelCount;
         private readonly int _countByteCount;
+        private readonly long _paddedCountByteCount;
         private readonly int _sampleStride;
 
         private int _chunkHeaderOffset;
@@ -42,6 +43,12 @@ namespace TinyEXR
             _chunkHeader = new byte[info.ChunkHeaderByteCount];
             _pixelCount = checked((int)checked(info.Region.Width * info.Region.Height));
             _countByteCount = checked(_pixelCount * sizeof(int));
+            // Official deep-tile writers may store a full-size raw count table
+            // at edge tiles. The valid counts are the compact prefix; padding
+            // is unspecified and must not become image samples.
+            _paddedCountByteCount = header.IsTiled
+                ? checked((long)header.Tiles!.TileSizeX * header.Tiles.TileSizeY * sizeof(int))
+                : _countByteCount;
 
             int sampleStride = 0;
             for (int channelIndex = 0; channelIndex < header.Channels.Count; channelIndex++)
@@ -236,7 +243,7 @@ namespace TinyEXR
             }
 
             if (_header.Compression == Compression.None &&
-                (packedOffsetByteCount != _countByteCount ||
+                ((packedOffsetByteCount != _countByteCount && packedOffsetByteCount != _paddedCountByteCount) ||
                     packedSampleByteCount != unpackedSampleByteCount))
             {
                 return Corrupt("An uncompressed deep chunk does not match its declared byte counts.");
@@ -271,9 +278,12 @@ namespace TinyEXR
                 return CopyCounts(destination);
             }
 
+            byte[] countPayload = _offsetPayload!;
+            if (countPayload.LongLength == _paddedCountByteCount && _paddedCountByteCount > _countByteCount)
+                countPayload = countPayload.AsSpan(0, _countByteCount).ToArray();
             ReaderResult? decodeFailure = DeepPayloadDecoder.Decode(
                 _header.Compression,
-                _offsetPayload!,
+                countPayload,
                 _countByteCount,
                 _workspace,
                 out byte[] decodedOffsets);
@@ -555,7 +565,7 @@ namespace TinyEXR
         private static ReaderResult Limit(string name, long actual, long maximum)
         {
             return new ReaderResult(
-                ExrResult.Unsupported,
+                ExrResult.LimitExceeded,
                 null,
                 new ReaderLimitExceededException(name, actual, maximum));
         }

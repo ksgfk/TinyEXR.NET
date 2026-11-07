@@ -22,7 +22,8 @@ namespace TinyEXR
         private readonly ReaderParser _parser;
         private readonly SemaphoreSlim _operationGate = new SemaphoreSlim(1, 1);
         private readonly object _stateGate = new object();
-        private readonly ReaderDecodeResources _decodeResources = new ReaderDecodeResources();
+        private readonly CodecResources _decodeResources;
+        private readonly ExrContext? _context;
 
         private ReaderState _state = ReaderState.Created;
         private DataRange? _pending;
@@ -49,6 +50,8 @@ namespace TinyEXR
             _leaveOpen = options.LeaveOpen;
             _limits = options.Limits;
             _parser = new ReaderParser(options.Limits);
+            _context = options.Context;
+            _decodeResources = _context?.Acquire() ?? new CodecResources();
         }
 
         public ReaderState State
@@ -76,6 +79,9 @@ namespace TinyEXR
                 }
             }
         }
+
+        internal long MaterializedPrefixByteCount { get; set; }
+        internal ReaderLimits Limits => _limits;
 
         public int NumParts => GetReadyData().Parts.Length;
 
@@ -154,6 +160,8 @@ namespace TinyEXR
                     DataTransferResult transfer;
                     try
                     {
+                        ReaderResult? fileLimit = CheckFileRange(request.Offset, request.Length);
+                        if (fileLimit.HasValue) return fileLimit.Value;
                         transfer = _syncSource.ReadExactly(request.Offset, request.Span);
                     }
                     catch (ObjectDisposedException exception)
@@ -220,6 +228,8 @@ namespace TinyEXR
                     DataTransferResult transfer;
                     try
                     {
+                        ReaderResult? fileLimit = CheckFileRange(request.Offset, request.Length);
+                        if (fileLimit.HasValue) return fileLimit.Value;
                         transfer = await _asyncSource.ReadExactlyAsync(
                             request.Offset,
                             request.Memory,
@@ -695,6 +705,19 @@ namespace TinyEXR
             }
         }
 
+        private ReaderResult FileLimit(long actual) => Terminal(new ReaderResult(
+            ExrResult.LimitExceeded, null, new ReaderLimitExceededException(
+                nameof(ReaderLimits.MaximumFileByteCount), actual, _limits.MaximumFileByteCount)));
+
+        private ReaderResult? CheckFileRange(long offset, long length)
+        {
+            long maximum = _limits.MaximumFileByteCount;
+            if (maximum == 0) return null;
+            if (offset > maximum || length > maximum - offset)
+                return FileLimit(offset > long.MaxValue - length ? long.MaxValue : offset + length);
+            return null;
+        }
+
         private ReaderResult? TryGetKnownLength(out long? knownLength)
         {
             knownLength = null;
@@ -747,9 +770,7 @@ namespace TinyEXR
 
                     return new ReaderResult(ExrResult.WouldBlock, transfer.PendingRange, null);
                 case DataTransferStatus.EndOfSource:
-                    ExrResult eofResult = _parser.State == ReaderState.ReadingPrefix
-                        ? ExrResult.InvalidFile
-                        : ExrResult.Corrupt;
+                    ExrResult eofResult = ExrResult.InvalidFile;
                     return Terminal(new ReaderResult(
                         eofResult,
                         null,
@@ -793,7 +814,7 @@ namespace TinyEXR
             {
                 _terminalResult = result;
                 _pending = null;
-                if (result.Status == ExrResult.Corrupt)
+                if (result.Status == ExrResult.Corrupt || (result.Status == ExrResult.InvalidFile && _parser.State != ReaderState.ReadingPrefix))
                 {
                     _state = ReaderState.Faulted;
                 }
@@ -893,7 +914,8 @@ namespace TinyEXR
                 _disposed = true;
                 _offsetReconstruction = null;
                 ReleaseBlockOperation();
-                _decodeResources.Dispose();
+                if (_context == null) _decodeResources.Dispose();
+                else _context.Release();
                 _deepBlockOperation = null;
                 _flatReadOperation = null;
                 _deepReadOperation = null;
@@ -1403,7 +1425,7 @@ namespace TinyEXR
                 operation = DeepReadOperation.Create(
                     request,
                     data.Parts[request.PartIndex],
-                    _limits);
+                    _limits, MaterializedPrefixByteCount);
                 _deepReadOperation = operation;
                 _deepBlockOperation = null;
                 ClearPending();
@@ -1412,7 +1434,7 @@ namespace TinyEXR
             catch (ReaderLimitExceededException exception)
             {
                 operation = null;
-                return new ReaderResult(ExrResult.Unsupported, null, exception);
+                return new ReaderResult(ExrResult.LimitExceeded, null, exception);
             }
             catch (NotSupportedException exception)
             {
@@ -1496,7 +1518,7 @@ namespace TinyEXR
                 operation = FlatReadOperation.Create(
                     request,
                     data.Parts[request.PartIndex],
-                    _limits);
+                    _limits, MaterializedPrefixByteCount);
                 _flatReadOperation = operation;
                 ClearPending();
                 return null;
@@ -1504,7 +1526,7 @@ namespace TinyEXR
             catch (ReaderLimitExceededException exception)
             {
                 operation = null;
-                return new ReaderResult(ExrResult.Unsupported, null, exception);
+                return new ReaderResult(ExrResult.LimitExceeded, null, exception);
             }
             catch (NotSupportedException exception)
             {
@@ -1677,6 +1699,8 @@ namespace TinyEXR
                 DataTransferResult transfer;
                 try
                 {
+                    ReaderResult? fileLimit = CheckFileRange(request.Offset, request.Length);
+                    if (fileLimit.HasValue) return fileLimit.Value;
                     transfer = _syncSource!.ReadExactly(request.Offset, request.Span);
                 }
                 catch (ObjectDisposedException exception)
@@ -1775,6 +1799,8 @@ namespace TinyEXR
                 DataTransferResult transfer;
                 try
                 {
+                    ReaderResult? fileLimit = CheckFileRange(request.Offset, request.Length);
+                    if (fileLimit.HasValue) return fileLimit.Value;
                     transfer = await _asyncSource!.ReadExactlyAsync(
                         request.Offset,
                         request.Memory,
@@ -1841,6 +1867,8 @@ namespace TinyEXR
                 DataTransferResult transfer;
                 try
                 {
+                    ReaderResult? fileLimit = CheckFileRange(request.Offset, request.Length);
+                    if (fileLimit.HasValue) return fileLimit.Value;
                     transfer = _syncSource!.ReadExactly(request.Offset, request.Span);
                 }
                 catch (ObjectDisposedException exception)
@@ -1892,6 +1920,8 @@ namespace TinyEXR
                 DataTransferResult transfer;
                 try
                 {
+                    ReaderResult? fileLimit = CheckFileRange(request.Offset, request.Length);
+                    if (fileLimit.HasValue) return fileLimit.Value;
                     transfer = await _asyncSource!.ReadExactlyAsync(
                         request.Offset,
                         request.Memory,
@@ -1955,7 +1985,7 @@ namespace TinyEXR
             {
                 operation = null;
                 return new ReaderResult(
-                    ExrResult.Unsupported,
+                    ExrResult.LimitExceeded,
                     null,
                     new ReaderLimitExceededException(
                         nameof(ReaderLimits.MaximumUncompressedBlockByteCount),
@@ -2284,6 +2314,8 @@ namespace TinyEXR
                 DataTransferResult transfer;
                 try
                 {
+                    ReaderResult? fileLimit = CheckFileRange(request.Offset, request.Length);
+                    if (fileLimit.HasValue) return fileLimit.Value;
                     transfer = _syncSource!.ReadExactly(request.Offset, request.Span);
                 }
                 catch (ObjectDisposedException exception)
@@ -2382,6 +2414,8 @@ namespace TinyEXR
                 DataTransferResult transfer;
                 try
                 {
+                    ReaderResult? fileLimit = CheckFileRange(request.Offset, request.Length);
+                    if (fileLimit.HasValue) return fileLimit.Value;
                     transfer = await _asyncSource!.ReadExactlyAsync(
                         request.Offset,
                         request.Memory,
@@ -2476,7 +2510,7 @@ namespace TinyEXR
             {
                 operation = null;
                 return new ReaderResult(
-                    ExrResult.Unsupported,
+                    ExrResult.LimitExceeded,
                     null,
                     new ReaderLimitExceededException(
                         nameof(ReaderLimits.MaximumUncompressedBlockByteCount),
@@ -2489,7 +2523,7 @@ namespace TinyEXR
             {
                 operation = null;
                 return new ReaderResult(
-                    ExrResult.Unsupported,
+                    ExrResult.LimitExceeded,
                     null,
                     new ReaderLimitExceededException(
                         nameof(ReaderLimits.MaximumUncompressedBlockByteCount),

@@ -100,7 +100,7 @@ namespace TinyEXR
         private const int ShortNameByteLimit = 31;
         private const int WindowCoordinateLimit = int.MaxValue / 2;
 
-        private static readonly HashSet<string> ReservedAttributeNames = new HashSet<string>(StringComparer.Ordinal)
+        internal static readonly HashSet<string> ReservedAttributeNames = new HashSet<string>(StringComparer.Ordinal)
         {
             "channels",
             "compression",
@@ -131,6 +131,28 @@ namespace TinyEXR
 
             Limit(nameof(limits.MaximumParts), headers.Count, limits.MaximumParts);
             bool multipart = forceMultipart || headers.Count > 1;
+            if (multipart)
+            {
+                HashSet<string> usedNames = new HashSet<string>(StringComparer.Ordinal);
+                foreach (Header header in headers)
+                    if (header.Name.Length > 0 && !usedNames.Add(header.Name))
+                        throw Invalid($"Duplicate multipart part name '{header.Name}'.");
+                Header[] named = new Header[headers.Count];
+                int next = 0;
+                for (int i = 0; i < named.Length; i++)
+                {
+                    Header header = headers[i];
+                    if (header.Name.Length == 0)
+                    {
+                        string name;
+                        do { name = "part" + next++; } while (!usedNames.Add(name));
+                        header = header.Copy(name: name);
+                    }
+                    named[i] = header;
+                }
+                headers = named;
+            }
+
             bool anyTiled = false;
             bool anyDeep = false;
             bool longNames = false;
@@ -141,10 +163,15 @@ namespace TinyEXR
                 ? new HashSet<string>(StringComparer.Ordinal)
                 : null;
 
+            long headerBytes = multipart ? 9 : 8;
             for (int partIndex = 0; partIndex < headers.Count; partIndex++)
             {
                 Header header = headers[partIndex] ?? throw Invalid("The part collection contains a null header.");
                 ValidateHeader(header, multipart, partNames, limits, ref longNames);
+                if (multipart && !FormatCapabilities.HasMatchingSharedAttributes(headers[0], header))
+                    throw Invalid("Multipart display windows, pixel aspect ratios and shared attributes must match the first part.");
+                headerBytes = checked(headerBytes + MeasureHeader(header, multipart, limits));
+                Limit(nameof(limits.MaximumHeaderByteCount), headerBytes, limits.MaximumHeaderByteCount);
                 anyTiled |= header.IsTiled;
                 anyDeep |= header.IsDeep;
 
@@ -170,6 +197,8 @@ namespace TinyEXR
                 offsetTableBytes,
                 limits.MaximumOffsetTableByteCount);
 
+            if (limits.MaximumFileByteCount != 0)
+                Limit(nameof(limits.MaximumFileByteCount), checked(headerBytes + offsetTableBytes), limits.MaximumFileByteCount);
             using MemoryStream output = new MemoryStream();
             WriteUInt32(output, ExrFormatParser.Magic);
             uint versionField = ExrFormatParser.SupportedFileVersion;
@@ -253,28 +282,15 @@ namespace TinyEXR
             ref bool longNames)
         {
             Limit(nameof(limits.MaximumChannelsPerPart), header.Channels.Count, limits.MaximumChannelsPerPart);
-            Limit(nameof(limits.MaximumAttributesPerPart), header.Attributes.Count, limits.MaximumAttributesPerPart);
             Limit(nameof(limits.MaximumDimension), header.DataWindow.Width, limits.MaximumDimension);
             Limit(nameof(limits.MaximumDimension), header.DataWindow.Height, limits.MaximumDimension);
 
             ValidateWindow(header.DataWindow);
             ValidateWindow(header.DisplayWindow);
-            if (header.Compression == Compression.DWAA || header.Compression == Compression.DWAB)
-            {
-                throw Unsupported($"Compression '{header.Compression}' is not supported by tinyexr v3.");
-            }
-
-            if (header.IsDeep &&
-                header.Compression != Compression.None &&
-                header.Compression != Compression.RLE &&
-                header.Compression != Compression.ZIPS &&
-                header.Compression != Compression.ZIP &&
-                header.Compression != Compression.HTJ2K256 &&
-                header.Compression != Compression.HTJ2K32)
-            {
-                throw Unsupported(
-                    $"Compression '{header.Compression}' is not permitted for deep OpenEXR data.");
-            }
+            if (header.IsDeep && !FormatCapabilities.IsValidDeepCompression(header.Compression))
+                throw Invalid($"Compression '{header.Compression}' is not permitted for deep OpenEXR data.");
+            if (!FormatCapabilities.IsImplemented(header.Compression) || header.Compression is Compression.DWAA or Compression.DWAB)
+                throw Unsupported($"Compression '{header.Compression}' encoding is not implemented.");
 
             if (multipart)
             {
@@ -301,26 +317,15 @@ namespace TinyEXR
             {
                 Channel channel = header.Channels[i];
                 longNames |= IsLongName(channel.Name);
-                if (header.IsTiled || header.IsDeep)
-                {
-                    if (channel.XSampling != 1 || channel.YSampling != 1)
-                    {
-                        throw Invalid("Tiled and deep parts require unit channel sampling.");
-                    }
-                }
-                else if (header.DataWindow.MinX % channel.XSampling != 0 ||
-                    header.DataWindow.MinY % channel.YSampling != 0 ||
-                    header.DataWindow.Width % channel.XSampling != 0 ||
-                    header.DataWindow.Height % channel.YSampling != 0)
-                {
-                    throw Invalid(
-                        $"Flat scanline channel '{channel.Name}' sampling does not align to the data window.");
-                }
+                if (!FormatCapabilities.IsValidSampling(header, channel))
+                    throw Invalid($"Channel '{channel.Name}' sampling is invalid for this part geometry.");
             }
 
             for (int i = 0; i < header.Attributes.Count; i++)
             {
                 HeaderAttribute attribute = header.Attributes[i];
+                if (attribute.TypeName == "preview" && !PreviewImage.IsValid(attribute.Data))
+                    throw Invalid("The preview attribute has invalid dimensions or pixel data.");
                 if (ReservedAttributeNames.Contains(attribute.Name))
                 {
                     continue;
@@ -328,6 +333,39 @@ namespace TinyEXR
 
                 longNames |= IsLongName(attribute.Name) || IsLongName(attribute.TypeName);
             }
+        }
+
+        private static long MeasureHeader(Header header, bool multipart, WriterLimits limits)
+        {
+            long bytes = 1;
+            int attributes = 0;
+            void Add(string name, string type, long size)
+            {
+                bytes = checked(bytes + ModelValidation.StrictUtf8.GetByteCount(name) +
+                    ModelValidation.StrictUtf8.GetByteCount(type) + 6L + size);
+                attributes++;
+            }
+            long channelBytes = 1;
+            foreach (Channel channel in header.Channels)
+                channelBytes = checked(channelBytes + ModelValidation.StrictUtf8.GetByteCount(channel.Name) + 17L);
+            Add("channels", "chlist", channelBytes);
+            Add("compression", "compression", 1);
+            Add("dataWindow", "box2i", 16);
+            Add("displayWindow", "box2i", 16);
+            Add("lineOrder", "lineOrder", 1);
+            Add("pixelAspectRatio", "float", 4);
+            Add("screenWindowCenter", "v2f", 8);
+            Add("screenWindowWidth", "float", 4);
+            if (header.IsTiled) Add("tiles", "tiledesc", 9);
+            if (multipart || header.Name.Length > 0) Add("name", "string", ModelValidation.StrictUtf8.GetByteCount(header.Name));
+            if (multipart || header.IsDeep) Add("type", "string", GetPartTypeName(header.PartType).Length);
+            if (multipart) Add("chunkCount", "int", 4);
+            if (header.IsDeep) { Add("version", "int", 4); Add("maxSamplesPerPixel", "int", 4); }
+            if (header.Chromaticities.HasValue) Add("chromaticities", "chromaticities", 32);
+            foreach (HeaderAttribute attribute in header.Attributes)
+                if (!ReservedAttributeNames.Contains(attribute.Name)) Add(attribute.Name, attribute.TypeName, attribute.ByteLength);
+            Limit(nameof(limits.MaximumAttributesPerPart), attributes, limits.MaximumAttributesPerPart);
+            return bytes;
         }
 
         private static void ValidateWindow(Box2i window)
@@ -455,6 +493,8 @@ namespace TinyEXR
             for (int i = 0; i < header.Attributes.Count; i++)
             {
                 HeaderAttribute attribute = header.Attributes[i];
+                if (attribute.TypeName == "preview" && !PreviewImage.IsValid(attribute.Data))
+                    throw Invalid("The preview attribute has invalid dimensions or pixel data.");
                 if (!ReservedAttributeNames.Contains(attribute.Name))
                 {
                     WriteAttribute(output, attribute.Name, attribute.TypeName, attribute.Data);
@@ -531,7 +571,7 @@ namespace TinyEXR
             if (actual > maximum)
             {
                 throw new WriterPlanException(
-                    ExrResult.Unsupported,
+                    ExrResult.LimitExceeded,
                     $"Writer limit '{name}' was exceeded.",
                     new WriterLimitExceededException(name, actual, maximum));
             }

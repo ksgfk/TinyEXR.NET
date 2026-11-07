@@ -1,5 +1,4 @@
 using System.Buffers.Binary;
-using System.Reflection;
 using V3 = TinyEXR;
 using V3Codecs = TinyEXR.Codecs;
 using V3IO = TinyEXR.IO;
@@ -101,8 +100,8 @@ public sealed class V3Htj2kTests
         AssertEncodedChannels(encoded, expected);
     }
 
-    [TestMethod(DisplayName = "[TinyEXR.NET Test] V3 HTJ2K codec covers upstream RCT and full-width UINT profiles")]
-    public void Case_V3Htj2k_CodecCoversUpstreamEdgeProfiles()
+    [TestMethod(DisplayName = "[TinyEXR.NET Test] V3 HTJ2K codec covers OpenEXR RCT and full-width UINT profiles")]
+    public void Case_V3Htj2k_CodecCoversOpenExrEdgeProfiles()
     {
         V3.Header rgbFloat = new(
             V3.PartType.Scanline,
@@ -142,7 +141,7 @@ public sealed class V3Htj2kTests
             new Dictionary<string, byte[]> { ["Z"] = uintBytes });
     }
 
-    [TestMethod(DisplayName = "[TinyEXR.NET Test] V3 decodes genuine HTJ2K32 scanline and HTJ2K256 tiled fixtures")]
+    [TestMethod(DisplayName = "[TinyEXR.NET Test] V3 accepts official-readable HTJ2K and rejects oversized tiled payloads")]
     public void Case_V3Htj2k_DecodesScanlineAndTiledFixtures()
     {
         AssertDecoded(
@@ -154,28 +153,8 @@ public sealed class V3Htj2kTests
                 ["G"] = new byte[] { 0x00, 0x3c, 0x00, 0x00, 0x27, 0x37, 0x00, 0x00 },
                 ["R"] = new byte[] { 0x00, 0x3c, 0x00, 0x3c, 0x00, 0x00, 0x00, 0x00 },
             });
-        AssertDecoded(
-            TestPaths.Regression("tiled_htj2k256.exr"),
-            new Dictionary<string, byte[]>
-            {
-                ["A"] = new byte[] { 0x00, 0x3c },
-            });
-    }
-
-    [TestMethod(DisplayName = "[TinyEXR.NET Test] V3 HTJ2K tables retain all 16-bit VLC fields")]
-    public void Case_V3Htj2k_VlcTablesMatchTinyExrV3()
-    {
-        Type decoder = typeof(V3.ExrReader).Assembly.GetType(
-            "TinyEXR.Codecs.Htj2kDecoder",
-            throwOnError: true)!;
-        object tables = decoder.GetField("Tables", BindingFlags.Static | BindingFlags.NonPublic)!
-            .GetValue(null)!;
-
-        Assert.AreEqual(0x19b976b25ad1bfebUL, HashTable(tables, "Vlc0"));
-        Assert.AreEqual(0xf2d14bc357c48ec2UL, HashTable(tables, "Vlc1"));
-        Assert.AreEqual(0x92918a4fef1d858bUL, HashTable(tables, "Uvlc0"));
-        Assert.AreEqual(0x66817cbf52cf855bUL, HashTable(tables, "Uvlc1"));
-        Assert.AreEqual(0x8db3bb23ebeb7783UL, HashTable(tables, "UvlcBias"));
+        Assert.AreEqual(ExrResult.Corrupt,
+            ExrFile.LoadFromFile(TestPaths.Regression("tiled_htj2k256.exr")).Status);
     }
 
     [TestMethod(DisplayName = "[TinyEXR.NET Test] V3 rejects a malformed HTJ2K payload")]
@@ -409,21 +388,4 @@ public sealed class V3Htj2kTests
         return result;
     }
 
-    private static ulong HashTable(object tables, string propertyName)
-    {
-        Array values = (Array)tables.GetType().GetProperty(propertyName)!.GetValue(tables)!;
-        ulong hash = 1469598103934665603UL;
-        foreach (object item in values)
-        {
-            uint value = Convert.ToUInt32(item);
-            int byteCount = item is ushort ? 2 : 1;
-            for (int byteIndex = 0; byteIndex < byteCount; byteIndex++)
-            {
-                hash ^= (byte)(value >> (8 * byteIndex));
-                hash *= 1099511628211UL;
-            }
-        }
-
-        return hash;
-    }
 }

@@ -5,11 +5,14 @@ This directory validates that the two target framework outputs of `TinyEXR.NET` 
 The current test strategy is shaped by these constraints:
 
 - Test cases must stay identical across targets.
-- The repository currently uses `MSTest 4`.
+- All correctness tests use `MSTest.Sdk 4.4.1` and Microsoft.Testing.Platform, pinned in `global.json`.
 - The `MSTest 4` test host itself runs on `net10.0`.
 - We need separate coverage for the default high-version implementation of `TinyEXR.NET` and the `netstandard2.1` fallback implementation.
 
-Given those constraints, the current layout uses two test projects backed by one shared test codebase.
+The shared library suite uses two test projects backed by one shared codebase.
+OpenEXR interoperability and package/NativeAOT consumption have separate MSTest
+projects. Test entry points and results are provided by the framework; no custom
+console test runner is used. Performance measurements live under `Benchmark/`.
 
 ## Projects
 
@@ -122,29 +125,20 @@ dotnet test --project .\Test\TinyEXR.NetStandardFallback.Test\TinyEXR.NetStandar
 
 If both need to run, it is better to execute them explicitly instead of only running the solution. That makes failures easier to localize and makes it clearer whether the regression is in the default implementation or the fallback branch.
 
-## Known Coverage Gaps
+## Coverage and limits
 
-- There is no independently generated static HTJ2K fixture matrix covering
-  scanline, tiled, and multipart EXR files. Current HTJ2K encode coverage uses
-  managed-writer output. This is strong format coverage, but it does not
-  independently rule out a symmetric managed encoder/decoder error.
-- Managed HTJ2K encoder output has been checked manually with the
-  upstream TinyEXR v3 C reader, but that cross-implementation check is not yet
-  an automated MSTest or CI job. An integration job should build the upstream
-  `parse_harness` and `compare_exr` tools, decode managed output, and compare it
-  with an uncompressed reference.
-- ARM64 SIMD implementations are not executed by the normal x64 test hosts.
-  The suite verifies scalar parity and dispatch behavior available on the
-  current architecture, but an ARM64 runner is required to execute the ARM64
-  intrinsics themselves.
-- The repository has no numeric coverage gate and no maintained public
-  API-to-test traceability matrix. The suite covers the main supported behavior
-  and regression surface, but a passing run is not proof that every public
-  overload, platform branch, or hostile-input path has been exercised.
-- Not every feature should require a standalone image fixture. Object-model
-  validation, streaming state machines, error mapping, SIMD kernels, color
-  transforms, resize filters, tone mapping, and LUT evaluation are primarily
-  algorithmic and are intentionally tested with focused buffers. Independent file-level coverage is provided by the native V3 cross-checks below.
+Official OpenEXR 3.5.3 independently generates and decodes HTJ2K, every supported
+codec, multipart/multilevel files and complete deep sample arrays. The CI oracle
+matrix includes x64/ARM64, both managed targets and a hardware-intrinsics-disabled
+run. Shared SIMD parity tests also execute on the six-platform test matrix.
+No native TinyEXR result or known-failure exemption determines correctness.
+
+Resource regressions include context occupancy, total multipart/deep budgets,
+unknown-length and partial sources, exact file extents, damaged Preview data,
+spectral selection and expansion, malformed headers, chunk identity and lengths.
+The structural tests reject legacy exports, V1 source references and unsafe code.
+There is no numeric coverage gate; passing tests do not prove every hostile-input
+path has been explored.
 
 ## Known Tradeoffs
 
@@ -167,40 +161,78 @@ If both pass, the two main target framework implementations in this repository a
 `TinyEXR.PackageSmoke` is a standalone consumer of the packed `TinyEXR.NET`
 1.2.0 package, not a project reference. It intentionally stays outside the
 solution so ordinary solution restore does not require an unpublished package.
-It checks the unversioned root and I/O imports, a ZIP spectral-image round trip,
-the V3 spectral convenience API, every supported flat codec, stream-origin restoration, and the upstream API-generation constant.
+Its 14 independently reported cases check models and I/O, spectral helpers, all
+ten supported flat codecs, stream-origin restoration, contexts, metadata, file
+budgets and the managed API 3.1 constant. The same source-generated test methods
+and explicit DataRows run in ordinary .NET and NativeAOT; there is no manual Main.
 
 ```sh
 dotnet pack TinyEXR.NET/TinyEXR.NET.csproj -c Release -p:SignAssemblyKey=false -p:GeneratePackageOnBuild=false -o artifacts/packages
 dotnet restore Test/TinyEXR.PackageSmoke/TinyEXR.PackageSmoke.csproj -r linux-x64 -p:PublishAot=true --configfile Test/TinyEXR.PackageSmoke/NuGet.config --packages artifacts/consumer-packages
 dotnet publish Test/TinyEXR.PackageSmoke/TinyEXR.PackageSmoke.csproj -c Release -r linux-x64 -p:PublishAot=true --no-restore -o artifacts/aot-smoke -p:RestorePackagesPath="$PWD/artifacts/consumer-packages"
-./artifacts/aot-smoke/TinyEXR.PackageSmoke
+dotnet test --project Test/TinyEXR.PackageSmoke/TinyEXR.PackageSmoke.csproj -c Release -r linux-x64 --no-restore -p:RestorePackagesPath="$PWD/artifacts/consumer-packages" --report-trx --results-directory artifacts/test-results/package
+dotnet test --test-modules ./artifacts/aot-smoke/TinyEXR.PackageSmoke --report-trx --results-directory artifacts/test-results/aot
 ```
 
 The `package-aot-smoke` CI job runs this on Ubuntu with the NativeAOT compiler
 prerequisites. The smoke-specific NuGet configuration maps `TinyEXR.NET` only
-to the locally generated package feed; the isolated consumer cache prevents
-reusing a previously restored package of the same version. These unsigned checks do not validate the publisher's private
+to the locally generated package feed; use a fresh isolated consumer cache when rebuilding the unchanged package version,
+so a previous local 1.2.0 package is not reused. On Windows use `win-x64` and the
+NativeAOT `.exe` path instead. All test runs produce TRX reports. These unsigned checks do not validate the publisher's private
 strong-name signing key or signed release artifacts.
 
-## Pinned native V3 interoperability
+## Pinned official OpenEXR interoperability
 
-`NativeReference` builds the unmodified V3 sources at
-`1b106618644dbf8a0935c2348ba51a2d863dd7c2`; `TinyEXR.Interop` compares 288 codec
-cases, 161 full-file cases and both complete B44 perceptual tables. Run from
-the repository root:
+`NativeReference` builds OpenEXR 3.5.3 at
+`3950290530c4fd4776667d0dc4d65a9d003eb936` using the same dependency configuration
+as Benchmark. See [codec provenance](../docs/codec-port.md) for build commands.
+`TinyEXR.Interop` discovers 427 MSTest cases: 288 canonical codec cases, 133
+full-file/fixture cases, two exhaustive B44 tables, one rejected tile fixture and
+three oracle-infrastructure cases. Every matrix row is separately filterable and
+reported; the two table cases cover all 131,072 entries. The native adapter dumps every part, level,
+channel, deep count and sample. Lossless bytes must match; lossy checks compare
+same-file dual decoding and official quantization. B44 also covers all HALF inputs.
+
+Retained TinyEXR fixtures are checked against official decoding. The oversized
+`tiled_htj2k256.exr` fixture is now a rejection regression: both OpenEXR and the
+managed reader reject its 139-byte packed tile for a 2-byte canonical tile.
+There are no allowances for the old deep encoder's bugs. Multirow, multichannel
+deep tiles are checked in both directions using only legal NONE/RLE/ZIPS tags.
 
 ```sh
-cmake -S Test/NativeReference -B .cache/v3-reference -G Ninja -DCMAKE_BUILD_TYPE=Release
-cmake --build .cache/v3-reference
-dotnet run --project Test/TinyEXR.Interop -p:SignAssemblyKey=false -- .cache/v3-reference
-dotnet run --project Test/TinyEXR.Interop -p:SignAssemblyKey=false -p:LibraryFramework=netstandard2.1 -- .cache/v3-reference
+cmake -S Test/NativeReference -B .cache/openexr-reference -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build .cache/openexr-reference --parallel 4
+dotnet test --project Test/TinyEXR.Interop/TinyEXR.Interop.csproj -c Release -p:SignAssemblyKey=false --report-trx --results-directory artifacts/test-results/interop
+dotnet test --project Test/TinyEXR.Interop/TinyEXR.Interop.csproj -c Release -p:SignAssemblyKey=false -p:LibraryFramework=netstandard2.1 --report-trx --results-directory artifacts/test-results/interop-fallback
 ```
 
-The CI job also disables .NET hardware intrinsics to compare the scalar path.
-Native tools are test dependencies only. `file_oracle` compares every block and
-level, including deep counts and samples; the upstream base-image comparator
-alone cannot validate these cases. See [codec provenance and limitations](../docs/codec-port.md),
-including the two reproducible defects in the fixed native deep encoder.
-Native encoding is validated with one-row deep chunks; multi-row deep files
-are compared in the managed-encode/native-decode direction.
+Set `DOTNET_EnableHWIntrinsic=0` to repeat the net8.0 matrix using scalar code.
+Native dependencies are not shipped with the library. Package/AOT smoke checks
+also exercise V3.1 context reuse, Preview metadata, file limits and API version.
+
+The default oracle directory is `.cache/openexr-reference` under the repository;
+its `Release` child is also supported. Set `TINYEXR_OPENEXR_REFERENCE_DIR` to
+override it (relative paths are resolved from the repository). Missing tools fail
+tests rather than triggering a build or a skip. Build native dependencies before
+running interoperability, including when using `dotnet test --solution`.
+
+Cases run serially with separate working directories. Oracle stdout/stderr are
+captured concurrently and each invocation has a 60-second timeout. Failed case
+files and invocation logs are attached to TRX results; successful workspaces are
+removed. CI uploads reports and failure attachments for each matrix entry.
+
+Discover tests or select a method with the framework:
+
+```sh
+dotnet test --project Test/TinyEXR.Interop/TinyEXR.Interop.csproj -c Release -p:SignAssemblyKey=false --list-tests
+dotnet test --project Test/TinyEXR.Interop/TinyEXR.Interop.csproj -c Release -p:SignAssemblyKey=false --filter "Name=OversizedHtjTileIsRejectedByBothReaders"
+```
+
+For one parameterized row, use MTP's `--filter-uid` with the row's `testId` from
+a previous TRX report (MSTest's Name filter addresses the method, not its arguments):
+
+```powershell
+$report = [xml](Get-Content artifacts/test-results/interop/*.trx -Raw)
+$caseId = ($report.TestRun.Results.UnitTestResult | Where-Object testName -eq 'CanonicalBlockMatchesOfficialCodec (RLE,2,2,False,0)').testId
+dotnet test --project Test/TinyEXR.Interop/TinyEXR.Interop.csproj -c Release -p:SignAssemblyKey=false --filter-uid $caseId --minimum-expected-tests 1
+```

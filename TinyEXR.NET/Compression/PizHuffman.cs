@@ -1,4 +1,4 @@
-// Port of tinyexr v3 exr_piz.c canonical Huffman/RLE, revision 1b106618644dbf8a0935c2348ba51a2d863dd7c2.
+// Port of tinyexr v3 exr_piz.c canonical Huffman/RLE, revision eb0ba07f44a33e1ce5bc0fb74142a3a6558f0661.
 // Copyright (c) 2014-2026 Syoyo Fujita and TinyEXR authors. SPDX-License-Identifier: BSD-3-Clause
 using System.Buffers.Binary;
 
@@ -151,7 +151,8 @@ namespace TinyEXR.Codecs
                 bits > 8L * (source.Length - 20 - tableLength))
                 return false;
             ulong[] codes = workspace.Codes;
-            Array.Clear(codes, 0, codes.Length);
+            int[] active = workspace.Heap;
+            int activeCount = 0;
             BitReader table = new BitReader(source.Slice(20, tableLength), checked(tableLength * 8));
             for (int symbol = minimum; symbol <= maximum; symbol++)
             {
@@ -172,16 +173,34 @@ namespace TinyEXR.Codecs
                         return false;
                     symbol += run - 1;
                 }
-                else
+                else if (length != 0)
+                {
                     codes[symbol] = length;
+                    active[activeCount++] = symbol;
+                }
             }
-            Canonical(codes, minimum, maximum);
+            Span<ulong> counts = stackalloc ulong[59];
+            counts.Clear();
+            for (int i = 0; i < activeCount; i++) counts[(int)codes[active[i]]]++;
+            ulong next = 0;
+            for (int length = 58; length > 0; length--)
+            {
+                ulong following = (next + counts[length]) >> 1;
+                counts[length] = next;
+                next = following;
+            }
+            for (int i = 0; i < activeCount; i++)
+            {
+                int symbol = active[i], length = (int)codes[symbol];
+                codes[symbol] = (ulong)(uint)length | (counts[length]++ << 6);
+            }
             int[] lookup = workspace.Lookup;
             Array.Clear(lookup, 0, lookup.Length);
             foreach (List<int>? bucket in workspace.LongCodes)
                 bucket?.Clear();
-            for (int symbol = minimum; symbol <= maximum; symbol++)
+            for (int index = 0; index < activeCount; index++)
             {
+                int symbol = active[index];
                 int length = (int)(codes[symbol] & 63);
                 if (length == 0)
                     continue;
@@ -228,7 +247,7 @@ namespace TinyEXR.Codecs
                         }
                     }
                 }
-                if (length == 0 || !data.Take(length, out _))
+                if (length == 0 || !data.Skip(length))
                     return false;
                 if (symbol == maximum)
                 {
@@ -349,6 +368,8 @@ namespace TinyEXR.Codecs
             public int Remaining => _length - _position;
             public ulong Peek(int count)
             {
+                if (count <= 24 && Remaining >= count && _source.Length - (_position >> 3) >= 4)
+                    return (BinaryPrimitives.ReadUInt32BigEndian(_source.Slice(_position >> 3)) >> (32 - (_position & 7) - count)) & ((1U << count) - 1);
                 ulong value = 0;
                 int available = Math.Min(count, Remaining), position = _position;
                 while (available > 0)
@@ -359,6 +380,12 @@ namespace TinyEXR.Codecs
                     available -= take;
                 }
                 return value << Math.Max(0, count - Remaining);
+            }
+            public bool Skip(int count)
+            {
+                if (count > Remaining) return false;
+                _position += count;
+                return true;
             }
             public bool Take(int count, out ulong value)
             {

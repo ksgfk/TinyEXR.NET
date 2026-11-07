@@ -904,12 +904,7 @@ namespace TinyEXR
                 HashSet<string> names = new HashSet<string>(StringComparer.Ordinal);
                 foreach (Part part in partList)
                 {
-                    if (part.Header.Name.Length == 0)
-                    {
-                        throw new ArgumentException("Every multipart part requires a non-empty name.", nameof(parts));
-                    }
-
-                    if (!names.Add(part.Header.Name))
+                    if (part.Header.Name.Length != 0 && !names.Add(part.Header.Name))
                     {
                         throw new ArgumentException($"Duplicate multipart part name '{part.Header.Name}'.", nameof(parts));
                     }

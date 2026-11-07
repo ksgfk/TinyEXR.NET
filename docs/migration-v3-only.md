@@ -105,3 +105,7 @@ EXR origin; they remain open and their position is restored after success or
 failure. Failed calls return null objects, empty arrays and zero dimensions /
 raw version fields. DWAA/DWAB retain raw-only decoding and reject encoding;
 ZSTD is unsupported.
+
+The subsequent [V3.1 migration](migration-v3.1.md) tightens deep compression and
+format validation, adds contexts/metadata/budgets, and adopts official OpenEXR
+compression IDs and verification.

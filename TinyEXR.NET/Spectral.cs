@@ -85,7 +85,7 @@ namespace TinyEXR
             if (float.IsNaN(wavelengthNanometers) ||
                 float.IsInfinity(wavelengthNanometers) ||
                 wavelengthNanometers < 0.0f ||
-                wavelengthNanometers >= int.MaxValue)
+                wavelengthNanometers > 10_000_000f)
             {
                 throw new ArgumentOutOfRangeException(nameof(wavelengthNanometers));
             }
@@ -192,7 +192,7 @@ namespace TinyEXR
                     out wavelengthNanometers) ||
                 float.IsNaN(wavelengthNanometers) ||
                 float.IsInfinity(wavelengthNanometers) ||
-                wavelengthNanometers < 0.0f)
+                wavelengthNanometers < 0.0f || wavelengthNanometers > 10_000_000f)
             {
                 wavelengthNanometers = -1.0f;
                 return false;
@@ -226,7 +226,9 @@ namespace TinyEXR
             return TryParseChannelWavelength(channelName, out _);
         }
 
-        public static float[] GetWavelengths(Header header)
+        public static float[] GetWavelengths(Header header) => CollectWavelengths(header).ToArray();
+
+        internal static List<float> CollectWavelengths(Header header)
         {
             if (header == null)
             {
@@ -253,13 +255,13 @@ namespace TinyEXR
 
                 if (result.Count == MaximumWavelengthCount)
                 {
-                    break;
+                    throw new ReaderLimitExceededException(nameof(MaximumWavelengthCount), result.Count + 1, MaximumWavelengthCount);
                 }
 
                 result.Add(wavelength);
             }
 
-            return result.ToArray();
+            return result;
         }
 
         public static string? GetUnits(Header header)
@@ -604,7 +606,9 @@ namespace TinyEXR
             return WavelengthCount;
         }
 
-        public static SpectralImage FromPart(Part part)
+        public static SpectralImage FromPart(Part part) => FromPart(part, null);
+
+        public static SpectralImage FromPart(Part part, ReaderLimits? limits)
         {
             if (part == null)
             {
@@ -622,8 +626,8 @@ namespace TinyEXR
                 throw new NotSupportedException("The part has no spectral channels.");
             }
 
-            float[] wavelengths = Spectral.GetWavelengths(part.Header);
-            if (wavelengths.Length == 0)
+            List<float> collectedWavelengths = Spectral.CollectWavelengths(part.Header);
+            if (collectedWavelengths.Count == 0)
             {
                 throw new NotSupportedException("The part has no valid spectral wavelengths.");
             }
@@ -645,8 +649,14 @@ namespace TinyEXR
 
             int width = checked((int)level.Width);
             int height = checked((int)level.Height);
-            int pixelCount = checked(width * height);
+            long pixels = checked((long)width * height);
             int stokesCount = spectrumType == SpectralType.Polarised ? 4 : 1;
+            long expandedBytes = checked((long)collectedWavelengths.Count * sizeof(float) * (1L + pixels * stokesCount));
+            long maximum = (limits ?? new ReaderLimits()).MaximumMaterializedByteCount;
+            if (expandedBytes > maximum)
+                throw new ReaderLimitExceededException(nameof(ReaderLimits.MaximumMaterializedByteCount), expandedBytes, maximum);
+            int pixelCount = checked((int)pixels);
+            float[] wavelengths = collectedWavelengths.ToArray();
             float[]?[] stokes = new float[4][];
             for (int stokesIndex = 0; stokesIndex < stokesCount; stokesIndex++)
             {
@@ -699,17 +709,27 @@ namespace TinyEXR
 
         public static ReaderResult<SpectralImage> LoadFromMemory(
             ReadOnlyMemory<byte> data,
-            ReaderOptions? options = null)
+            ReaderOptions? options = null) => LoadFromMemoryCore(data, -1, options);
+
+        public static ReaderResult<SpectralImage> LoadFromMemory(ReadOnlyMemory<byte> data, int partIndex, ReaderOptions? options = null) =>
+            partIndex < 0 ? Failure(ExrResult.InvalidArgument, 0, new ArgumentOutOfRangeException(nameof(partIndex))) : LoadFromMemoryCore(data, partIndex, options);
+
+        private static ReaderResult<SpectralImage> LoadFromMemoryCore(ReadOnlyMemory<byte> data, int partIndex, ReaderOptions? options)
         {
             using (ExrReader reader = ExrReader.OpenMemory(data, options))
             {
-                return Load(reader);
+                return Load(reader, partIndex);
             }
         }
 
         public static ReaderResult<SpectralImage> LoadFromFile(
             string path,
-            ReaderOptions? options = null)
+            ReaderOptions? options = null) => LoadFromFileCore(path, -1, options);
+
+        public static ReaderResult<SpectralImage> LoadFromFile(string path, int partIndex, ReaderOptions? options = null) =>
+            partIndex < 0 ? Failure(ExrResult.InvalidArgument, 0, new ArgumentOutOfRangeException(nameof(partIndex))) : LoadFromFileCore(path, partIndex, options);
+
+        private static ReaderResult<SpectralImage> LoadFromFileCore(string path, int partIndex, ReaderOptions? options)
         {
             if (path == null)
             {
@@ -722,9 +742,9 @@ namespace TinyEXR
                 using (StreamDataSource source = new StreamDataSource(stream, leaveOpen: true))
                 using (ExrReader reader = ExrReader.OpenSource(
                     source,
-                    new ReaderOptions(options?.Limits, leaveOpen: true)))
+                    new ReaderOptions(options?.Limits, leaveOpen: true, context: options?.Context)))
                 {
-                    return Load(reader);
+                    return Load(reader, partIndex);
                 }
             }
             catch (Exception exception) when (
@@ -737,7 +757,7 @@ namespace TinyEXR
             }
         }
 
-        private static ReaderResult<SpectralImage> Load(ExrReader reader)
+        private static ReaderResult<SpectralImage> Load(ExrReader reader, int partIndex)
         {
             ReaderResult parseResult = reader.ParseHeader();
             if (!parseResult.IsSuccess)
@@ -745,7 +765,15 @@ namespace TinyEXR
                 return new ReaderResult<SpectralImage>(parseResult, null);
             }
 
-            ReaderResult<Part> partResult = reader.ReadPart(0);
+            if (partIndex < -1 || partIndex >= reader.NumParts)
+                return Failure(ExrResult.InvalidArgument, 0, new ArgumentOutOfRangeException(nameof(partIndex)));
+            if (partIndex == -1)
+                for (int i = 0; i < reader.NumParts; i++)
+                    if (!reader.GetHeader(i).IsDeep && Spectral.IsSpectral(reader.GetHeader(i)) && Spectral.GetSpectrumType(reader.GetHeader(i)) != SpectralType.None)
+                    { partIndex = i; break; }
+            if (partIndex == -1 || reader.GetHeader(partIndex).IsDeep || !Spectral.IsSpectral(reader.GetHeader(partIndex)) || Spectral.GetSpectrumType(reader.GetHeader(partIndex)) == SpectralType.None)
+                return Failure(ExrResult.Unsupported, 0, new NotSupportedException("No flat spectral part was selected."));
+            ReaderResult<Part> partResult = reader.ReadPart(partIndex);
             if (!partResult.IsSuccess || partResult.Value == null)
             {
                 return new ReaderResult<SpectralImage>(partResult.Operation, null);
@@ -753,8 +781,12 @@ namespace TinyEXR
 
             try
             {
-                SpectralImage image = FromPart(partResult.Value);
+                SpectralImage image = FromPart(partResult.Value, reader.Limits);
                 return new ReaderResult<SpectralImage>(partResult.Operation, image);
+            }
+            catch (ReaderLimitExceededException exception)
+            {
+                return Failure(ExrResult.LimitExceeded, 0, exception);
             }
             catch (OutOfMemoryException exception)
             {
