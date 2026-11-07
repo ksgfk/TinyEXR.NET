@@ -2,9 +2,9 @@ cmake_minimum_required(VERSION 3.21)
 
 project(TinyEXRBaselineBenchmark LANGUAGES C CXX)
 
-set(CMAKE_C_STANDARD 11)
-set(CMAKE_C_STANDARD_REQUIRED ON)
-set(CMAKE_C_EXTENSIONS OFF)
+# Strict C11 is scoped to tinyexr_v3 in Scripts/cmake/TinyEXR.cmake.
+# Do not impose it on OpenEXR: its Linux endian helpers need the default
+# GNU C environment, which exposes le16toh/htole16 and their 32/64-bit variants.
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
