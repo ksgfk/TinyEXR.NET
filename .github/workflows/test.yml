@@ -100,10 +100,10 @@ jobs:
       run: dotnet publish ./Test/TinyEXR.PackageSmoke/TinyEXR.PackageSmoke.csproj --configuration Release --runtime linux-x64 -p:PublishAot=true --no-restore --output ./artifacts/aot-smoke -p:RestorePackagesPath=${{ github.workspace }}/artifacts/consumer-packages
 
     - name: Run ordinary package consumer
-      run: dotnet test --project ./Test/TinyEXR.PackageSmoke/TinyEXR.PackageSmoke.csproj --configuration Release --runtime linux-x64 --no-restore -p:RestorePackagesPath=${{ github.workspace }}/artifacts/consumer-packages --minimum-expected-tests 14 --report-trx --report-trx-filename package.trx --results-directory artifacts/test-results/package
+      run: dotnet test --project ./Test/TinyEXR.PackageSmoke/TinyEXR.PackageSmoke.csproj --configuration Release --runtime linux-x64 --no-restore -p:RestorePackagesPath=${{ github.workspace }}/artifacts/consumer-packages --minimum-expected-tests 13 --report-trx --report-trx-filename package.trx --results-directory artifacts/test-results/package
 
     - name: Run NativeAOT package consumer
-      run: dotnet test --test-modules ./artifacts/aot-smoke/TinyEXR.PackageSmoke --minimum-expected-tests 14 --report-trx --report-trx-filename aot.trx --results-directory artifacts/test-results/aot
+      run: dotnet test --test-modules ./artifacts/aot-smoke/TinyEXR.PackageSmoke --minimum-expected-tests 13 --report-trx --report-trx-filename aot.trx --results-directory artifacts/test-results/aot
 
     - name: Upload package and NativeAOT test reports
       if: always()

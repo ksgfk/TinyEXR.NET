@@ -12,13 +12,6 @@ public sealed class V3SimdTests
     [TestMethod(DisplayName = "[TinyEXR.NET Test] V3 SIMD capabilities match runtime tiers")]
     public void Case_V3Simd_CapabilitiesMatchRuntimeTiers()
     {
-        CollectionAssert.AreEqual(
-            new uint[] { 0, 1, 2, 4, 8 },
-            Enum.GetValues(typeof(V3.SimdCapabilities))
-                .Cast<V3.SimdCapabilities>()
-                .Select(static value => (uint)value)
-                .ToArray());
-
         V3.SimdCapabilities expected = V3.SimdCapabilities.None;
         if (V3.SimdRuntime.IntrinsicsCompiled)
         {

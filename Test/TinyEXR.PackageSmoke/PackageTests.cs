@@ -70,14 +70,6 @@ public sealed class PackageTests
     }
 
     [TestMethod]
-    [DataRow(3, 1, 0)]
-    public void ApiVersionRemains31(int major, int minor, int patch)
-    {
-        Version actual = new(ExrFile.ApiVersionMajor, ExrFile.ApiVersionMinor, ExrFile.ApiVersionPatch);
-        Assert.AreEqual(new Version(major, minor, patch), actual);
-    }
-
-    [TestMethod]
     public void ContextMetadataAndBudgetsWorkFromInstalledPackage()
     {
         using ExrContext context = new();

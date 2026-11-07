@@ -138,7 +138,6 @@ No native TinyEXR result or known-failure exemption determines correctness.
 Resource regressions include context occupancy, total multipart/deep budgets,
 unknown-length and partial sources, exact file extents, damaged Preview data,
 spectral selection and expansion, malformed headers, chunk identity and lengths.
-The structural tests reject legacy exports, V1 source references and unsafe code.
 There is no numeric coverage gate; passing tests do not prove every hostile-input
 path has been explored.
 
@@ -163,9 +162,9 @@ If both pass, the two main target framework implementations in this repository a
 `TinyEXR.PackageSmoke` is a standalone consumer of the packed `TinyEXR.NET`
 1.3.0 package, not a project reference. It intentionally stays outside the
 solution so ordinary solution restore does not require an unpublished package.
-Its 14 independently reported cases check models and I/O, spectral helpers, all
+Its 13 independently reported cases check models and I/O, spectral helpers, all
 ten supported flat codecs, stream-origin restoration, contexts, metadata, file
-budgets and the managed API 3.1 constant. The same source-generated test methods
+budgets. The same source-generated test methods
 and explicit DataRows run in ordinary .NET and NativeAOT; there is no manual Main.
 
 ```sh
@@ -210,7 +209,7 @@ dotnet test --project Test/TinyEXR.Interop/TinyEXR.Interop.csproj -c Release -p:
 
 Set `DOTNET_EnableHWIntrinsic=0` to repeat the net8.0 matrix using scalar code.
 Native dependencies are not shipped with the library. Package/AOT smoke checks
-also exercise V3.1 context reuse, Preview metadata, file limits and API version.
+also exercise V3.1 context reuse, Preview metadata and file limits.
 
 The default oracle directory is `.cache/openexr-reference` under the repository;
 its `Release` child is also supported. Set `TINYEXR_OPENEXR_REFERENCE_DIR` to

@@ -7,6 +7,8 @@ public sealed class SpectralAndCompressionTests
     [TestMethod(DisplayName = "Exr spectral helpers delegate to immutable Spectral models")]
     public void SpectralHelpers()
     {
+        Header rgb = new(PartType.Scanline, new Box2i(0, 0, 0, 0), new[] { new Channel("R", PixelType.Float) });
+        Assert.AreEqual(SpectralType.None, Exr.EXRGetSpectrumType(rgb));
         foreach (SpectralType type in new[] { SpectralType.Reflective, SpectralType.Emissive, SpectralType.Polarised })
         {
             int stokes = type == SpectralType.Polarised ? 2 : 0;

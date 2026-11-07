@@ -1,8 +1,27 @@
+using TinyEXR.IO;
+
 namespace TinyEXR.Test;
 
 [TestClass]
 public sealed class RoundTripTests
 {
+    [TestMethod]
+    public void SpectralPartRoundTripsThroughMemorySource()
+    {
+        Part part = Spectral.CreateEmissivePart(1, 1, new[] { 550.0f }, new[] { 2.5f }, "radiance");
+        Image image = new(new[] { part });
+        WriterResult<byte[]> saved = ExrFile.SaveToMemory(image, Compression.ZIP);
+        Assert.IsTrue(saved.IsSuccess, saved.Error?.ToString());
+        Assert.IsNotNull(saved.Value);
+        ReaderResult<Image> loaded = ExrFile.LoadFromMemory(saved.Value);
+        Assert.IsTrue(loaded.IsSuccess, loaded.Error?.ToString());
+        Assert.IsNotNull(loaded.Value);
+        Assert.AreEqual(1, loaded.Value.Parts.Count);
+        IExactDataSource source = new MemoryDataSource(saved.Value);
+        using ExrReader reader = ExrReader.OpenSource(source);
+        Assert.IsTrue(reader.ParseHeader().IsSuccess);
+    }
+
     [TestMethod(DisplayName = "Saving ScanLines")]
     public void Case_Saving_ScanLines()
     {
